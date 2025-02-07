@@ -21,6 +21,12 @@ import { LayaEnv } from "../../LayaEnv";
  * - 建议背景音乐用mp3类型，音效用wav或者mp3类型（如果打包为app，音效只能用wav格式）。
  */
 export class SoundManager {
+
+    /**
+     * @zh 全局背景音百分比，最终背景音大小按 musicVolume*globalMusicVolume来算
+     */
+    static globalMusicVolume: number = 1;
+
     /**
      * @en Background music volume. default value is 1.
      * @zh 背景音乐音量。默认值为1。
@@ -166,13 +172,14 @@ export class SoundManager {
         }
     }
 
-    static disposeSoundIfNotUsed(url: string): void {
+    static disposeSoundIfNotUsed(url: string): boolean {
         for (let i = SoundManager._channels.length - 1; i >= 0; i--) {
             if (SoundManager._channels[i].url == url) {
-                return;
+                return false;
             }
         }
         SoundManager.destroySound(url);
+        return true;
     }
 
     /**
@@ -325,6 +332,13 @@ export class SoundManager {
     }
 
     /**
+     * @zh 当前背景音乐 URL
+     */
+    static get bgMusic():string {
+        return SoundManager._bgMusic;
+    }
+
+    /**
      * @en Play a sound effect. Multiple sound effects can be played simultaneously.
      * @param url The URL of the sound file.
      * @param loops The number of times to loop the sound. 0 means infinite loop.
@@ -340,14 +354,14 @@ export class SoundManager {
      * @param startTime 声音播放起始时间。
      * @returns SoundChannel对象，通过此对象可以对声音进行控制，以及获取声音信息。
      */
-    static playSound(url: string, loops: number = 1, complete: Handler = null, soundClass: new () => any = null, startTime: number = 0): SoundChannel {
+    static playSound(url: string, loops: number = 1, complete: Handler = null, soundClass: new () => any = null, startTime: number = 0, playAsMusic: boolean = false): SoundChannel {
         if (!SoundManager._isActive || !url) return null;
         if (SoundManager._muted) return null;
         SoundManager._recoverWebAudio();
         if (url == SoundManager._bgMusic) {
             if (SoundManager._musicMuted) return null;
         } else {
-            if (SoundManager._soundMuted) return null;
+            if (playAsMusic ? SoundManager._musicMuted : SoundManager._soundMuted) return null;
         }
         let tSound: Sound;
         if (!Browser._isMiniGame) {
@@ -364,7 +378,13 @@ export class SoundManager {
         let channel = tSound.play(startTime, loops);
         if (!channel) return null;
         channel.url = url;
-        channel.volume = (url == SoundManager._bgMusic) ? SoundManager.musicVolume : SoundManager.soundVolume;
+        if (url == SoundManager._bgMusic) {
+            channel.volume = SoundManager.musicVolume * SoundManager.globalMusicVolume;
+        } else if (playAsMusic) {
+            channel.volume = SoundManager.musicVolume;
+        } else {
+            channel.volume = SoundManager.soundVolume;
+        }
         channel.completeHandler = complete;
         return channel;
     }
@@ -484,7 +504,16 @@ export class SoundManager {
      */
     static setMusicVolume(volume: number): void {
         SoundManager.musicVolume = volume;
-        SoundManager._setVolume(SoundManager._bgMusic, volume);
+        SoundManager._setVolume(SoundManager._bgMusic, volume * SoundManager.globalMusicVolume);
+    }
+
+    /**
+     * 设置全局背景音乐音量。音量范围从 0（静音）至 1（最大音量）。
+     * @param volume	音量。初始值为1。音量范围从 0（静音）至 1（最大音量）。
+     */
+    static setGlobalMusicVolume(volume: number): void {
+        SoundManager.globalMusicVolume = volume;
+        SoundManager._setVolume(SoundManager._bgMusic, SoundManager.musicVolume * volume);
     }
 
     /**
