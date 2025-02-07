@@ -22,6 +22,10 @@ const DELTA_INDEX: any[] = [0, 0.01, 0.02, 0.04, 0.05, 0.06, 0.07, 0.08, 0.1, 0.
  */
 const GRAY_MATRIX: any[] = [0.3086, 0.6094, 0.082, 0, 0, 0.3086, 0.6094, 0.082, 0, 0, 0.3086, 0.6094, 0.082, 0, 0, 0, 0, 0, 1, 0];
 /**
+ * @zh 亮色矩阵 
+ */
+const BRIGHT_MATRIX: any[] = [1.44, 0, 0, 0, 0.86, 0, 1.44, 0, 0, 0.86, 0, 0, 1.44, 0, 0.86, 0, 0, 0, 1, 0];
+/**
  * @en An array representing an identity matrix, which signifies no effect or change.
  * @zh 表示单位矩阵的数组，它表示没有效果或变化。
  */
@@ -49,6 +53,16 @@ export class ColorFilter extends Filter implements IFilter {
      * @zh 当前使用的矩阵
      */
     _matrix: any[];
+
+    /**
+     * @zh 灰色滤镜
+     */
+    private static _GRAY: ColorFilter;
+
+    /**
+     * @zh 高亮滤镜
+     */
+    private static _BRIGHT: ColorFilter;
 
     /**
      * @en Creates an instance of the ColorFilter class with an optional 4x5 matrix for color transformation.
@@ -101,6 +115,26 @@ export class ColorFilter extends Filter implements IFilter {
             0, 12,
             shadersv, null);
         render2d.renderEnd();        
+    }
+
+    /**
+     * @zh 设置为灰色滤镜
+     */
+    static get GRAY(): ColorFilter {
+        if (!ColorFilter._GRAY) {
+            ColorFilter._GRAY = new ColorFilter(GRAY_MATRIX);
+        }
+        return ColorFilter._GRAY;
+    }
+
+    /**
+     * @zh 设置为亮色滤镜
+     */
+    static get BRIGHT(): ColorFilter {
+        if (!ColorFilter._BRIGHT) {
+            ColorFilter._BRIGHT = new ColorFilter(BRIGHT_MATRIX);
+        }
+        return ColorFilter._BRIGHT;
     }
 
     /**
