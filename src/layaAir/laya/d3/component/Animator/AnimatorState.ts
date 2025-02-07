@@ -178,6 +178,10 @@ export class AnimatorState extends EventDispatcher implements IClone {
         return this._clip.islooping;
     }
 
+    set islooping(value: boolean) {
+        this._isLooping = value ? 1 : 2;
+    }
+
     /**
      * @en The animation transition content (used by IDE).
      * @zh 动画过渡内容（IDE使用）。
