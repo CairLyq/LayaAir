@@ -607,7 +607,7 @@ export class Loader extends EventDispatcher {
                 task.onComplete.invoke(content);
                 return content;
             }
-        }).catch(error => {
+        }).catch((error: any):any => {
             !options.silent && Loader.warnFailed(url, error, options.initiator?.url);
 
             if (task.options.cache !== false)
@@ -1361,7 +1361,7 @@ export class Loader extends EventDispatcher {
                 let file = files[m + k];
                 switch (c.t) {
                     case 0: //图片
-                        metaMap[file] = c;
+                        metaMap[URL.formatURL(file)] = c;
                         break;
                     case 1: //自动图集
                         AtlasInfoManager.addAtlas(file, c.prefix, c.frames);
