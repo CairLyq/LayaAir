@@ -156,11 +156,17 @@ export class Image extends UIComponent {
                 return Promise.resolve();
             }
             else {
-                let sk = this._skin;
-                return ILaya.loader.load(url, { type: Loader.IMAGE, group: this._group }).then(tex => {
-                    if (sk == this._skin && !this.destroyed)
-                        this.source = tex;
-                });
+                //特殊处理，ui/bg目录下的文件不加载
+                if (url && !url.startsWith("ui/bg")) {
+                    let sk = this._skin;
+                    return ILaya.loader.load(url, { type: Loader.IMAGE, group: this._group }).then(tex => {
+                        if (sk == this._skin && !this.destroyed)
+                            this.source = tex;
+                    });
+                }else {
+                    this.source = null;
+                    return Promise.resolve();
+                }
             }
         }
         else {
