@@ -856,7 +856,7 @@ export class List extends Box {
                 //TODO:
                 this.posCell(cell, index);
             }
-            if (this.hasListener(Event.RENDER)) this.event(Event.RENDER, [cell, index, this.top]);
+            if (this.hasListener(Event.RENDER)) this.event(Event.RENDER, [cell, index, this._top]);
             if (this.renderHandler) this.renderHandler.runWith([cell, index]);
         } else {
             cell.visible = false;
