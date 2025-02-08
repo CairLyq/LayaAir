@@ -560,7 +560,7 @@ export class Button extends UIComponent implements ISelect {
     _setWidth(value: number) {
         super._setWidth(value);
         if (this._autoSize) {
-            this._graphics.width = value;
+            this.thisGraphics().width = value;
             this._text && (this._text.width = value);
         }
     }
@@ -571,7 +571,7 @@ export class Button extends UIComponent implements ISelect {
     _setHeight(value: number) {
         super._setHeight(value);
         if (this._autoSize) {
-            this._graphics.height = value;
+            this.thisGraphics().height = value;
             this._text && (this._text.height = value);
         }
     }
