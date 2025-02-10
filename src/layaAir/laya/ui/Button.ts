@@ -657,10 +657,15 @@ export class Button extends UIComponent implements ISelect {
         return this._content.addChild(node);
     }
 
-    override getChild<T extends Node>(name: string, classType?: new (...args: any[]) => T): T {
-        for (let child of this.content._$children) {
-            if (child.name === name)
-                return <T>child;
+    /**
+     * 根据子节点的名字，获取子节点对象。
+     * @param	name 子节点的名字。
+     * @return	节点对象。
+     */
+    override getChildByName(name: string): Node {
+        for (let child of this.content._children) {
+            if (child && child.name === name)
+                return child;
         }
         return null;
     }
