@@ -42,7 +42,7 @@ export class SaveBase implements ISaveData {
     /**@internal */
     static _init() {
         var namemap: any = SaveBase._namemap = {};
-        namemap[SaveBase.TYPE_ALPHA] = "ALPHA";
+        namemap[SaveBase.TYPE_ALPHA] = "_alpha";
         namemap[SaveBase.TYPE_FILESTYLE] = "fillStyle";
         namemap[SaveBase.TYPE_FONT] = "font";
         namemap[SaveBase.TYPE_LINEWIDTH] = "lineWidth";

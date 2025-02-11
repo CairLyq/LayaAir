@@ -656,7 +656,7 @@ export class Context {
     set globalAlpha(value: number) {
         value = Math.floor(value * 1000) / 1000;
         if (value != this._alpha) {
-            SaveBase.save(this, SaveBase.TYPE_ALPHA, this._shader2D, false);
+            SaveBase.save(this, SaveBase.TYPE_ALPHA, this, false);
             this._alpha = value;
         }
     }
