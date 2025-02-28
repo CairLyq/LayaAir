@@ -52,7 +52,7 @@ export class Mesh extends Resource implements IClone {
 
     /**@internal */
     _convexMesh: any;
-    /**@interanl */
+    /**@internal */
     _triangleMesh: any;
     /**@internal */
     __convexMesh: Mesh;
@@ -64,6 +64,7 @@ export class Mesh extends Resource implements IClone {
 
 
     /**
+     * @deprecated 请使用Loader.load(url:string, type: ILaya.Loader.MESH)
      * @en Loads a mesh template from the specified URL and calls the complete callback upon completion.
      * @param url The URL of the mesh template.
      * @param complete The callback function to call when the mesh is loaded.
@@ -345,6 +346,7 @@ export class Mesh extends Resource implements IClone {
             }
             this._minVerticesUpdate = 0;
             this._maxVerticesUpdate = Number.MAX_SAFE_INTEGER;
+            this._vertexBuffer.setData(floatVertices.buffer, 0, 0, floatVertices.byteLength);
         }
         else {
             console.warn("Mesh: the mesh don't have  this VertexElement.");
@@ -355,7 +357,6 @@ export class Mesh extends Resource implements IClone {
     /**
      * 销毁资源
      * @internal
-     * @inheritDoc
      * @override
      */
     protected _disposeResource(): void {
@@ -467,12 +468,10 @@ export class Mesh extends Resource implements IClone {
     }
 
     /**
-     * @en Copies and fills position data into an array.
+     * @en Copies and fills position data into an array.This method is a copy operation, which may be time-consuming.
      * @param positions The array to fill with position data.
-     * @remark This method is a copy operation, which may be time-consuming.
-     * @zh 拷贝并填充位置数据至数组。
+     * @zh 拷贝并填充位置数据至数组。该方法为拷贝操作，比较耗费性能。
      * @param positions 用于填充位置数据的数组。
-     * @remark 该方法为拷贝操作，比较耗费性能。
      */
     getPositions(positions: Vector3[]): void {
         if (this._isReadable)
@@ -498,12 +497,10 @@ export class Mesh extends Resource implements IClone {
     }
 
     /**
-     * @en Copies and fills color data into an array.
+     * @en Copies and fills color data into an array.This method is a copy operation, which may be time-consuming.
      * @param colors The array to fill with color data.
-     * @remark This method is a copy operation, which may be time-consuming.
-     * @zh 拷贝并填充颜色数据至数组。
+     * @zh 拷贝并填充颜色数据至数组。该方法为拷贝操作，比较耗费性
      * @param colors 用于填充颜色数据的数组。
-     * @remark 该方法为拷贝操作，比较耗费性
      */
     getColors(colors: Color[]): void {
         if (this._isReadable)
@@ -526,14 +523,12 @@ export class Mesh extends Resource implements IClone {
     }
 
     /**
-     * @en Copies and fills texture coordinate data into an array.
+     * @en Copies and fills texture coordinate data into an array.This method is a copy operation, which may be time-consuming.
      * @param uvs The array to fill with texture coordinate data.
      * @param channel The texture coordinate channel.
-     * @remark This method is a copy operation, which may be time-consuming.
-     * @zh 拷贝并填充纹理坐标数据至数组。
+     * @zh 拷贝并填充纹理坐标数据至数组。该方法为拷贝操作，比较耗费性能。
      * @param uvs 纹理坐标数组。
      * @param channel 纹理坐标通道。
-     * @remark 该方法为拷贝操作，比较耗费性能。
      */
     getUVs(uvs: Vector2[], channel: number = 0): void {
         if (this._isReadable) {
@@ -580,12 +575,10 @@ export class Mesh extends Resource implements IClone {
     }
 
     /**
-     * @en Copies and fills normal data into an array.
+     * @en Copies and fills normal data into an array.This method is a copy operation, which may be time-consuming.
      * @param normals The array to fill with normal data.
-     * @remark This method is a copy operation, which may be time-consuming.
-     * @zh 拷贝并填充法线数据至数组。
+     * @zh 拷贝并填充法线数据至数组。该方法为拷贝操作，比较耗费性能。
      * @param normals 用于填充法线数据的数组。
-     * @remark 该方法为拷贝操作，比较耗费性能。
      */
     getNormals(normals: Vector3[]): void {
         if (this._isReadable)

@@ -391,7 +391,7 @@ export class Browser {
         viewport.content = Object.keys(viewportContent).map(k => k + "=" + viewportContent[k]);
 
         //处理兼容性			
-        Browser.onMobile = (window as any).conch ? true : u.indexOf("Mobile") > -1;
+        Browser.onMobile = u.indexOf("Mobile") > -1;
         Browser.onIOS = !!u.match(/\(i[^;]+;( U;)? CPU.+Mac OS X/);
         Browser.onIPhone = u.indexOf("iPhone") > -1;
         Browser.onMac = u.indexOf("Mac OS X") > -1;
@@ -478,12 +478,12 @@ export class Browser {
      * @param id The id of the node.
      * @return The node object.
      * @zh 返回 Document 对象中拥有指定 id 的第一个对象的引用。
-     * @param type 节点的 id。
+     * @param id 节点的 id。
      * @return 节点对象。
      */
-    static getElementById(type: string): any {
+    static getElementById(id: string): any {
         Browser.__init__();
-        return Browser._document.getElementById(type);
+        return Browser._document.getElementById(id);
     }
 
     /**

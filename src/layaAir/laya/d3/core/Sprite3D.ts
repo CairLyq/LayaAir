@@ -87,6 +87,7 @@ export class Sprite3D extends Node {
     }
 
     /**
+     * @deprecated 请使用Loader.load(url:string, type: ILaya.Loader.HIERARCHY)
      * @en Load mesh template.
      * @param url The template URL.
      * @param complete The completion callback.
@@ -308,10 +309,8 @@ export class Sprite3D extends Node {
     }
 
     /**
-     * @inheritDoc
-     * @override
      * @en destroy
-     * @param dextroychild whether to destroy the child node.
+     * @param destroyChild whether to destroy the child node.
      * @zh 销毁
      * @param destroyChild 是否销毁子节点
      */
