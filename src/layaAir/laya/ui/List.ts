@@ -1,19 +1,19 @@
-import { Box } from "./Box";
-import { ScrollBar } from "./ScrollBar";
-import { VScrollBar } from "./VScrollBar";
-import { HScrollBar } from "./HScrollBar";
-import { Clip } from "./Clip";
-import { UIUtils } from "./UIUtils";
+import { HideFlags } from "../Const";
+import { Sprite } from "../display/Sprite";
 import { Event } from "../events/Event";
+import { HierarchyLoader } from "../loaders/HierarchyLoader";
+import { HierarchyParser } from "../loaders/HierarchyParser";
 import { Rectangle } from "../maths/Rectangle";
 import { Handler } from "../utils/Handler";
 import { Tween } from "../utils/Tween";
-import { HideFlags } from "../Const";
-import { HierarchyParser } from "../loaders/HierarchyParser";
-import { UIComponent } from "./UIComponent";
+import { Box } from "./Box";
+import { Clip } from "./Clip";
+import { HScrollBar } from "./HScrollBar";
+import { ScrollBar } from "./ScrollBar";
 import { ScrollType } from "./Styles";
-import { Sprite } from "../display/Sprite";
-import { HierarchyLoader } from "../loaders/HierarchyLoader";
+import { UIComponent } from "./UIComponent";
+import { UIUtils } from "./UIUtils";
+import { VScrollBar } from "./VScrollBar";
 
 
 /**
@@ -87,12 +87,18 @@ export class List extends Box {
     protected _hScrollBarSkin: string;
     private _preLen = 0;
 
+
     /**
      * @en Determines whether the content is cached for performance optimization.
      * Setting this property to true can greatly improve performance if the data source is small and there are no animations within the list.
      * @zh 是否缓存内容。如果数据源较少，并且列表内无动画，设置此属性为 true 能大大提高性能。
      */
     cacheContent: boolean;
+
+    /**单元格的宽度 cell.width+spaceX*/
+    protected _cellWidth: number = 0;
+    /**单元格的宽度 cell.height+spaceY*/
+    protected _cellHeight: number = 0;
 
     /**
      * @en The current page number of the list.
@@ -407,6 +413,25 @@ export class List extends Box {
         this._top.graphics.clear();
         this._content.graphics.clear();
         this._array = value || [];
+
+        if (!this._itemRender) {
+            //没有_itemRender，则不处理下部逻辑
+            return;
+        }
+
+        /**
+         * @author Fengjing
+         * @date 2021-07-02
+         * 支持渲染器大小不固定的情况
+         */
+        let cell: UIComponent = this._getOneCell();
+        let cellWidth: Number = (cell.width + this._spaceX) || 1;
+        let cellHeight: Number = (cell.height + this._spaceY) || 1;
+        if (this._cellWidth != cellWidth || this._cellHeight != cellHeight) {
+            this.changeCells();
+            return;
+        }
+
         this._preLen = this._array.length;
         let length = this._array.length;
         this.totalPage = Math.ceil(length / (this.repeatX * this.repeatY));
@@ -505,6 +530,9 @@ export class List extends Box {
             // this._offset.setTo(item._x, item._y, item.width, item.height);
             if (this.cacheContent) return item;
             this._cells.push(item);
+        }
+        if (this._array != null && this._array.length > 0 && this._cells[0].dataSource == null) {
+            this._cells[0].dataSource = this._array[0];
         }
         return this._cells[0];
     }
@@ -644,6 +672,8 @@ export class List extends Box {
 
             let cellWidth = (cell.width + this._spaceX) || 1;
             let cellHeight = (cell.height + this._spaceY) || 1;
+            this._cellWidth = cellWidth;
+            this._cellHeight = cellHeight;
             if (this._width > 0) this._repeatX2 = this._isVertical ? Math.round(this._width / cellWidth) : Math.ceil(this._width / cellWidth);
             if (this._height > 0) this._repeatY2 = this._isVertical ? Math.ceil(this._height / cellHeight) : Math.round(this._height / cellHeight);
 
@@ -667,11 +697,10 @@ export class List extends Box {
             this._createdLine = numY;
 
             if (this._array) {
+
                 this.array = this._array;
                 this.runCallLater(this.renderItems);
             }
-            else
-                this.changeSelectStatus();
         }
     }
 
@@ -698,6 +727,9 @@ export class List extends Box {
      * @param e 事件对象。
      */
     protected onCellMouse(e: Event): void {
+        if (this._cells == null) {
+            return null;
+        }
         if (e.type === Event.MOUSE_DOWN) this._isMoved = false;
         let cell = (<UIComponent>e.currentTarget);
         let index = this._startIndex + this._cells.indexOf(cell);
@@ -1137,6 +1169,20 @@ export class List extends Box {
         this._offset.y = top;
         this._offset.width = right - left;
         this._offset.height = bottom - top;
+    }
+
+    /**
+     * <p>单元格的宽度 = cell.width + spaceX</p>
+     */
+    get cellWidth(): number {
+        return this._cellWidth;
+    }
+
+    /**
+     * <p>单元格的高度 = cell.height + spaceY</p>
+     */
+    get cellHeight(): number {
+        return this._cellHeight;
     }
 
 }
