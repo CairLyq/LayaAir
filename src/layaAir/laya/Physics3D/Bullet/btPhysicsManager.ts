@@ -121,7 +121,7 @@ export class btPhysicsManager implements IPhysicsManager {
     /**
      * @internal
      * @en Island sleeping tag for activation state
-     * @zh 休眠岛状态的标签
+     * @zh 休眠状态的标签
      */
     static ACTIVATIONSTATE_ISLAND_SLEEPING = 2;
     /**
@@ -917,13 +917,6 @@ export class btPhysicsManager implements IPhysicsManager {
         this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_StaticCollider, true);
         this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_DynamicCollider, true);
         this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_CharacterCollider, true);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_BoxColliderShape, true);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_SphereColliderShape, true);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_CapsuleColliderShape, true);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_CylinderColliderShape, true);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_ConeColliderShape, true);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_MeshColliderShape, false);
-        this._physicsEngineCapableMap.set(EPhysicsCapable.Physics_CompoundColliderShape, false);
     }
 
     /**

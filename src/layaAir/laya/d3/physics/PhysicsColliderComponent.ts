@@ -241,6 +241,7 @@ export class PhysicsColliderComponent extends Component {
         this._colliderShape && this._colliderShape.destroy();
         this._colliderShape = value;
         if (this._collider && value) {
+            value.physicsComponent = this;
             this._collider.setColliderShape(value._shape);
         }
     }
@@ -333,9 +334,6 @@ export class PhysicsColliderComponent extends Component {
         }
         this.owner.off(Event._Add_Script, this, this._setEventFilter);
         this.owner.on(Event._Add_Script, this, this._setEventFilter);
-        this.restitution = this._restitution;
-        this.friction = this._friction;
-        this.rollingFriction = this._rollingFriction;
     }
 
     /**

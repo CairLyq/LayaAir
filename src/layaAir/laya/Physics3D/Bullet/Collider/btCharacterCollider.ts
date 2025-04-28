@@ -154,46 +154,6 @@ export class btCharacterCollider extends btCollider implements ICharacterControl
         // throw new NotImplementedError;
     }
     /**
-     * @en Set the dynamic friction of the character collider.
-     * @param value The dynamic friction value.
-     * @zh 设置角色碰撞器的动态摩擦力。
-     * @param value 动态摩擦力值。
-     */
-    setDynamicFriction?(value: number): void {
-        // bullet no dynamicFriction
-        // throw new NotImplementedError;
-    }
-    /**
-     * @en Set the static friction of the character collider.
-     * @param value The static friction value.
-     * @zh 设置角色碰撞器的静态摩擦力。
-     * @param value 静态摩擦力值。
-     */
-    setStaticFriction?(value: number): void {
-        // bullet no staticFriction
-        // throw new NotImplementedError;
-    }
-    /**
-     * @en Set the friction combine mode of the character collider.
-     * @param value The friction combine mode.
-     * @zh 设置角色碰撞器的摩擦力合并模式。
-     * @param value 摩擦力合并模式。
-     */
-    setFrictionCombine?(value: PhysicsCombineMode): void {
-        // bullet no frictionCombine
-        // throw new NotImplementedError;
-    }
-    /**
-     * @en Set the bounce combine mode of the character collider.
-     * @param value The bounce combine mode.
-     * @zh 设置角色碰撞器的弹力合并模式。
-     * @param value 弹力合并模式。
-     */
-    setBounceCombine?(value: PhysicsCombineMode): void {
-        // bullet no bounceCombine
-        // throw new NotImplementedError;
-    }
-    /**
      * @en Get the character capability status.
      * @param value The character capability to check.
      * @zh 获取角色能力状态。
@@ -337,8 +297,15 @@ export class btCharacterCollider extends btCollider implements ICharacterControl
     }
 
     /**
-     * @en Get the vertical velocity of the character.
-     * @zh 获取角色的垂直速度。
+     * @en Get the vertical velocity of the character. 
+     * The vertical velocity of the character is particularly useful for determining whether a character is falling or rising. Here are some key points about its value:
+     *  - **0** means the character is on the ground.
+     *  - **Positive values** indicate the character is rising (e.g., jumping).
+     *  - **Negative values** indicate the character is falling.
+     * @zh 获取角色的垂直速度。主要用于获取角色在垂直方向（通常是 Y 轴）的当前速度。这个值反映了角色受重力、跳跃或其他垂直运动影响时的状态。
+     *  - **值为 0**，表示角色位于地面；
+     *  - **为正值**，表示角色正在上升（如跳跃）；
+     *  - **为负值**，表示角色在下落。
      */
     getVerticalVel(): number {
         var bt = btPhysicsCreateUtil._bt;

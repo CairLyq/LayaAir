@@ -8,6 +8,7 @@ import { Vector3 } from "../../../maths/Vector3";
 import { NotImplementedError } from "../../../utils/Error";
 import { ICollider } from "../../interface/ICollider";
 import { pxColliderShape } from "../Shape/pxColliderShape";
+import { pxCompoundShape } from "../Shape/pxCompoundShape";
 import { partFlag, pxPhysicsManager } from "../pxPhysicsManager";
 /**
  * @en Enumeration of collider types.
@@ -187,6 +188,10 @@ export class pxCollider implements ICollider {
     setColliderShape(shape: pxColliderShape): void {
         if (shape == this._shape)
             return;
+        if (shape instanceof pxCompoundShape) {
+            shape._pxCollider = this;
+            shape.refreshShapes();
+        }
         var lastColliderShape: pxColliderShape = this._shape;
         this._shape = shape;
         //shape._pxCollider = this;
@@ -195,8 +200,10 @@ export class pxCollider implements ICollider {
                 if (lastColliderShape)
                     lastColliderShape.removeFromActor(this);
                 this._shape.addToActor(this);
+                let simulate = this._isSimulate;
+                simulate && this._physicsManager.removeCollider(this);
                 this._initColliderShapeByCollider();
-                if (!lastColliderShape && this.componentEnable) {
+                if ((simulate || !lastColliderShape || (lastColliderShape && lastColliderShape._destroyed)) && this.componentEnable) {
                     this._physicsManager.addCollider(this);
                 }
             } else {
@@ -287,6 +294,11 @@ export class pxCollider implements ICollider {
 
         this._shape && this._shape.setEventFilterData(flag);
     }
+
+    allowSleep(value: boolean): void {
+    }
+
+
     /**
      * @en Sets the owner node for this collider.
      * @param node The Sprite3D node that owns this collider.

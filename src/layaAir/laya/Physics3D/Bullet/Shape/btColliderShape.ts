@@ -66,6 +66,16 @@ export class btColliderShape implements IColliderShape {
     }
 
     /**
+     * @en Gets the physics shape.
+     * @returns The physics shape.
+     * @zh 获取物理形状。
+     * @returns 物理形状。
+     */
+    getPhysicsShape() {
+        return this._btShape;
+    }
+
+    /**
      * @override
      */
     protected _createShape() {
@@ -90,6 +100,16 @@ export class btColliderShape implements IColliderShape {
     }
 
     /**
+     * @en Gets the local offset of the shape.
+     * @returns The local offset of the shape.
+     * @zh 获取形状的局部偏移。
+     * @returns 局部偏移量。
+     */
+    getOffset(): Vector3 {
+        return this._localOffset;
+    }
+
+    /**
      * @en Sets the world scale of the shape.
      * @param scale The scale value.
      * @zh 设置形状的世界缩放。
@@ -110,6 +130,9 @@ export class btColliderShape implements IColliderShape {
      */
     destroy(): void {
         if (this._btShape && !this._destroyed) {
+            if (this._btCollider && this._btCollider._physicsManager) {
+                this._btCollider._physicsManager.removeCollider(this._btCollider);
+            }
             btPhysicsCreateUtil._bt.btCollisionShape_destroy(this._btShape);
             this._btShape = null;
             this._destroyed = true;
