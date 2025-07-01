@@ -1,5 +1,6 @@
 import { Config } from "../../Config";
 import { ILaya } from "../../ILaya";
+import { URL } from "../net/URL";
 
 /**
  * @en Browser is a browser proxy class. Encapsulate some of the features provided by the browser and native JavaScript.
@@ -279,6 +280,9 @@ export class Browser {
         let platform: string = win.navigator.platform;
         let miniGame: [string, string, string];
 
+        if (!!(window as any).conch) {
+            miniGame = ["nativeMiniGame", "MiniAdapter", "native"];
+        }
         //微信小游戏
         if (!!(window as any).conch && "conchUseWXAdapter" in Browser.window) {
             miniGame = ["wxMiniGame", "MiniAdpter", "wx"];
@@ -646,7 +650,7 @@ export class Browser {
             script.onerror = function () {
                 reject(`load ${src} failed`);
             };
-            script.src = src;
+            script.src = URL.postFormatURL(URL.formatURL(src));
             Browser.document.body.appendChild(script);
         });
     }

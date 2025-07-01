@@ -852,13 +852,14 @@ export class Scene3D extends Sprite {
         //Physics
         if (LayaEnv.isPlaying) {
             this._physicsStepTime += delta;
-            if (this._physicsStepTime > Scene3D.physicsSettings.fixedTimeStep) {
-
+            let steps = Math.floor(this._physicsStepTime / Scene3D.physicsSettings.fixedTimeStep);
+            steps = Math.min(steps, Scene3D.physicsSettings.maxSubSteps);
+            if (steps > 0) {
                 let physicsManager = this._physicsManager;
                 if (Laya3D.enablePhysics && Stat.enablePhysicsUpdate) {
-                    physicsManager.update(this._physicsStepTime);
+                    physicsManager.update(steps * Scene3D.physicsSettings.fixedTimeStep);
                 }
-                this._physicsStepTime = 0;
+                this._physicsStepTime -= steps * Scene3D.physicsSettings.fixedTimeStep;
             }
         }
         if (this._volumeManager.needreCaculateAllRenderObjects())
@@ -1146,6 +1147,11 @@ export class Scene3D extends Sprite {
      */
     _setCullCamera(camera: Camera) {
         this._cullInfoCamera = camera;
+        if (camera) {
+            this.skyRenderer.setRenderElement(camera.skyRenderElement);
+        } else {
+            this.skyRenderer.setRenderElement(null);
+        }
     }
 
     /**
@@ -1153,10 +1159,10 @@ export class Scene3D extends Sprite {
      * @zh 重新计算剔除摄像机。
      */
     recaculateCullCamera() {
-        this._cullInfoCamera = this._cameraPool[0] as Camera;
+        this._setCullCamera(this._cameraPool[0] as Camera);
         this._cameraPool.forEach(element => {
             if (this.cullInfoCamera.maxlocalYDistance < (element as Camera).maxlocalYDistance) {
-                this._cullInfoCamera = element as Camera;
+                this._setCullCamera(element as Camera);
             }
         });
     }
