@@ -186,9 +186,13 @@ export class Button extends UIComponent implements ISelect {
     }
 
     set selected(value: boolean) {
-        if (this._selected != value) {
+         const state = value ? 2 : 0;
+        // 通过双重检查确保：
+        // this._selected 与 value 一致。
+        // this.state 与 value 对应的状态码（2 或 0）一致。
+        if (this._selected != value || this.state != state) {
             this._selected = value;
-            this.state = this._selected ? 2 : 0;
+            this.state = state;
             this.event(Event.CHANGE);
         }
     }

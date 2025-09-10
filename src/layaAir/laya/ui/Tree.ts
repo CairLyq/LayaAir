@@ -26,6 +26,20 @@ export class Tree extends Box {
     protected _spaceLeft: number = 10;
     protected _spaceBottom: number = 0;
     protected _keepStatus: boolean = true;
+    protected _allowMultiExpand: boolean = true;
+
+    /**
+     * @en Whether to enable multiple projects to expand. 
+     * When disabled, expanding one project will collapse other items.
+     * @zh 是否启用多个项目展开，禁用时，展开一个项目会收起其他项
+     */
+    get allowMultiExpand() {
+        return this._allowMultiExpand
+    }
+
+    set allowMultiExpand(value: boolean) {
+        this._allowMultiExpand = value;
+    }
 
     /**
      * @en Determines whether to maintain the previous open state after the data source changes. The default value is true.
@@ -322,6 +336,13 @@ export class Tree extends Box {
         var arrow = e.currentTarget;
         var index = arrow.__cellIndex;
         this._list.array[index].isOpen = !this._list.array[index].isOpen;
+        if (this.allowMultiExpand === false) {
+            this._list.array.forEach((element, _index) => {
+                if (index != _index) {
+                    element.isOpen = false;
+                }
+            });
+        }
         this.event(Event.OPEN);
         this._list.array = this.getArray();
     }
