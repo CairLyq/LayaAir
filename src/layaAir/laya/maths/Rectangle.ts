@@ -162,8 +162,8 @@ export class Rectangle implements IClone {
     contains(x: number, y: number): boolean {
         if (this.width <= 0 || this.height <= 0) return false;
 
-        if (x >= this.x && x < this.right) {
-            if (y >= this.y && y < this.bottom) {
+        if (x >= this.x && x <= this.right) {
+            if (y >= this.y && y <= this.bottom) {
                 return true;
             }
         }
