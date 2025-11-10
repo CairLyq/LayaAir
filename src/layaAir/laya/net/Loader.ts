@@ -1385,7 +1385,7 @@ export class Loader extends EventDispatcher {
                 let file = files[m + k];
                 switch (c.t) {
                     case 0: //图片
-                        metaMap[URL.formatURL(file)] = c;
+                        metaMap[file] = c;
                         break;
                     case 1: //自动图集
                         AtlasInfoManager.addAtlas(file, c.prefix, c.frames);
