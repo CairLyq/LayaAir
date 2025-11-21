@@ -1,5 +1,7 @@
 import { Timer } from "./Timer";
 import { Utils } from "./Utils";
+import { ILaya } from "../../ILaya";
+import { Event } from "../events/Event";
 
 /**
  * @private
@@ -164,6 +166,11 @@ class LaterHandler {
         var method = this.method;
         var args = this.args;
         if (method == null) return;
-        args ? method.apply(caller, args) : method.call(caller);
+        try {
+            args ? method.apply(caller, args) : method.call(caller);
+        }catch (err) {
+            ILaya.stage.event(Event.ERROR, err);
+            console.error(err);
+        }
     }
 }

@@ -1,4 +1,7 @@
-const ITEM_LAYOUT = 4; //callback,target,args,flag(0-deleted,1-normal,2-once) 
+import { ILaya } from "../../ILaya";
+import {Event} from "../events/Event";
+
+const ITEM_LAYOUT = 4; //callback,target,args,flag(0-deleted,1-normal,2-once)
 /**
  * @en Delegate class for managing and invoking callbacks
  * This class provides functionality to add, remove, and invoke callback functions.
@@ -153,6 +156,7 @@ export class Delegate {
                     arr[i].call(arr[i + 1], ...args);
             }
             catch (err: any) {
+                ILaya.stage.event(Event.ERROR, err);
                 console.error(err);
             }
             if (arr[i + 3] === 2) {
