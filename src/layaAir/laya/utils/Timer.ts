@@ -71,14 +71,16 @@ export class Timer {
      * @en The frame update handling function.
      * @zh 帧循环处理函数。
      */
-    _update(): void {
+    _update(timestamp: number): void {
+        if (timestamp == null)
+            timestamp = performance.now();
         if (this.scale <= 0) {
-            this._lastTimer = this._getNowData();
+            this._lastTimer = timestamp;
             this._delta = 0;
             return;
         }
         var frame: number = this.currFrame = this.currFrame + this.scale;
-        var now: number = this._getNowData();
+        var now: number = timestamp;
         var awake: boolean = (now - this._lastTimer) > 30000;
         this._delta = (now - this._lastTimer) * this.scale;
         var timer: number = this.currTimer = this.currTimer + this._delta;
@@ -146,7 +148,7 @@ export class Timer {
      * @returns 返回时间数据
      */
     public _getNowData(): number {
-        return Date.now();
+        return performance.now();
     }
 
     /** @internal */

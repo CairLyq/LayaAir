@@ -927,10 +927,10 @@ export class Stage extends Sprite {
     }
 
     /**@internal */
-    _loop(): boolean {
+    _loop(timestamp:number): boolean {
         this._globalRepaintGet = this._globalRepaintSet;
         this._globalRepaintSet = false;
-        this.render(Render._context, 0, 0);
+        this.render(Render._context, 0, 0, timestamp);
         return true;
     }
 
@@ -990,7 +990,7 @@ export class Stage extends Sprite {
      * @param x 横轴坐标
      * @param y 纵轴坐标
      */
-    render(context2D: Context, x: number, y: number): void {
+    render(context2D: Context, x: number, y: number, timestamp:number=0): void {
         if (this._frameRate === Stage.FRAME_SLEEP) {
             var now: number = Browser.now();
             if (now - this._frameStartTime < 1000)
@@ -1004,7 +1004,7 @@ export class Stage extends Sprite {
                     Stat.loopCount++;
                     RenderInfo.loopCount = Stat.loopCount;
                     this._runComponents();
-                    this._updateTimers();
+                    this._updateTimers(timestamp);
                 }
                 return;
             }
@@ -1050,7 +1050,7 @@ export class Stage extends Sprite {
         else
             this._runComponents();
 
-        this._updateTimers();
+        this._updateTimers(timestamp);
 
         LayaGL.renderEngine.endFrame();
     }
@@ -1076,10 +1076,10 @@ export class Stage extends Sprite {
         this._componentDriver.callDestroy();
     }
 
-    private _updateTimers(): void {
-        ILaya.systemTimer._update();
-        ILaya.physicsTimer._update();
-        ILaya.timer._update();
+    private _updateTimers(timestamp: number): void {
+        ILaya.systemTimer._update(timestamp);
+        ILaya.physicsTimer._update(timestamp);
+        ILaya.timer._update(timestamp);
     }
 
     /**

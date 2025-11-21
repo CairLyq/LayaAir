@@ -192,7 +192,7 @@ export class WebXRSessionManager extends EventDispatcher {
         let fn = (timestamp: any, xrFrame: any) => {
             this._updateByXrFrame(xrFrame, timestamp);
             this.event(WebXRSessionManager.EVENT_FRAME_LOOP, [xrFrame]);
-            ILaya.stage._loop();
+            ILaya.stage._loop(timestamp);
             this.session.requestAnimationFrame(fn);
         };
         this.session.requestAnimationFrame(fn);

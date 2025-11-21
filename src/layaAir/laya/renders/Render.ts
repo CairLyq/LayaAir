@@ -30,10 +30,6 @@ export class Render {
 
     /** 当前的帧数 */
     private static lastFrm = 0;
-    /** 第一次运行标记 */
-    private _first = true;
-    /** 刚启动的时间。由于微信的rAF不标准，传入的stamp参数不对，因此自己计算一个从启动开始的相对时间 */
-    private _startTm = 0;
 
     /** @internal */
     private static ifps = 1000 / 60;
@@ -91,31 +87,29 @@ export class Render {
         } else {
             requestAnimationFrame(loop);
         }
-        let me = this;
-        let lastFrmTm = performance.now();
-        let fps = Config.FPS;
-        let ifps = Render.ifps = 1000 / fps; //如果VR的话，需要改这个
-        function loop(stamp: number) {
-            //let perf = PerfHUD.inst;
-            let sttm = performance.now();
-            //perf && perf.updateValue(0, sttm-lastFrmTm);
-            lastFrmTm = sttm;
-            if (me._first) {
+        Render.ifps = 1000 / Config.FPS; //如果VR的话，需要改这个
+
+        let startTm = 0;
+        let first = true;
+        let lastTime: number = null;
+        let leftTime = 0;
+        function loop(timestamp: number) {
+            //使用传入的timestamp值可以获得平稳的间隔时间，如果自己用performance.now计算差值则会有波动
+            if (timestamp == null) // 注解了一个 || PAL.g !== null （3.3.2写着：但在小游戏平台（例如淘宝），rAF的stamp参数可能与performance.now()差距较大，所以一刀切不使用）
+                timestamp = performance.now();
+            let interval = Render.ifps;
+            if (first) {
                 // 把starttm转成帧对齐
-                me._startTm = Math.floor(stamp / ifps) * ifps;
-                me._first = false;
+                startTm = Math.floor(timestamp / interval) * interval;
+                first = false;
             }
-            // 与第一帧开始时间的delta
-            stamp -= me._startTm;
-            // 计算当前帧数
-            let frm = Math.floor(stamp / ifps);    // 不能|0 在微信下会变成负的
-            // 是否已经跨帧了
-            let dfrm = frm - Render.lastFrm;
-            //去掉了 LayaEnv.isConch 。不知道会不会有问题
-            if (dfrm > 0 || !Config.fixedFrames) {
+            let delta = leftTime + timestamp - lastTime;
+            if (delta + 1 >= interval || !Config.fixedFrames) {
+                leftTime = Math.min(delta - interval, interval);
+                lastTime = timestamp;
                 //不限制
-                Render.lastFrm = frm;
-                ILaya.stage._loop();
+                Render.lastFrm = Math.floor((timestamp - startTm) / interval);
+                ILaya.stage._loop(timestamp);
             }
             //perf && perf.updateValue(1, performance.now()-sttm);
 
@@ -183,8 +177,8 @@ export class Render {
 
 
     /**@private */
-    private _enterFrame(e: any = null): void {
-        ILaya.stage._loop();
+    private _enterFrame(timestamp: number, e: any = null): void {
+        ILaya.stage._loop(timestamp);
     }
 
     /** 目前使用的渲染器。*/
