@@ -58,6 +58,15 @@ export class Timer {
     }
 
     /**
+     * 提供一个按照时间间隔更新的方法
+     * @param delay
+     */
+    setInterval(delay: number): void {
+        Timer.gSysTimer && Timer.gSysTimer.clear(this, this._update);
+        Timer.gSysTimer && Timer.gSysTimer.loop(delay, this, this._update);
+    }
+
+    /**
      * @en The time interval between two frames, in milliseconds.
      * @zh 两帧之间的时间间隔，单位毫秒。
      */
