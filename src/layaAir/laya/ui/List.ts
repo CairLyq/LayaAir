@@ -8,6 +8,7 @@ import { Handler } from "../utils/Handler";
 import { Tween } from "../utils/Tween";
 import { Box } from "./Box";
 import { Clip } from "./Clip";
+import { FlattenBox } from "./FlattenBox";
 import { HScrollBar } from "./HScrollBar";
 import { ScrollBar } from "./ScrollBar";
 import { ScrollType } from "./Styles";
@@ -58,7 +59,14 @@ export class List extends Box {
      */
     disableStopScroll: boolean = false;
 
-    protected _content!: Box;
+
+    /**
+     * @en flatten
+     * @zh 展平子项
+     */
+    protected _flattenChildren: boolean = false;
+
+    protected _content!: Box | FlattenBox;
     protected _top: Sprite;
     protected _scrollBar: ScrollBar | null;
     protected _itemRender: any;
@@ -109,7 +117,7 @@ export class List extends Box {
     }
 
     set page(value: number) {
-        this._page = value
+        this._page = value;
         if (this._array) {
             this._page = value > 0 ? value : 0;
             this._page = this._page < this.totalPage ? this._page : this.totalPage - 1;
@@ -180,9 +188,9 @@ export class List extends Box {
 
     /**
      * @en Scrollbar type. Options include:
-      - ScrollType.None (0): No scrollbar
-      - ScrollType.Horizontal (1): Horizontal scrollbar.
-      - Others: such as ScrollType.Vertical (2) indicates a vertical scrollbar
+     - ScrollType.None (0): No scrollbar
+     - ScrollType.Horizontal (1): Horizontal scrollbar.
+     - Others: such as ScrollType.Vertical (2) indicates a vertical scrollbar
      * @zh 滚动条类型。可选值包括：
      * - ScrollType.None（0）：无滚动条
      * - ScrollType.Horizontal（1）：水平方向滚动条。
@@ -201,8 +209,7 @@ export class List extends Box {
                 this._scrollBar = null;
                 this._content.scrollRect = null;
             }
-        }
-        else if (this._scrollType == ScrollType.Horizontal) {
+        } else if (this._scrollType == ScrollType.Horizontal) {
             if (this._scrollBar && !this._scrollBar.isVertical) {
                 this._scrollBar.skin = this._hScrollBarSkin;
                 return;
@@ -222,8 +229,7 @@ export class List extends Box {
             scrollBar.hideFlags = HideFlags.HideAndDontSave;
             this.scrollBar = scrollBar;
             this._setCellChanged();
-        }
-        else {
+        } else {
             if (this._scrollBar && this._scrollBar.isVertical) {
                 this._scrollBar.skin = this._vScrollBarSkin;
                 return;
@@ -499,8 +505,45 @@ export class List extends Box {
         this.callLater(this.renderItems);
     }
 
+    /**
+     * @en flatten
+     * @zh 展平子项
+     */
+    get flattenChildren(): boolean {
+        return this._flattenChildren;
+    }
+
+    set flattenChildren(value: boolean) {
+        this._flattenChildren = value;
+        if (value) {
+            if (!(this._content instanceof FlattenBox)) {
+                this._content.removeChildren();
+                this._content.removeSelf();
+                let _content = new FlattenBox();
+                this.addChildAt(_content, 0);
+                this._content = _content;
+                this._content.hideFlags = HideFlags.HideAndDontSave;
+            }
+        }
+        else {
+            if (this._content instanceof FlattenBox) {
+                this._content.removeSelf();
+                this._content = new Box();
+                this._content.hideFlags = HideFlags.HideAndDontSave;
+                this.addChildAt(this._content, 0);
+            }
+        }
+
+        if (this.scrollBar) {
+            this.scrollBar.target = this._content;
+            this._content.scrollRect = Rectangle.create();
+        }
+
+        this._setCellChanged();
+    }
+
     protected createChildren(): void {
-        this._content = new Box();
+        this._content = this._flattenChildren ? new FlattenBox() : new Box();
         this._content.hideFlags = HideFlags.HideAndDontSave;
         this.addChild(this._content);
         this._top = new Sprite();
@@ -510,7 +553,7 @@ export class List extends Box {
 
     /**
      * @internal
-    */
+     */
     _setWidth(value: number) {
         super._setWidth(value);
         this._setCellChanged();
@@ -518,7 +561,7 @@ export class List extends Box {
 
     /**
      * @internal
-    */
+     */
     _setHeight(value: number) {
         super._setHeight(value);
         this._setCellChanged();
@@ -613,6 +656,7 @@ export class List extends Box {
             this.callLater(this.changeCells);
         }
     }
+
     private onScrollStart(): void {
         this._usedCache || (this._usedCache = super.cacheAs);
         super.cacheAs = "none";
@@ -620,7 +664,7 @@ export class List extends Box {
     }
 
     private onScrollEnd(): void {
-        super.cacheAs = this._usedCache || 'none';
+        super.cacheAs = this._usedCache || "none";
     }
 
     protected createItem(): UIComponent {
@@ -647,7 +691,7 @@ export class List extends Box {
                 let a: any[] = watchMap[name];
                 for (let i = 0; i < a.length; i++) {
                     let watcher = a[i];
-                    arr.push(watcher.comp, watcher.prop, watcher.value)
+                    arr.push(watcher.comp, watcher.prop, watcher.value);
                 }
             }
         }
@@ -894,6 +938,15 @@ export class List extends Box {
             cell.visible = false;
             cell.dataSource = null;
         }
+        if (this.flattenChildren) {
+            this.frameOnce(0, this, this.delayRefreshListChildren);
+        }
+    }
+
+    protected delayRefreshListChildren(): void {
+        if (this._content instanceof FlattenBox) {
+            this._content.renderCells(this._cells);
+        }
     }
 
     protected commitMeasure(): void {
@@ -989,10 +1042,10 @@ export class List extends Box {
      */
     set_dataSource(value: any) {
         this._dataSource = value;
-        if (typeof (value) == 'number' || typeof (value) == 'string')
+        if (typeof (value) == "number" || typeof (value) == "string")
             this.selectedIndex = parseInt(value as string);
         else if (value instanceof Array)
-            this.array = (<any[]>value)
+            this.array = (<any[]>value);
         else
             super.set_dataSource(value);
     }
@@ -1130,8 +1183,8 @@ export class List extends Box {
      * @param complete An optional callback function to call when the tweening completes.
      * @zh 缓动滚动列表，以设定的数据索引对应的单元格为当前可视列表的第一项。
      * @param index 单元格在数据列表中的索引。
-     * @param time	缓动时间。
-     * @param complete	缓动结束回调.
+     * @param time    缓动时间。
+     * @param complete    缓动结束回调.
      */
     tweenTo(index: number, time: number = 200, complete: Handler | null = null): void {
         if (this._scrollBar) {
@@ -1184,5 +1237,15 @@ export class List extends Box {
     get cellHeight(): number {
         return this._cellHeight;
     }
+
+    /**
+     * 获取偏移值
+     */
+    get offset(): Rectangle {
+        return this._offset;
+    }
+
+
+
 
 }
