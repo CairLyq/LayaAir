@@ -1,20 +1,20 @@
+import { ILaya } from "../../ILaya";
+import { LayaEnv } from '../../LayaEnv';
+import { HideFlags, NodeFlags } from "../Const";
+import { Text } from "../display/Text";
+import { ButtonEffect } from "../effect/ButtonEffect";
+import { Event } from "../events/Event";
+import { Loader } from "../net/Loader";
+import { URL } from "../net/URL";
+import { Texture } from "../resource/Texture";
+import { Handler } from "../utils/Handler";
 import { Node } from './../display/Node';
-import { UIComponent } from "./UIComponent";
+import { AutoBitmap } from "./AutoBitmap";
+import { Image } from "./Image";
 import { ISelect } from "./ISelect";
 import { Styles } from "./Styles";
-import { NodeFlags, HideFlags } from "../Const"
-import { Text } from "../display/Text"
-import { Event } from "../events/Event"
-import { Loader } from "../net/Loader"
-import { Texture } from "../resource/Texture"
-import { AutoBitmap } from "./AutoBitmap"
-import { UIUtils } from "./UIUtils"
-import { Handler } from "../utils/Handler"
-import { ILaya } from "../../ILaya";
-import { URL } from "../net/URL";
-import { Image } from "./Image";
-import { ButtonEffect } from "../effect/ButtonEffect";
-import { LayaEnv } from '../../LayaEnv';
+import { UIComponent } from "./UIComponent";
+import { UIUtils } from "./UIUtils";
 /**
  * @en The Button component is used to represent a button with multiple states. The Button component can display a text label, an icon, or both.
  * The states can be single-state, two-state (normal, pressed), or three-state (normal, hover, pressed). By default, it is three-state.
@@ -189,7 +189,7 @@ export class Button extends UIComponent implements ISelect {
     }
 
     set selected(value: boolean) {
-         const state = value ? 2 : 0;
+        const state = value ? 2 : 0;
         // 通过双重检查确保：
         // this._selected 与 value 一致。
         // this.state 与 value 对应的状态码（2 或 0）一致。
@@ -474,7 +474,8 @@ export class Button extends UIComponent implements ISelect {
     protected createText(): void {
         if (!this._text) {
             this._text = new Text();
-            this._text.overflow = Text.HIDDEN;
+            // 这个属性开了，连续渲染的文本不能合批
+            // this._text.overflow = Text.HIDDEN;
             this._text.align = "center";
             this._text.valign = "middle";
             this._text.width = this._width;
