@@ -8,8 +8,9 @@ import { Vector3 } from "../../../maths/Vector3";
 import { NotImplementedError } from "../../../utils/Error";
 import { ICollider } from "../../interface/ICollider";
 import { pxColliderShape } from "../Shape/pxColliderShape";
-import { pxCompoundShape } from "../Shape/pxCompoundShape";
-import { partFlag, pxPhysicsManager } from "../pxPhysicsManager";
+import { pxCompoundColliderShape } from "../Shape/pxCompoundColliderShape";
+import type { pxPhysicsManager } from "../pxPhysicsManager";
+import { partFlag } from "../pxStatics";
 /**
  * @en Enumeration of collider types.
  * @zh 碰撞器类型枚举。
@@ -188,7 +189,7 @@ export class pxCollider implements ICollider {
     setColliderShape(shape: pxColliderShape): void {
         if (shape == this._shape)
             return;
-        if (shape instanceof pxCompoundShape) {
+        if (shape instanceof pxCompoundColliderShape) {
             shape._pxCollider = this;
             shape.refreshShapes();
         }
@@ -297,7 +298,6 @@ export class pxCollider implements ICollider {
 
     allowSleep(value: boolean): void {
     }
-
 
     /**
      * @en Sets the owner node for this collider.

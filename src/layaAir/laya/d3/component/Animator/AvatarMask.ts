@@ -3,7 +3,6 @@
  * @zh 用来描述动画层遮罩。
  */
 export class AvatarMask {
-    /**@internal */
     private _avatarPathMap: Record<string, boolean>;
 
     /**
@@ -56,7 +55,7 @@ export class AvatarMask {
      * @zh 克隆。
      * @returns 克隆的AvatarMask。
      */
-    clone(): any {
+    clone() {
         var dest: AvatarMask = new AvatarMask();
         this.cloneTo(dest);
         return dest;

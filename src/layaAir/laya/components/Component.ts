@@ -1,19 +1,17 @@
-import { ILaya } from "../../ILaya";
+import { ILaya, Mutable } from "../../ILaya";
 import { LayaEnv } from "../../LayaEnv";
 import { NodeFlags } from "../Const";
 import { Node } from "../display/Node"
 import { Pool } from "../utils/Pool"
-import { Utils } from "../utils/Utils";
 import { ComponentDriver } from "./ComponentDriver";
 
 /**
  * @en The Component class is used to create the base class for components.
  * @zh Component 类用于创建组件的基类。
+ * @blueprintable @blueprintableSubclasses
  */
 export class Component {
     /**
-     * @private
-     * @internal
      * @en Unique identifier for the component.
      * @zh 组件的唯一标识。
      */
@@ -29,34 +27,34 @@ export class Component {
      * @en Gets the owner Node to which the component belongs.
      * @zh 获取组件所属的 Node 节点。
      */
-    owner: Node;
+    readonly owner: Node;
     /** @internal */
     _enabled: boolean = true;
 
     /**
-     * @internal
      * @en Whether the component is a singleton, meaning only one instance of this type of script can be added to the same node.
      * @zh 是否为单例，即同一个节点只能添加此类型的脚本一次。
      */
     _singleton: boolean;
 
     /**
-     * @internal
      * @en Whether the script can run in the IDE environment.
      * @zh 是否可以在 IDE 环境中运行。
+     * @blueprintIgnore
      */
     runInEditor: boolean;
 
     /**
-     * @internal
      * @en The path of the script file.
      * @zh 脚本文件的路径。
+     * @blueprintIgnore
      */
     scriptPath: string;
 
     /**
      * @en Extra data of the node.
      * @zh 组件的额外数据。IDE内部使用。
+     * @blueprintIgnore
      */
     _extra: IComponentExtra;
 
@@ -82,7 +80,7 @@ export class Component {
      * @zh 组件的构造方法
      */
     constructor() {
-        this._id = Utils.getGID();
+        this._id = _idCounter++;
         this._singleton = Object.getPrototypeOf(this)._$singleton ?? true;
 
         this._initialize();
@@ -148,11 +146,13 @@ export class Component {
     }
 
     /**
-     * @internal
+     * @ignore
+     * @blueprintIgnore
      */
     _isScript(): boolean {
         return false;
     }
+
     /**
      * @internal
      */
@@ -160,7 +160,7 @@ export class Component {
         this._enabled = true;
         this._status = 0;
         this._enableState = false;
-        this.owner = null;
+        (<Mutable<this>>this).owner = null;
     }
 
     /**
@@ -174,7 +174,7 @@ export class Component {
         if (this._status != 0) {
             throw new Error('reuse a destroyed component');
         }
-        this.owner = node;
+        (<Mutable<this>>this).owner = node;
 
         if (this._isScript())
             node._setBit(NodeFlags.HAS_SCRIPT, true);
@@ -184,21 +184,21 @@ export class Component {
     }
 
     /**
-     * @internal
+     * @ignore
      * 被添加到节点后调用，可根据需要重写此方法
      */
     protected _onAdded(): void {
     }
 
     /**
-     * @internal
+     * @ignore
      * 被激活后调用，可根据需要重写此方法
      */
     protected _onAwake(): void {
     }
 
     /**
-     * @internal
+     * @ignore
      * 被激活后调用，可根据需要重写此方法
      */
     protected _onEnable(): void {
@@ -206,7 +206,7 @@ export class Component {
     }
 
     /**
-     * @internal
+     * @ignore
      * 被禁用时调用，可根据需要重写此方法
      * 销毁组件
      */
@@ -215,7 +215,7 @@ export class Component {
     }
 
     /**
-     * @internal
+     * @ignore
      * 被销毁时调用，可根据需要重写此方法
      */
     protected _onDestroy(): void {
@@ -243,7 +243,7 @@ export class Component {
     }
 
     /**
-     * @internal
+     * @ignore
      */
     _setActive(value: boolean): void {
         if (value) {
@@ -259,7 +259,7 @@ export class Component {
                 this._enableState = true;
 
                 if (LayaEnv.isPlaying || this.runInEditor) {
-                    this._driver = (this.owner._is3D && this.owner._scene)?._componentDriver || ILaya.stage._componentDriver;
+                    this._driver = this.owner._scene?._componentDriver || ILaya.stage._componentDriver;
                     this._driver.add(this);
 
                     if (LayaEnv.isPlaying && this._isScript())
@@ -331,6 +331,7 @@ export class Component {
     /**
      * @en Called after the component is added to a node. Unlike Awake, onAdded is called even if the node is not active.
      * @zh 组件被添加到节点后调用，与 onAwake 不同的是，即使节点未激活也会调用 onAdded。
+     * @blueprintEvent
      */
     onAdded(): void {
     }
@@ -346,6 +347,7 @@ export class Component {
     /**
      * @en Executed after the component is activated. At this point, all nodes and components have been created. This method is executed only once.
      * @zh 组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次。
+     * @blueprintEvent
      */
     onAwake(): void {
     }
@@ -353,6 +355,7 @@ export class Component {
     /**
      * @en Executed after the component is enabled, such as when the node is added to the stage.
      * @zh 组件被启用后执行，比如节点被添加到舞台后。
+     * @blueprintEvent
      */
     onEnable(): void {
     }
@@ -360,36 +363,42 @@ export class Component {
     /**
      * @en Executed once, before the first update.
      * @zh 在第一次执行 update 之前执行，只会执行一次。
+     * @blueprintDefaultEvent
      */
     onStart?(): void;
 
     /**
      * @en Executed every frame during the update phase. Avoid writing complex loop logic or using the getComponent method here.
      * @zh 每帧更新时执行，在 update 阶段。尽量不要在这里写大循环逻辑或使用 getComponent 方法。
+     * @blueprintEvent
      */
     onUpdate?(): void;
 
     /**
      * @en Executed every frame during the late update phase, after the update phase.
      * @zh 每帧更新时执行，在 late update 阶段，update 阶段之后。
+     * @blueprintEvent
      */
     onLateUpdate?(): void;
 
     /**
      * @en Executed before rendering.
      * @zh 渲染之前执行。
+     * @blueprintEvent
      */
     onPreRender?(): void;
 
     /**
      * @en Executed after rendering.
      * @zh 渲染之后执行。
+     * @blueprintEvent
      */
     onPostRender?(): void;
 
     /**
      * @en Executed when the component is disabled, such as when the node is removed from the stage.
      * @zh 组件被禁用时执行，比如从节点从舞台移除后。
+     * @blueprintEvent
      */
     onDisable(): void {
     }
@@ -397,9 +406,12 @@ export class Component {
     /**
      * @en Executed when the node is destroyed manually.
      * @zh 手动调用节点销毁时执行。
+     * @blueprintEvent
      */
     onDestroy(): void {
     }
 }
 
 export interface IComponentExtra { }
+
+var _idCounter = 0;

@@ -1,3 +1,4 @@
+import { TransformKind } from "../display/SpriteConst";
 import { Event } from "../events/Event"
 import { Button } from "./Button"
 
@@ -6,6 +7,7 @@ import { Button } from "./Button"
  * Choosing an unselected member of a Radio group will unselect the currently selected `Radio` control within that group.
  * @zh Radio 控件使用户可在一组互相排斥的选择中做出一种选择。
  * 用户一次只能选择 Radio 组中的一个成员。选择未选中的组成员将取消选择该组中当前所选的 Radio 控件。
+ * @blueprintInheritable
  */
 export class Radio extends Button {
     protected _value: any;
@@ -39,15 +41,14 @@ export class Radio extends Button {
     }
 
     /**
-     * @internal
-     * @en Sets the internal text width when the autoSize property is false.
-     * @param value The new width value.
-     * @zh 当 autoSize 属性为 false 时，设置内部文本宽度。
-     * @param value 新的宽度值。
+     * @ignore
      */
-    _setWidth(value: number): void {
-        if (!this._autoSize) {
-            this._text.width = this.width - this._text.x;
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
+
+        if ((kind & TransformKind.Width) != 0) {
+            if (!this._autoSize)
+                this._text.width = this._width - this._text.x;
         }
     }
 
@@ -86,7 +87,8 @@ export class Radio extends Button {
 
     protected changeClips(): void {
         super.changeClips();
-        this._setWidth(this._width);
-    }
 
+        if (!this._autoSize)
+            this._text.width = this.width - this._text.x;
+    }
 }

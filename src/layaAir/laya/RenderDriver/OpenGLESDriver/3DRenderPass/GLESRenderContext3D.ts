@@ -5,7 +5,7 @@ import { Vector4 } from "../../../maths/Vector4";
 import { Viewport } from "../../../maths/Viewport";
 import { FastSinglelist } from "../../../utils/SingletonList";
 import { IRenderContext3D, IRenderElement3D } from "../../DriverDesign/3DRenderPass/I3DRenderPass";
-import { IRenderCMD } from "../../DriverDesign/3DRenderPass/IRendderCMD";
+import { IRenderCMD } from "../../DriverDesign/RenderDevice/IRenderCMD";
 import { RTCameraNodeData, RTSceneNodeData } from "../../RenderModuleData/RuntimeModuleData/3D/RT3DRenderModuleData";
 import { GLESInternalRT } from "../RenderDevice/GLESInternalRT";
 import { GLESShaderData } from "../RenderDevice/GLESShaderData";
@@ -99,6 +99,11 @@ export class GLESRenderContext3D implements IRenderContext3D {
     setClearData(clearFlag: number, color: Color, depth: number, stencil: number): number {
         return this._nativeObj.setClearData(clearFlag, color, depth, stencil);
     }
+
+    clearRenderTarget(): void {
+        this._nativeObj.clearRenderTarget();
+    }
+
     private _tempList: any = [];
     drawRenderElementList(list: FastSinglelist<GLESRenderElement3D>): number {
         this._tempList.length = 0;

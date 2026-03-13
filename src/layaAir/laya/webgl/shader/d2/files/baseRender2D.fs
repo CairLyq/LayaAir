@@ -1,0 +1,22 @@
+#define SHADER_NAME BaseRender2DPS
+#if defined(GL_FRAGMENT_PRECISION_HIGH) // 原来的写法会被我们自己的解析流程处理，而我们的解析是不认内置宏的，导致被删掉，所以改成 if defined 了
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+#include "Sprite2DFrag.glsl";
+
+void main()
+{
+    clip();
+    vec2 texcoord = v_texcoord.xy * u_tilingOffset.zw + u_tilingOffset.xy;
+    vec4 textureColor = texture2D(u_baseRender2DTexture, texcoord);
+
+    #ifdef LIGHT2D_ENABLE
+        lightAndShadow(textureColor);
+    #endif
+
+    textureColor = transspaceColor(textureColor);
+    setglColor(textureColor);
+}

@@ -1,28 +1,9 @@
-import { HideFlags } from "../Const";
 import { Sprite } from "../display/Sprite";
-import { Timer } from "../utils/Timer";
 import { ExternalSkin } from "./ExternalSkin";
 import { Spine2DRenderNode } from "./Spine2DRenderNode";
 import { SpineTemplet } from "./SpineTemplet";
 import { ISpineOptimizeRender } from "./optimize/interface/ISpineOptimizeRender";
 
-
-/**动画开始播放调度
- * @eventType Event.PLAYED
- * */
-/*[Event(name = "played", type = "laya.events.Event.PLAYED", desc = "动画开始播放调度")]*/
-/**动画停止播放调度
- * @eventType Event.STOPPED
- * */
-/*[Event(name = "stopped", type = "laya.events.Event.STOPPED", desc = "动画停止播放调度")]*/
-/**动画暂停播放调度
- * @eventType Event.PAUSED
- * */
-/*[Event(name = "paused", type = "laya.events.Event.PAUSED", desc = "动画暂停播放调度")]*/
-/**自定义事件。
- * @eventType Event.LABEL
- */
-/*[Event(name = "label", type = "laya.events.Event.LABEL", desc = "自定义事件")]*/
 /**
  * @deprecated 请使用Sprite+Spine2DRenderNode组件
  * spine动画由<code>SpineTemplet</code>，<code>SpineSkeletonRender</code>，<code>SpineSkeleton</code>三部分组成。
@@ -113,7 +94,7 @@ export class SpineSkeleton extends Sprite {
 
     /**
      * 设置当前播放位置
-     * @param	value 当前时间
+     * @param value 当前时间
      */
     set currentTime(value: number) {
         this._spineComponent.currentTime = value;
@@ -141,13 +122,13 @@ export class SpineSkeleton extends Sprite {
     /**
      * 播放动画
      *
-     * @param	nameOrIndex	动画名字或者索引
-     * @param	loop		是否循环播放
-     * @param	force		false,如果要播的动画跟上一个相同就不生效,true,强制生效
-     * @param	start		起始时间
-     * @param	end			结束时间
-     * @param	freshSkin	是否刷新皮肤数据
-     * @param	playAudio	是否播放音频
+     * @param nameOrIndex	动画名字或者索引
+     * @param loop		是否循环播放
+     * @param force		false,如果要播的动画跟上一个相同就不生效,true,强制生效
+     * @param start		起始时间
+     * @param end			结束时间
+     * @param freshSkin	是否刷新皮肤数据
+     * @param playAudio	是否播放音频
      */
     play(nameOrIndex: any, loop: boolean, force: boolean = true, start: number = 0, end: number = 0, freshSkin: boolean = true, playAudio: boolean = true) {
         this._spineComponent.play(nameOrIndex, loop, force, start, end, freshSkin, playAudio);
@@ -166,7 +147,7 @@ export class SpineSkeleton extends Sprite {
 
     /**
      * 得到指定动画的名字
-     * @param	index	动画的索引
+     * @param index	动画的索引
      */
     getAniNameByIndex(index: number): string {
         return this._spineComponent.getAniNameByIndex(index);
@@ -182,7 +163,7 @@ export class SpineSkeleton extends Sprite {
 
     /**
      * 设置动画播放速率
-     * @param	value	1为标准速率
+     * @param value	1为标准速率
      */
     playbackRate(value: number): void {
         this._spineComponent.playbackRate(value);
@@ -190,7 +171,7 @@ export class SpineSkeleton extends Sprite {
 
     /**
      * 通过名字显示一套皮肤
-     * @param	name	皮肤的名字
+     * @param name	皮肤的名字
      */
     showSkinByName(name: string): void {
         this._spineComponent.showSkinByName(name);
@@ -198,7 +179,7 @@ export class SpineSkeleton extends Sprite {
 
     /**
      * 通过索引显示一套皮肤
-     * @param	skinIndex	皮肤索引
+     * @param skinIndex	皮肤索引
      */
     showSkinByIndex(skinIndex: number): void {
         this._spineComponent.showSkinByIndex(skinIndex);
@@ -233,7 +214,7 @@ export class SpineSkeleton extends Sprite {
      */
     destroy(destroyChild: boolean = true): void {
         if (this._spineComponent.templet) {
-            this._spineComponent.reset();
+            this._spineComponent.clear();
         }
         super.destroy(destroyChild);
     }
@@ -289,26 +270,4 @@ export enum ESpineRenderType {
     boneGPU = 0,
     normal = 1,
     rigidBody = 2,
-}
-
-class TimeKeeper {
-    maxDelta: number;
-    framesPerSecond: number;
-    delta: number;
-    totalTime: number;
-    lastTime: number;
-    frameCount: number;
-    frameTime: number;
-
-    timer: Timer;
-
-    constructor(timer: Timer) {
-        this.maxDelta = 0.064;
-        this.timer = timer;
-    }
-    update() {
-        this.delta = this.timer.delta / 1000;
-        if (this.delta > this.maxDelta)
-            this.delta = this.maxDelta;
-    }
 }

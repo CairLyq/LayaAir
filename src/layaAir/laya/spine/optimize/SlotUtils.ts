@@ -1,4 +1,8 @@
+import { Texture } from "../../resource/Texture";
+import { Texture2D } from "../../resource/Texture2D";
 import { ESpineRenderType } from "../SpineSkeleton";
+import { SpineTemplet } from "../SpineTemplet";
+import { SpineTexture } from "../SpineTexture";
 import { AttachmentParse } from "./AttachmentParse";
 
 /**
@@ -44,14 +48,55 @@ export class SlotUtils {
      * @param indexArray 要追加到的目标索引数组。
      * @param size 每个索引的偏移量。
      * @param offset 目标索引数组中的起始偏移量。
-     */
-    static appendIndexArray(attachmentParse: AttachmentParse, indexArray: Uint16Array, size: number, offset: number) {
-        if (!attachmentParse.attachment) return offset;
+     */    
+	static appendIndexArray(attachmentParse: AttachmentParse, indexArray: Uint16Array | Uint8Array | Uint32Array, size: number, offset: number) {
+        if (!attachmentParse.attachment || !attachmentParse.indexArray) return offset;
         let slotindexArray = attachmentParse.indexArray;
         for (let j = 0, n = slotindexArray.length; j < n; j++) {
             indexArray[offset] = slotindexArray[j] + size;
             offset++;
         }
         return offset;
+    }
+
+    static setSlotTexture( slot:spine.Slot, texture:Texture , templet:SpineTemplet , createAttachment: boolean = false){
+        let attachment = slot.getAttachment();
+        if (!attachment) return;
+
+        if (createAttachment) {
+            attachment = attachment.copy();
+            slot.setAttachment(attachment);
+        }
+
+        let newRegion = templet.registerTexture(texture);
+        
+        if (attachment instanceof spine.RegionAttachment) {
+            attachment.region = newRegion;
+            attachment.width = newRegion.width;
+            attachment.height = newRegion.height;
+
+            if (attachment.updateRegion) {
+                attachment.updateRegion();
+            }
+            //@ts-ignore
+            else if(attachment.updateOffset){
+                //@ts-ignore
+                attachment.updateOffset();
+            }
+
+        } else if (attachment instanceof spine.MeshAttachment) {
+            attachment.region = newRegion;
+            attachment.width = newRegion.width;
+            attachment.height = newRegion.height;
+
+            if (attachment.updateRegion) {
+                attachment.updateRegion();
+            }
+            //@ts-ignore
+            else if(attachment.updateUVs){
+                //@ts-ignore
+                attachment.updateUVs();
+            }
+        }
     }
 }

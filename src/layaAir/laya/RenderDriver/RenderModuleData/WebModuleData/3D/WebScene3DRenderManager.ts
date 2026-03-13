@@ -4,16 +4,15 @@ import { ISceneRenderManager } from "../../../DriverDesign/3DRenderPass/ISceneRe
 import { WebBaseRenderNode } from "./WebBaseRenderNode";
 
 /**
- * @en The `WebSceneRenderManager` class is used to manage the rendering nodes of a scene.
- * @zh `WebSceneRenderManager` 类用于管理场景的渲染节点。
+ * @en The `SceneRenderManagerOBJ` class is used to manage the rendering nodes of a scene.
+ * @zh `SceneRenderManagerOBJ` 类用于管理场景的渲染节点。
  */
 export class WebSceneRenderManager implements ISceneRenderManager {
     /** @internal */
     _list: SingletonList<BaseRender> = new SingletonList();
-    //_motionRenders: SingletonList<BaseRender> = new SingletonList();
+    //_motionRenders: SingletonList<BaseRender> = new SingletonList(); TODO
     /** @ignore */
     constructor() {
-
     }
 
     /**

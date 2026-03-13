@@ -1,11 +1,11 @@
 import { Config3D } from "../../../Config3D"
 import { LayaGL } from "../../layagl/LayaGL"
 import { Matrix4x4 } from "../../maths/Matrix4x4"
-import { BaseRenderType, IMeshRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData"
+import { BaseRenderType, IBaseRenderNode, IMeshRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData"
 import { ShaderData } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData"
 import { ShaderDefine } from "../../RenderDriver/RenderModuleData/Design/ShaderDefine"
 import { RenderCapable } from "../../RenderEngine/RenderEnum/RenderCapable"
-import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D"
+import { Shader3D, ShaderFeatureType } from "../../RenderEngine/RenderShader/Shader3D"
 import { VertexMesh } from "../../RenderEngine/RenderShader/VertexMesh"
 import { Laya3DRender } from "../RenderObjs/Laya3DRender"
 import { Mesh } from "../resource/models/Mesh"
@@ -14,13 +14,14 @@ import { MorphTargetChannel } from "../resource/models/MorphTarget"
 import { MeshFilter } from "./MeshFilter"
 import { MeshSprite3DShaderDeclaration } from "./MeshSprite3DShaderDeclaration"
 import { RenderableSprite3D } from "./RenderableSprite3D"
-import { Sprite3D } from "./Sprite3D"
 import { BlinnPhongMaterial } from "./material/BlinnPhongMaterial"
 import { BaseRender } from "./render/BaseRender"
 import { RenderContext3D } from "./render/RenderContext3D"
 import { RenderElement } from "./render/RenderElement"
 import { SubMeshRenderElement } from "./render/SubMeshRenderElement"
 import { Stat } from "../../utils/Stat"
+import { StatElement } from "../../layagl/StatisticsContext"
+import { Material } from "../../resource/Material"
 
 
 /**
@@ -28,13 +29,10 @@ import { Stat } from "../../utils/Stat"
  * @zh `MeshRenderer` 类用于网格渲染器。
  */
 export class MeshRenderer extends BaseRender {
-    /** @internal */
     protected _revertStaticBatchDefineUV1: boolean = false;
-    /** @internal */
     protected _projectionViewWorldMatrix: Matrix4x4;
-    /** @internal */
     protected _mesh: Mesh;
-
+    declare _baseRenderNode: IMeshRenderNode;
     /**
      * @internal
      */
@@ -43,6 +41,8 @@ export class MeshRenderer extends BaseRender {
         MeshSprite3DShaderDeclaration.SHADERDEFINE_COLOR = Shader3D.getDefineByName("COLOR");
         MeshSprite3DShaderDeclaration.SHADERDEFINE_UV1 = Shader3D.getDefineByName("UV1");
         MeshSprite3DShaderDeclaration.SHADERDEFINE_TANGENT = Shader3D.getDefineByName("TANGENT");
+        MeshSprite3DShaderDeclaration.SHADERDEFINE_BONEW = Shader3D.getDefineByName("VBONEW");
+        MeshSprite3DShaderDeclaration.SHADERDEFINE_BONEI = Shader3D.getDefineByName("VBONEI");
         MeshSprite3DShaderDeclaration.SHADERDEFINE_GPU_INSTANCE = Shader3D.getDefineByName("GPU_INSTANCE");
     }
 
@@ -55,8 +55,6 @@ export class MeshRenderer extends BaseRender {
 
     private _morphWeightChange: boolean = true;
 
-    private _moduleData: IMeshRenderNode;
-
     /**
      * @ignore
      * @en Creates an instance of MeshRenderer.
@@ -67,16 +65,12 @@ export class MeshRenderer extends BaseRender {
         this._projectionViewWorldMatrix = new Matrix4x4();
         this._baseRenderNode.renderNodeType = BaseRenderType.MeshRender;
     }
-
-
-
-    /**
-     * override it
-     * @returns 
-     */
-    protected _createBaseRenderNode(): IMeshRenderNode {
-
+    protected _createBaseRenderNode(): IBaseRenderNode {
         return Laya3DRender.Render3DModuleDataFactory.createMeshRenderNode();
+    }
+
+    protected _isMaterialVaild(value: Material): boolean {
+        return value.checkType(ShaderFeatureType.D3);
     }
 
     /**
@@ -97,17 +91,13 @@ export class MeshRenderer extends BaseRender {
         return this._mesh;
     }
 
-    /**
-     * @internal
-     */
     protected _onEnable(): void {
         super._onEnable();
-        const filter = this.owner.getComponent(MeshFilter) as MeshFilter;
+        const filter = this.owner.getComponent(MeshFilter);
         if (filter) filter._enabled && this._onMeshChange(filter.sharedMesh);
     }
 
     /**
-     * @internal
      * @param mesh 
      * @param out 
      */
@@ -119,8 +109,6 @@ export class MeshRenderer extends BaseRender {
     }
 
     /**
-     * @internal
-     * @protected
      * @param mesh 
      */
     protected _changeVertexDefine(mesh: Mesh) {
@@ -142,15 +130,13 @@ export class MeshRenderer extends BaseRender {
     private _morphTargetValues: Record<string, number> = {}
 
     /**
-     * @internal
+     * @en The morph target values.
+     * @zh 变形目标值。
      */
     public get morphTargetValues(): Record<string, number> {
         return this._morphTargetValues;
     }
 
-    /**
-     * @internal
-     */
     public set morphTargetValues(value: Record<string, number>) {
         this._morphTargetValues = value;
     }
@@ -184,13 +170,13 @@ export class MeshRenderer extends BaseRender {
 
     /**
      * @internal
-     * @protected
      * @en Update morph target data.
      * @zh 更新变形目标数据。
      */
     protected _applyMorphdata() {
         let mesh = this._mesh;
         let shaderData = this._baseRenderNode.shaderData;
+
         if (this._morphWeightChange && mesh) {
 
             let morphData = mesh.morphTargetData;
@@ -239,7 +225,6 @@ export class MeshRenderer extends BaseRender {
             // todo 
             // active count == 0 disable morph ?
         }
-
     }
 
     _setBelongScene(scene: any): void {
@@ -254,18 +239,16 @@ export class MeshRenderer extends BaseRender {
     }
 
     protected _statAdd() {
-        Stat.renderNode++;
-        Stat.meshRenderNode++;
+        super._statAdd();
+        LayaGL.statAgent.recordCountData(StatElement.C_MeshRenderCount, 1);
     }
 
     protected _statRemove() {
-        Stat.renderNode--;
-        Stat.meshRenderNode--;
+        super._statRemove();
+        LayaGL.statAgent.recordCountData(StatElement.C_MeshRenderCount, -1);
     }
 
     /**
-     * @internal
-     * @protected
      * @en Update morph target data (shader define) when updating mesh.
      * @param mesh The mesh to update.
      * @zh 更新网格时更新变形目标数据（着色器定义）。
@@ -335,6 +318,8 @@ export class MeshRenderer extends BaseRender {
                 shaderData.setVector(RenderableSprite3D.MorphParams, morphData.params);
 
                 shaderData.setBuffer(RenderableSprite3D.MorphActiceTargets, this.morphTargetActiveData);
+
+
             }
         }
 
@@ -345,7 +330,7 @@ export class MeshRenderer extends BaseRender {
             this._morphTargetValues = {};
         }
 
-        if (mesh && mesh.morphTargetData) {
+        if (mesh && mesh.morphTargetData && LayaGL.renderEngine.getCapable(RenderCapable.Texture3D)) {
 
             let morphData = mesh.morphTargetData;
 
@@ -359,6 +344,15 @@ export class MeshRenderer extends BaseRender {
                 this.morphtargetChannels[index] = channel;
                 this._morphTargetValues[channel.name] = 0;
             }
+
+            let additionShaderData = this._baseRenderNode.additionShaderData;
+            additionShaderData.set("MorphTarget", shaderData);
+            this._baseRenderNode.additionShaderData = additionShaderData;
+        }
+        else {
+            let additionShaderData = this._baseRenderNode.additionShaderData;
+            additionShaderData.delete("MorphTarget");
+            this._baseRenderNode.additionShaderData = additionShaderData;
         }
 
     }
@@ -387,7 +381,7 @@ export class MeshRenderer extends BaseRender {
                 var renderElement: RenderElement = this._renderElements[i];
                 if (!renderElement) {
                     renderElement = this._renderElements[i] = this._renderElements[i] ? this._renderElements[i] : this._createRenderElement();
-                    this.owner && renderElement.setTransform((this.owner as Sprite3D)._transform);
+                    this.owner && renderElement.setTransform(this.owner._transform);
                     renderElement.render = this;
                 }
                 materials[i] = materials[i] || BlinnPhongMaterial.defaultMaterial;
@@ -396,7 +390,6 @@ export class MeshRenderer extends BaseRender {
             this.sharedMaterials = materials;
             this.boundsChange = true;
         } else if (!mesh) {
-            this._renderElements.forEach
             this._renderElements.forEach(element => {
                 element._renderElementOBJ.destroy();
                 element.destroy();
@@ -422,6 +415,8 @@ export class MeshRenderer extends BaseRender {
         if (!this._mesh) {
             this.boundsChange = false;
         }
+        this._baseRenderNode.ismoved.setValue(Stat.loopCount, LayaGL.renderEngine._framePassCount);
+        this._baseRenderNode.ismoved = this._baseRenderNode.ismoved;
     }
 
     /**
@@ -435,7 +430,10 @@ export class MeshRenderer extends BaseRender {
             return;
         }
 
-        this._mesh.morphTargetData && this._applyMorphdata();
+        if (LayaGL.renderEngine.getCapable(RenderCapable.Texture3D) && this._mesh.morphTargetData) {
+            this._applyMorphdata();
+        }
+
         if (!this._meshChange) {
             return;
         }
@@ -455,19 +453,13 @@ export class MeshRenderer extends BaseRender {
         }
         this._meshChange = false;
     }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDestroy() {
         super._onDestroy();
         this._morphTargetValues = null;
     }
 
     /**
-     * @internal
-     * @override
+     * @internal 
      * @param dest 
      */
     _cloneTo(dest: MeshRenderer): void {

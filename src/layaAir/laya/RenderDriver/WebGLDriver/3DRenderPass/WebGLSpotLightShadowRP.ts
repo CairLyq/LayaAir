@@ -1,24 +1,18 @@
-import { Config3D } from "../../../../Config3D";
-import { BufferUsage } from "../../../RenderEngine/RenderEnum/BufferTargetType";
 import { RenderClearFlag } from "../../../RenderEngine/RenderEnum/RenderClearFlag";
-import { RenderPassStatisticsInfo } from "../../../RenderEngine/RenderEnum/RenderStatInfo";
-import { UnifromBufferData } from "../../../RenderEngine/UniformBufferData";
-import { UniformBufferObject } from "../../../RenderEngine/UniformBufferObject";
 import { BaseCamera } from "../../../d3/core/BaseCamera";
 import { ShadowMode } from "../../../d3/core/light/ShadowMode";
-import { SpotLightCom } from "../../../d3/core/light/SpotLightCom";
 import { CommandBuffer } from "../../../d3/core/render/command/CommandBuffer";
 import { Scene3DShaderDeclaration } from "../../../d3/core/scene/Scene3DShaderDeclaration";
 import { ShadowCasterPass } from "../../../d3/shadowMap/ShadowCasterPass";
-import { CameraCullInfo, ShadowSpotData } from "../../../d3/shadowMap/ShadowSliceData";
+import { ShadowSpotData } from "../../../d3/shadowMap/ShadowSliceData";
 import { LayaGL } from "../../../layagl/LayaGL";
+import { StatElement } from "../../../layagl/StatisticsContext";
 import { Color } from "../../../maths/Color";
 import { MathUtils3D } from "../../../maths/MathUtils3D";
 import { Matrix4x4 } from "../../../maths/Matrix4x4";
 import { Vector3 } from "../../../maths/Vector3";
 import { Vector4 } from "../../../maths/Vector4";
 import { Viewport } from "../../../maths/Viewport";
-import { Stat } from "../../../utils/Stat";
 import { RenderCullUtil } from "../../DriverCommon/RenderCullUtil";
 import { RenderListQueue } from "../../DriverCommon/RenderListQueue";
 import { InternalRenderTarget } from "../../DriverDesign/RenderDevice/InternalRenderTarget";
@@ -45,12 +39,7 @@ export class WebGLSpotLightShadowRP {
     private _spotAngle: number;
     /**@internal */
     private _spotRange: number;
-    /**@internal */
-    private _shadowStrength: number;
-    /**@internal */
-    private _shadowDepthBias: number;
-    /**@internal */
-    private _shadowNormalBias: number;
+
     /**@internal */
     private _shadowMode: ShadowMode;
 
@@ -73,7 +62,7 @@ export class WebGLSpotLightShadowRP {
         this._lightPos = this._light.transform.position;
         this._spotAngle = this._light.spotAngle;
         this._spotRange = this._light.spotRange;
-        this._shadowStrength = this._light.shadowStrength;
+        //this._shadowStrength = this._light.shadowStrength;
         // this.destTarget && RenderTexture.recoverToPool(this.destTarget);// TODO 优化
         //this.destTarget = ShadowUtils.getTemporaryShadowTexture(this._shadowResolution, this._shadowResolution, ShadowMapFormat.bit16);
     }
@@ -115,27 +104,23 @@ export class WebGLSpotLightShadowRP {
         //cull
         var time = performance.now();//T_ShadowMapCull Stat
         RenderCullUtil.cullSpotShadow(shadowSpotData.cameraCullInfo, list, count, this._renderQueue, context);
-        Stat.renderPassStatArray[RenderPassStatisticsInfo.T_ShadowMapCull] += (performance.now() - time);//Stat
+        LayaGL.statAgent.recordTimeData(StatElement.T_CullShadow, performance.now() - time);//Stat
 
         context.cameraData = <WebGLShaderData>shadowSpotData.cameraShaderValue;
         context.cameraUpdateMask++;;
         //if (this._renderQueue._elements.length > 0) {
-        Viewport._tempViewport.set(shadowSpotData.offsetX, shadowSpotData.offsetY, shadowSpotData.resolution, shadowSpotData.resolution);
-        Vector4.tempVec4.setValue(shadowSpotData.offsetX, shadowSpotData.offsetY, shadowSpotData.resolution, shadowSpotData.resolution);
+        Viewport.TEMP.set(shadowSpotData.offsetX, shadowSpotData.offsetY, shadowSpotData.resolution, shadowSpotData.resolution);
+        Vector4.TEMP.setValue(shadowSpotData.offsetX, shadowSpotData.offsetY, shadowSpotData.resolution, shadowSpotData.resolution);
         //} else {
         //    Viewport._tempViewport.set(shadowSpotData.offsetX, shadowSpotData.offsetY, shadowSpotData.resolution, shadowSpotData.resolution);
         //    Vector4.tempVec4.setValue(shadowSpotData.offsetX, shadowSpotData.offsetY, shadowSpotData.resolution, shadowSpotData.resolution);
         //}
-        context.setViewPort(Viewport._tempViewport);
-        context.setScissor(Vector4.tempVec4);
-
-        if (shadowSpotData.cameraUBO && shadowSpotData.cameraUBData) {
-            shadowSpotData.cameraUBO.setDataByUniformBufferData(shadowSpotData.cameraUBData);
-        }
+        context.setViewPort(Viewport.TEMP);
+        context.setScissor(Vector4.TEMP);
 
         context.setClearData(RenderClearFlag.Depth, Color.BLACK, 1, 0);
         this._renderQueue.renderQueue(context);
-        Stat.shadowMapDrawCall += this._renderQueue.elements.length;
+        LayaGL.statAgent.recordCTData(StatElement.CT_ShadowDrawCall, this._renderQueue.elements.length);
         this._applyCasterPassCommandBuffer(context);
         this._applyRenderData(context.sceneData, context.cameraData);
         this._renderQueue._batch.recoverData();
@@ -143,9 +128,6 @@ export class WebGLSpotLightShadowRP {
         context.cameraUpdateMask++;
     }
 
-    destroy() {
-        this._shadowSpotData.destroy();
-    }
 
     /** 
     * @internal
@@ -246,5 +228,9 @@ export class WebGLSpotLightShadowRP {
         }
         sceneData.setMatrix4x4(ShadowCasterPass.SHADOW_SPOTMATRICES, this._shadowSpotMatrices)
         sceneData.setVector(ShadowCasterPass.SHADOW_SPOTMAP_SIZE, this._shadowSpotMapSize);
+    }
+
+    destroy() {
+        this._shadowSpotData.destroy();
     }
 }

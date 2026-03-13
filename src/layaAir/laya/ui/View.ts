@@ -1,8 +1,10 @@
 import { Scene } from "../display/Scene"
 import { UIComponent } from "./UIComponent"
 import { ILaya } from "../../ILaya";
+import { Sprite } from "../display/Sprite";
 
 /**
+ * @deprecated
  * @en The View class represents a view component.
  * - In LayaAir 2.x, View inherited from the Scene class. However, in 3.x, Scene represents a broader concept encompassing both 2D and 3D. Therefore, in 3.x, understanding Scene as just a 2D scene view node is not appropriate. Scene has been retained for compatibility purposes, but the concept of a scene should be understood as encompassing both 2D and 3D scene data files.
  * @zh View 是一个视图类。
@@ -21,8 +23,8 @@ export class View extends Scene {
      * @param url The path to the UI.
      * @param json The UI content in JSON format.
      * @zh 兼容老版本，注册UI配置信息。比如注册一个路径为"test/TestPage"的页面，UI内容是IDE生成的json
-     * @param	url		UI的路径
-     * @param	json	UI内容
+     * @param url		UI的路径
+     * @param json	UI内容
      */
     static regUI(url: string, json: any): void {
         ILaya.loader.cacheRes(url, json);
@@ -40,12 +42,16 @@ export class View extends Scene {
 
     /** @ignore */
     constructor() {
-        super(false);   // 先不要createChildren 因为 this._widget还没有赋值
+        super();   // 先不要createChildren 因为 this._widget还没有赋值
 
         //3.0里View并不是Scene
         this._scene = null;
 
         this.createChildren();
+    }
+
+    /** @ignore */
+    protected createChildren() {
     }
 
     changeData(key: string): void {
@@ -58,6 +64,36 @@ export class View extends Scene {
     }
 
     /**
+         * @en The actual display area width of the object (in pixels).
+         * @zh 显示对象的实际显示区域宽度（以像素为单位）。
+         */
+    protected measureWidth(): number {
+        var max: number = 0;
+        for (var i: number = this.numChildren - 1; i > -1; i--) {
+            var comp: Sprite = this.getChildAt(i);
+            if (comp._visible) {
+                max = Math.max(comp._x + comp.width * comp.scaleX, max);
+            }
+        }
+        return max;
+    }
+
+    /**
+     * @en The actual display area height of the object (in pixels).
+     * @zh 显示对象的实际显示区域高度（以像素为单位）。
+     */
+    protected measureHeight(): number {
+        let max: number = 0;
+        for (let i: number = this.numChildren - 1; i > -1; i--) {
+            let comp: Sprite = this.getChildAt(i);
+            if (comp._visible) {
+                max = Math.max(comp._y + comp.height * comp.scaleY, max);
+            }
+        }
+        return max;
+    }
+
+    /**
      * @en Sets the data source for the control and updates the child components accordingly.
      * @param value The new data source to be set.
      * @zh 设置控件的数据源，并相应地更新子组件。
@@ -66,7 +102,7 @@ export class View extends Scene {
     set_dataSource(value: any) {
         this._dataSource = value;
         for (let name in value) {
-            let comp = this.getChildByName(name);
+            let comp = this.getChild(name);
             if (comp instanceof UIComponent)
                 comp.dataSource = value[name];
             else if (name in this && !((this as any)[name] instanceof Function))

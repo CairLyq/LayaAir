@@ -1,5 +1,3 @@
-import { UnifromBufferData } from "../../../RenderEngine/UniformBufferData";
-import { UniformBufferObject } from "../../../RenderEngine/UniformBufferObject";
 import { Color } from "../../../maths/Color";
 import { Matrix3x3 } from "../../../maths/Matrix3x3";
 import { Matrix4x4 } from "../../../maths/Matrix4x4";
@@ -14,8 +12,8 @@ import { NotImplementedError } from "../../../utils/Error";
 import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { ShaderDefine } from "../../RenderModuleData/Design/ShaderDefine";
 import { InternalTexture } from "./InternalTexture";
+import { IDeviceBuffer } from "./IDeviceBuffer";
 
-export type uboParams = { ubo: UniformBufferObject; uboBuffer: UnifromBufferData };
 export enum ShaderDataType {
     None,
     Int,
@@ -26,15 +24,75 @@ export enum ShaderDataType {
     Vector4,
     Color,
     Matrix4x4,
+    Buffer,
+    Matrix3x3,
+    ReadOnlyDeviceBuffer,
+    DeviceBuffer,
+    StorageTexture2D,
     Texture2D,
     Texture3D,
     TextureCube,
-    Buffer,
-    Matrix3x3,
     Texture2DArray
 }
 
-export type ShaderDataItem = number | boolean | Vector2 | Vector3 | Vector4 | Color | Matrix4x4 | BaseTexture | Float32Array | Matrix3x3;
+export type ShaderDataItem = number | boolean | Vector2 | Vector3 | Vector4 | Color | Matrix4x4 | BaseTexture | Float32Array | Matrix3x3 | IDeviceBuffer;
+
+export function isUboBufferShaderType(type: ShaderDataType): boolean {
+    return !(type === ShaderDataType.ReadOnlyDeviceBuffer ||
+        type === ShaderDataType.DeviceBuffer ||
+        type === ShaderDataType.StorageTexture2D ||
+        type === ShaderDataType.Texture2D ||
+        type === ShaderDataType.Texture3D ||
+        type === ShaderDataType.TextureCube ||
+        type === ShaderDataType.Texture2DArray)
+}
+
+export function checkShaderDataValueLegal(value: any, shaderType: ShaderDataType) {
+    let legal = false;
+    switch (shaderType) {
+        case ShaderDataType.Int:
+        case ShaderDataType.Float:
+            legal = typeof value == "number";
+            break;
+        case ShaderDataType.Bool:
+            legal = typeof value == "boolean";
+            break;
+        case ShaderDataType.Vector2:
+            legal = value instanceof Vector2;
+            break;
+        case ShaderDataType.Vector3:
+            legal = value instanceof Vector3;
+            break;
+        case ShaderDataType.Vector4:
+            legal = value instanceof Vector4;
+            break;
+        case ShaderDataType.Color:
+            legal = value instanceof Color;
+            break;
+        case ShaderDataType.Matrix4x4:
+            legal = value instanceof Matrix4x4;
+            break;
+        case ShaderDataType.Texture2D:
+            legal = value instanceof BaseTexture;
+            break;
+        case ShaderDataType.TextureCube:
+            legal = value instanceof BaseTexture;
+            break;
+        case ShaderDataType.Buffer:
+            legal = value instanceof ArrayBuffer;
+            break;
+        case ShaderDataType.Matrix3x3:
+            legal = value instanceof Matrix3x3;
+            break;
+        default:
+            legal = false;
+            break
+    }
+    if (!legal)
+        console.warn("The setting value and Shader type do not match");
+    return legal;
+}
+
 
 export function ShaderDataDefaultValue(type: ShaderDataType) {
     switch (type) {
@@ -74,23 +132,6 @@ export class ShaderData implements IClone {
         this._ownerResource = ownerResource;
     }
 
-
-    /**
-     * @internal
-     * 增加一个UBO Block
-     * @param key 
-     * @param ubo 
-     * @param uboData 
-     */
-    _addCheckUBO(key: string, ubo: UniformBufferObject, uboData: UnifromBufferData) {
-        throw new NotImplementedError();
-    }
-
-    _releaseUBOData() {
-        throw new NotImplementedError();
-    }
-
-
     getDefineData(): IDefineDatas {
         throw new NotImplementedError();
     }
@@ -104,6 +145,7 @@ export class ShaderData implements IClone {
 
     /**
      * 增加Shader宏定义。
+     * @param define 宏定义。
      */
     addDefine(define: ShaderDefine): void {
         throw new NotImplementedError();
@@ -115,6 +157,7 @@ export class ShaderData implements IClone {
 
     /**
      * 移除Shader宏定义。
+     * @param define 宏定义。
      */
     removeDefine(define: ShaderDefine): void {
         throw new NotImplementedError();
@@ -122,6 +165,7 @@ export class ShaderData implements IClone {
 
     /**
      * 是否包含Shader宏定义。
+     * @param define 宏定义。
      */
     hasDefine(define: ShaderDefine): boolean {
         throw new NotImplementedError();
@@ -135,8 +179,16 @@ export class ShaderData implements IClone {
     }
 
     /**
+     * 清空数据 与 宏定义
+     */
+    clearData(): void {
+        throw new NotImplementedError();
+    }
+
+
+    /**
      * 获取布尔。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  布尔。
      */
     getBool(index: number): boolean {
@@ -145,8 +197,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置布尔。
-     * @param	index shader索引。
-     * @param	value 布尔。
+     * @param index shader索引。
+     * @param value 布尔。
      */
     setBool(index: number, value: boolean): void {
         throw new NotImplementedError();
@@ -154,7 +206,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取整形。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  整形。
      */
     getInt(index: number): number {
@@ -163,8 +215,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置整型。
-     * @param	index shader索引。
-     * @param	value 整形。
+     * @param index shader索引。
+     * @param value 整形。
      */
     setInt(index: number, value: number): void {
         throw new NotImplementedError();
@@ -172,7 +224,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取浮点。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return	浮点。
      */
     getNumber(index: number): number {
@@ -181,8 +233,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置浮点。
-     * @param	index shader索引。
-     * @param	value 浮点。
+     * @param index shader索引。
+     * @param value 浮点。
      */
     setNumber(index: number, value: number): void {
         throw new NotImplementedError();
@@ -190,7 +242,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取Vector2向量。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return Vector2向量。
      */
     getVector2(index: number): Vector2 {
@@ -199,8 +251,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置Vector2向量。
-     * @param	index shader索引。
-     * @param	value Vector2向量。
+     * @param index shader索引。
+     * @param value Vector2向量。
      */
     setVector2(index: number, value: Vector2): void {
         throw new NotImplementedError();
@@ -208,7 +260,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取Vector3向量。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return Vector3向量。
      */
     getVector3(index: number): Vector3 {
@@ -217,8 +269,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置Vector3向量。
-     * @param	index shader索引。
-     * @param	value Vector3向量。
+     * @param index shader索引。
+     * @param value Vector3向量。
      */
     setVector3(index: number, value: Vector3): void {
         throw new NotImplementedError();
@@ -226,7 +278,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取颜色。
-     * @param 	index shader索引。
+     * @param index shader索引。
      * @return  向量。
      */
     getVector(index: number): Vector4 {
@@ -235,8 +287,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置向量。
-     * @param	index shader索引。
-     * @param	value 向量。
+     * @param index shader索引。
+     * @param value 向量。
      */
     setVector(index: number, value: Vector4): void {
         throw new NotImplementedError();
@@ -262,7 +314,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取矩阵。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  矩阵。
      */
     getMatrix4x4(index: number): Matrix4x4 {
@@ -271,8 +323,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置矩阵。
-     * @param	index shader索引。
-     * @param	value  矩阵。
+     * @param index shader索引。
+     * @param value  矩阵。
      */
     setMatrix4x4(index: number, value: Matrix4x4): void {
         throw new NotImplementedError();
@@ -289,6 +341,8 @@ export class ShaderData implements IClone {
 
     /**
      * 设置矩阵。
+     * @param index 
+     * @param value 
      */
     setMatrix3x3(index: number, value: Matrix3x3): void {
         throw new NotImplementedError();
@@ -296,7 +350,7 @@ export class ShaderData implements IClone {
 
     /**
      * 获取Buffer。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return
      */
     getBuffer(index: number): Float32Array {
@@ -305,17 +359,25 @@ export class ShaderData implements IClone {
 
     /**
      * 设置Buffer。
-     * @param	index shader索引。
-     * @param	value  buffer数据。
+     * @param index shader索引。
+     * @param value  buffer数据。
      */
     setBuffer(index: number, value: Float32Array): void {
         throw new NotImplementedError();
     }
 
+    setDeviceBuffer(index: number, value: IDeviceBuffer): void {
+        throw new NotImplementedError();
+    }
+
+    getStorageBuffer(index: number): IDeviceBuffer {
+        throw new NotImplementedError();
+    }
+
     /**
      * 设置纹理。
-     * @param	index shader索引。
-     * @param	value 纹理。
+     * @param index shader索引。
+     * @param value 纹理。
      */
     setTexture(index: number, value: BaseTexture): void {
         throw new NotImplementedError();
@@ -323,18 +385,10 @@ export class ShaderData implements IClone {
 
     /**
      * 获取纹理。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  纹理。
      */
     getTexture(index: number): BaseTexture {
-        throw new NotImplementedError();
-    }
-
-    setUniformBuffer(index: number, value: UniformBufferObject) {
-        throw new NotImplementedError();
-    }
-
-    getUniformBuffer(index: number): UniformBufferObject {
         throw new NotImplementedError();
     }
 
@@ -395,8 +449,6 @@ export class ShaderData implements IClone {
                 return this.getVector(uniformIndex);
             case ShaderDataType.Color:
                 return this.getColor(uniformIndex);
-            case ShaderDataType.Matrix4x4:
-                return this.getMatrix4x4(uniformIndex);
             case ShaderDataType.Texture2D:
             case ShaderDataType.TextureCube:
                 return this.getTexture(uniformIndex);
@@ -421,18 +473,9 @@ export class ShaderData implements IClone {
 
     /**
      * 克隆。
-     * @param	destObject 克隆源。
+     * @param destObject 克隆源。
      */
     cloneTo(destObject: ShaderData): void {
-        throw new NotImplementedError();
-    }
-
-    /**
-     * clone UBO Data
-     * @internal
-     * @param uboDatas 
-     */
-    _cloneUBO(uboDatas: Map<string, uboParams>) {
         throw new NotImplementedError();
     }
 
@@ -440,11 +483,7 @@ export class ShaderData implements IClone {
      * 克隆。
      * @return	 克隆副本。
      */
-    clone(): any {
-        throw new NotImplementedError();
-    }
-
-    reset() {
+    clone(): ShaderData {
         throw new NotImplementedError();
     }
 

@@ -2,13 +2,14 @@ import { UIComponent } from "./UIComponent";
 import { AutoBitmap } from "./AutoBitmap";
 import { UIUtils } from "./UIUtils";
 import { Styles } from "./Styles";
-import { NodeFlags } from "../Const"
 import { Event } from "../events/Event"
 import { Loader } from "../net/Loader"
 import { Texture } from "../resource/Texture"
 import { Handler } from "../utils/Handler"
 import { ILaya } from "../../ILaya";
 import { URL } from "../net/URL";
+import { TransformKind } from "../display/SpriteConst";
+
 /**
  * @en The `Clip` class is a bitmap slice animation.
  * `Clip` can split an image into a slice animation by horizontal split count `clipX`, vertical split count `clipY`, 
@@ -20,8 +21,9 @@ import { URL } from "../net/URL";
  * 或横向分割每个切片的宽度 `clipWidth` 、竖向分割每个切片的高度 `clipHeight` ，
  * 从左向右，从上到下，分割组合为一个切片动画。
  * Image和Clip组件是唯一支持异步加载的两个组件，比如clip.skin = "abc/xxx.png"，其他UI组件均不支持异步加载。
+ * @blueprintInheritable
  */
-export class Clip extends UIComponent {   
+export class Clip extends UIComponent {
     protected _sources: Texture[];
     protected _skin: string;
     protected _clipX: number = 1;
@@ -36,6 +38,7 @@ export class Clip extends UIComponent {
     protected _clipChanged: boolean;
     protected _group: string;
     protected _toIndex: number = -1;
+    protected _clipBySize: boolean = false;
     /**@internal */
     declare _graphics: AutoBitmap;
 
@@ -92,10 +95,10 @@ export class Clip extends UIComponent {
         this._setClipChanged()
     }
 
-     /**
+    /**
      * @en Height of each slice when dividing vertically. Takes precedence over `clipY` when set together with `clipY`.
      * @zh 竖向分割时每个切片的高度，与 `clipY` 同时设置时优先级高于 `clipY` 。
-     */
+    */
     get clipHeight(): number {
         return this._clipHeight;
     }
@@ -103,6 +106,22 @@ export class Clip extends UIComponent {
     set clipHeight(value: number) {
         this._clipHeight = value;
         this._setClipChanged()
+    }
+
+
+    /**
+     * @zh 切片是否按宽高切割。默认为false，采用数量切割。
+     * @en Indicates whether the slice is clipped by width and height. Default is false, which means clipping by count.
+     */
+    get clipBySize(): boolean {
+        return this._clipBySize;
+    }
+
+    set clipBySize(value: boolean) {
+        if (this._clipBySize != value) {
+            this._clipBySize = value;
+            this._setClipChanged();
+        }
     }
 
     /**
@@ -119,10 +138,10 @@ export class Clip extends UIComponent {
         this.event(Event.LOADED);
     }
 
-     /**
+    /**
      * @en Resource group.
      * @zh 资源分组。
-     */
+    */
     get group(): string {
         return this._group;
     }
@@ -164,7 +183,13 @@ export class Clip extends UIComponent {
 
     set index(value: number) {
         this._index = value;
-        this._graphics && (this._graphics.source = this._sources[value]);
+        if (this._sources && this._sources.length > 0) {
+            const idx = Math.max(0, Math.min(this._index, this._sources.length - 1));
+            this._index = idx;
+            this._graphics.source = this._sources[idx];
+        } else {
+            this._graphics.source = null;
+        }
         this.event(Event.CHANGE);
     }
 
@@ -242,10 +267,12 @@ export class Clip extends UIComponent {
         this.skin = url;
     }
 
-    protected _onDisplay(e?: boolean): void {
+    private _onDisplay(): void {
         if (this._isPlaying) {
-            if (this._getBit(NodeFlags.DISPLAYED_INSTAGE)) this.play();
-            else this.stop();
+            if (this.displayedInStage)
+                this.play();
+            else
+                this.stop();
         } else if (this._autoPlay) {
             this.play();
         }
@@ -287,19 +314,15 @@ export class Clip extends UIComponent {
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    _setWidth(value: number) {
-        super._setWidth(value);
-        this._graphics.width = value;
-    }
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
 
-    /**
-     * @internal
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
-        this._graphics.height = value;
+        if ((kind & TransformKind.Width) != 0)
+            this._graphics.width = this._width;
+        if ((kind & TransformKind.Height) != 0)
+            this._graphics.height = this._height;
     }
 
     protected _loop(): void {
@@ -343,13 +366,35 @@ export class Clip extends UIComponent {
      * @param img 纹理。
      */
     protected loadComplete(url: string, img: Texture): void {
-        if (url !== this._skin)
-            return;
-
+        if (url !== this._skin) return;
         this._sources.length = 0;
         if (img) {
-            var w: number = this._clipWidth || Math.ceil(img.sourceWidth / this._clipX);
-            var h: number = this._clipHeight || Math.ceil(img.sourceHeight / this._clipY);
+            const imgW = img.sourceWidth;
+            const imgH = img.sourceHeight;
+            let w: number, h: number;
+            if (this._clipBySize) {
+                if (this._clipWidth > 0) {
+                    this._clipX = Math.max(1, Math.floor(imgW / this._clipWidth));
+                    w = this._clipWidth;
+                } else {
+                    this._clipX = Math.max(1, this._clipX);
+                    w = Math.floor(imgW / this._clipX);
+                }
+
+                if (this._clipHeight > 0) {
+                    this._clipY = Math.max(1, Math.floor(imgH / this._clipHeight));
+                    h = this._clipHeight;
+                } else {
+                    this._clipY = Math.max(1, this._clipY);
+                    h = Math.floor(imgH / this._clipY);
+                }
+            } else {
+                this._clipX = Math.max(1, this._clipX);
+                this._clipY = Math.max(1, this._clipY);
+
+                w = this._clipWidth = Math.floor(imgW / this._clipX);
+                h = this._clipHeight = Math.floor(imgH / this._clipY);
+            }
 
             for (let i = 0; i < this._clipY; i++) {
                 for (let j = 0; j < this._clipX; j++) {
@@ -360,7 +405,7 @@ export class Clip extends UIComponent {
 
         this.index = this._index;
         this.event(Event.LOADED);
-        this.onCompResize();
+        this._sizeChanged();
     }
 
     protected measureWidth(): number {
@@ -378,8 +423,8 @@ export class Clip extends UIComponent {
      * @param from Start index.
      * @param to End index, -1 is not limited.
      * @zh 播放切片动画。
-     * @param	from	开始索引
-     * @param	to		结束索引，-1为不限制
+     * @param from	开始索引
+     * @param to		结束索引，-1为不限制
      */
     play(from: number = 0, to: number = -1): void {
         this._setClipChanged();
@@ -411,4 +456,9 @@ export class Clip extends UIComponent {
             super.set_dataSource(value);
     }
 
+    /** @internal @blueprintEvent */
+    Clip_bpEvent: {
+        [Event.CHANGE]: () => void;
+        [Event.LOADED]: () => void;
+    };
 }

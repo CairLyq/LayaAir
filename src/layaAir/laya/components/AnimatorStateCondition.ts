@@ -47,18 +47,11 @@ export class AnimatorStateCondition {
     }
 
     /**
-     * @internal 状态条件类型
+     * @en The type of the condition.
+     * @zh 状态条件类型
      */
     protected _type: AniStateConditionType;
-
-    /**
-     * @internal
-     */
     private _id: number;
-
-    /**
-     * @internal
-     */
     private _name: string;
 
     /**
@@ -103,10 +96,12 @@ export class AnimatorStateCondition {
     /**
      * @internal
      * @en Checks if the state condition is triggered based on the provided value.
-     * @zh 根据提供的值检查状态条件是否被触发。(未实现，目前只会返回false)
+     * @param value The value to check against the condition, can be a number or a boolean.
+     * @zh 根据提供的值检查状态条件是否被触发。
+     * @param value 用于检查条件的值，可以是数字或布尔值。
      */
     checkState(value: number | boolean): boolean {
-        return false;
+        return false; //检查逻辑在子类中实现，基类直接返回false
     }
 }
 
@@ -115,14 +110,8 @@ export class AnimatorStateCondition {
  * @zh 数值条件类。用于处理基于数值比较的条件。
  */
 export class AnimatorStateNumberCondition extends AnimatorStateCondition {
-    /**
-     * @internal
-     */
-    private _numberValue: number;
 
-    /**
-     * @internal
-     */
+    private _numberValue: number;
     private _numberCompareFlag: AniStateConditionNumberCompressType;
 
     /**
@@ -179,9 +168,7 @@ export class AnimatorStateNumberCondition extends AnimatorStateCondition {
  * @zh 布尔条件类。用于处理基于布尔值的条件。
  */
 export class AnimatorStateBoolCondition extends AnimatorStateCondition {
-    /**
-     * @internal
-     */
+
     private _compareFlag: boolean;
 
     /**

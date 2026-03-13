@@ -46,16 +46,12 @@ export enum HtmlElementType {
      * @zh 表示链接元素的结束。
      */
     LinkEnd,
-
-    /**
-     * @zh 表情标签
-     */
-    Face,
 }
 
 /**
  * @en The `HtmlElement` class represents HTML element.
  * @zh `HtmlElement` 类表示 HTML 元素。
+ * @blueprintIgnore
  */
 export class HtmlElement {
     /**

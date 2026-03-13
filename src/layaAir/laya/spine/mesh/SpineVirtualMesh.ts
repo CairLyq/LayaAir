@@ -28,6 +28,7 @@ export class SpineVirtualMesh extends SpineMeshBase {
      * @zh 所有实例共享的索引数组。
      */
     static indexArray: Uint16Array;
+
     /**
      * @en Create a SpineVirtualMesh instance.
      * @param material Material to be used for rendering.
@@ -36,8 +37,8 @@ export class SpineVirtualMesh extends SpineMeshBase {
      */
     constructor(material: Material) {
         super(material);
-        if (SpineVirtualMesh.vertexArray == null) {
-            SpineVirtualMesh.vertexArray = new Float32Array(SpineMeshBase.maxVertex * SpineVirtualMesh.vertexSize);
+        if (SpineVirtualMesh.vertexArray == null) {//按最大的来
+            SpineVirtualMesh.vertexArray = new Float32Array(SpineMeshBase.maxVertex * SpineVirtualMesh.vertexSize_TwoColor);
             SpineVirtualMesh.indexArray = new Uint16Array(SpineMeshBase.maxVertex * 3);
         }
         this.vertexArray = SpineVirtualMesh.vertexArray;
@@ -47,29 +48,37 @@ export class SpineVirtualMesh extends SpineMeshBase {
      * @en Append clipped vertices and indices.
      * @param vertices Array of vertex data.
      * @param indices Array of index data.
+     * @param offsetX Axis offset X.
+     * @param offsetY Axis offset Y.
      * @zh 裁剪后的顶点和索引。
      * @param vertices 顶点数据数组。
      * @param indices 索引数据数组。
+     * @param offsetX X 轴偏移量。
+     * @param offsetY Y 轴偏移量。
      */
-    appendVerticesClip(vertices: ArrayLike<number>, indices: ArrayLike<number>) {
+    appendVerticesClip(vertices: ArrayLike<number>, indices: ArrayLike<number> , offsetX: number = 0, offsetY: number = 0) {
         let indicesLength = indices.length;
-        let vertexCount = vertices.length / 8;
-        let vertexSize = SpineVirtualMesh.vertexSize;
-        let verticesLength = vertexCount * vertexSize;
-        let indexStart = this.verticesLength / vertexSize;
+        let verticesLength = vertices.length;
+        let vertexSize = SpineVirtualMesh.vertexSize_TwoColor;
         let vertexBuffer = this.vertexArray;
 
         let before = this.verticesLength;
+        let indexStart = before / vertexSize;
+
         let vlen = before;
-        for (let j = 0; j < verticesLength; vlen += vertexSize, j += 8) {
+        for (let j = 0; j < verticesLength; vlen += vertexSize, j += vertexSize) {
             vertexBuffer[vlen] = vertices[j + 6];
             vertexBuffer[vlen + 1] = vertices[j + 7];
             vertexBuffer[vlen + 2] = vertices[j + 2];
             vertexBuffer[vlen + 3] = vertices[j + 3];
             vertexBuffer[vlen + 4] = vertices[j + 4];
             vertexBuffer[vlen + 5] = vertices[j + 5];
-            vertexBuffer[vlen + 6] = vertices[j];
-            vertexBuffer[vlen + 7] = vertices[j + 1];
+            vertexBuffer[vlen + 6] = vertices[j] + offsetX;
+            vertexBuffer[vlen + 7] = vertices[j + 1] + offsetY;
+            vertexBuffer[vlen + 8] = vertices[j + 8];
+            vertexBuffer[vlen + 9] = vertices[j + 9];
+            vertexBuffer[vlen + 10] = vertices[j + 10];
+            vertexBuffer[vlen + 11] = vertices[j + 11];
         }
 
         this.verticesLength = before + verticesLength;
@@ -91,9 +100,9 @@ export class SpineVirtualMesh extends SpineMeshBase {
      * @returns 如果网格可以添加则返回 true，否则返回 false。
      */
     canAppend(verticesLength: number, indicesLength: number) {
-        return this.verticesLength + verticesLength < SpineVirtualMesh.maxVertex * SpineVirtualMesh.vertexSize && this.indicesLength + indicesLength < SpineVirtualMesh.maxVertex * 3;
-
+        return this.verticesLength + verticesLength < SpineVirtualMesh.maxVertex * SpineVirtualMesh.vertexSize_TwoColor && this.indicesLength + indicesLength < SpineVirtualMesh.maxVertex * 3;
     }
+
     /**
      * @en Append vertices to the mesh.
      * @param vertices Array of vertex positions.
@@ -101,17 +110,23 @@ export class SpineVirtualMesh extends SpineMeshBase {
      * @param indices Array of indices.
      * @param indicesLength Number of indices to append.
      * @param finalColor Color to apply to vertices.
+     * @param darkColor Color to apply to vertices.
      * @param uvs Array of UV coordinates.
+     * @param offsetX Axis offset X.
+     * @param offsetY Axis offset Y.
      * @zh 向网格添加顶点。
      * @param vertices 顶点位置数组。
      * @param verticesLength 要添加的顶点数量。
      * @param indices 索引数组。
      * @param indicesLength 要添加的索引数量。
      * @param finalColor 应用于顶点的颜色。
+     * @param darkColor 应用于顶点的暗色。
      * @param uvs UV 坐标数组。
+     * @param offsetX X 轴偏移量。
+     * @param offsetY Y 轴偏移量。
      */
-    appendVertices(vertices: ArrayLike<number>, verticesLength: number, indices: number[], indicesLength: number, finalColor: spine.Color, uvs: ArrayLike<number>) {
-        let vertexSize = SpineVirtualMesh.vertexSize;
+    appendVertices(vertices: ArrayLike<number>, verticesLength: number, indices: number[], indicesLength: number, finalColor: spine.Color , darkColor: spine.Color, uvs: ArrayLike<number> , offsetX: number = 0, offsetY: number = 0) {
+        let vertexSize = SpineVirtualMesh.vertexSize_TwoColor;
         let indexStart = this.verticesLength / vertexSize;
         let vertexBuffer = this.vertexArray;
 
@@ -134,8 +149,13 @@ export class SpineVirtualMesh extends SpineMeshBase {
             vertexBuffer[size + 3] = finalColor.g;
             vertexBuffer[size + 4] = finalColor.b;
             vertexBuffer[size + 5] = finalColor.a;
-            vertexBuffer[size + 6] = vertices[v];
-            vertexBuffer[size + 7] = vertices[v + 1];
+            vertexBuffer[size + 6] = vertices[v] + offsetX;
+            vertexBuffer[size + 7] = vertices[v + 1] + offsetY;
+
+            vertexBuffer[size + 8] = darkColor.r;
+            vertexBuffer[size + 9] = darkColor.g;
+            vertexBuffer[size + 10] = darkColor.b;
+            vertexBuffer[size + 11] = darkColor.a;
         }
 
         this.verticesLength = before + verticesLength;
@@ -145,13 +165,4 @@ export class SpineVirtualMesh extends SpineMeshBase {
             indicesArray[i] = indices[j] + indexStart;
         this.indicesLength += indicesLength;
     }
-
-    /**
-     * @en The vertex declaration for the mesh.
-     * @zh 网格的顶点声明。
-     */
-    get vertexDeclarition(): VertexDeclaration {
-        return SpineShaderInit.SpineNormalVertexDeclaration;
-    }
-
 }

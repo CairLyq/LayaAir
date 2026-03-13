@@ -1,18 +1,21 @@
 import { Bezier } from "../../maths/Bezier";
-import { Context, IGraphicCMD } from "../../renders/Context"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "DrawCurvesCmd";
 
 /**
  * @en Draw curves command
  * @zh 绘制曲线命令
  */
-export class DrawCurvesCmd implements IGraphicCMD {
+export class DrawCurvesCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the DrawCurvesCmd
      * @zh 绘制曲线命令的标识符
      */
-    static ID: string = "DrawCurves";
+    static readonly ID: string = className;
 
     /**
      * @en X-axis position to start drawing
@@ -41,7 +44,6 @@ export class DrawCurvesCmd implements IGraphicCMD {
     lineWidth: number;
 
     /**
-     * @private
      * @en Create a DrawCurvesCmd instance
      * @param x X-axis position to start drawing
      * @param y Y-axis position to start drawing
@@ -58,7 +60,7 @@ export class DrawCurvesCmd implements IGraphicCMD {
      * @returns DrawCurvesCmd实例
      */
     static create(x: number, y: number, points: any[], lineColor: any, lineWidth: number): DrawCurvesCmd {
-        var cmd: DrawCurvesCmd = Pool.getItemByClass("DrawCurvesCmd", DrawCurvesCmd);
+        var cmd: DrawCurvesCmd = Pool.getItemByClass(className, DrawCurvesCmd);
         cmd.x = x;
         cmd.y = y;
         cmd.points = points;
@@ -74,22 +76,22 @@ export class DrawCurvesCmd implements IGraphicCMD {
     recover(): void {
         this.points = null;
         this.lineColor = null;
-        Pool.recover("DrawCurvesCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the draw curves command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制曲线命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(context: Context, gx: number, gy: number): void {
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
         if (this.points)
-            context.drawCurves(this.x + gx, this.y + gy, this.points, this.lineColor, this.lineWidth);
+            runner.drawCurves(this.x + gx, this.y + gy, this.points, this.lineColor, this.lineWidth);
     }
 
     /**
@@ -101,12 +103,19 @@ export class DrawCurvesCmd implements IGraphicCMD {
     }
 
     /**
-     * @en Get the bounding points of the curves.
-     * @zh 获取贝塞尔曲线上的点数据。
+     * @ignore @blueprintIgnore
      */
-    getBoundPoints(): number[] {
-        return Bezier.I.getBezierPoints(this.points);
+    needsLayoutRepaint(): number {
+        return 1;
+    }
+
+    /**
+     * @ignore
+     */
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        Bezier.getPoints(this.points, 5, 2, assembler.points);
+        assembler.flushPoints(this.x, this.y);
     }
 }
 
-ClassUtils.regClass("DrawCurvesCmd", DrawCurvesCmd);
+ClassUtils.regClass(className, DrawCurvesCmd);

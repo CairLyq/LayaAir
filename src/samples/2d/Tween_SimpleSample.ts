@@ -1,8 +1,12 @@
+/**
+description
+ 使用Tween动画演示两个角色的不同移动效果
+ */
 import { Laya } from "Laya";
 import { Sprite } from "laya/display/Sprite";
 import { Stage } from "laya/display/Stage";
 import { Browser } from "laya/utils/Browser";
-import { Tween } from "laya/utils/Tween";
+import { Tween } from "laya/tween/Tween";
 import { Main } from "./../Main";
 
 export class Tween_SimpleSample {

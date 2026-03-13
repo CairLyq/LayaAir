@@ -1,5 +1,3 @@
-
-import { RenderPassStatisticsInfo } from "../../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { ReflectionProbeMode } from "../../../../d3/component/Volume/reflectionProbe/ReflectionProbe";
 import { RenderableSprite3D } from "../../../../d3/core/RenderableSprite3D";
 import { Transform3D } from "../../../../d3/core/Transform3D";
@@ -8,17 +6,21 @@ import { BoundFrustum } from "../../../../d3/math/BoundFrustum";
 import { Bounds } from "../../../../d3/math/Bounds";
 import { Vector4 } from "../../../../maths/Vector4";
 import { Material } from "../../../../resource/Material";
-import { Stat } from "../../../../utils/Stat";
-import { IRenderElement3D, IRenderContext3D } from "../../../DriverDesign/3DRenderPass/I3DRenderPass";
+import { IRenderContext3D, IRenderElement3D } from "../../../DriverDesign/3DRenderPass/I3DRenderPass";
 import { ShaderData } from "../../../DriverDesign/RenderDevice/ShaderData";
-import { IBaseRenderNode } from "../../Design/3D/I3DRenderModuleData";
+import { ENodeCustomData, IBaseRenderNode } from "../../Design/3D/I3DRenderModuleData";
 import { WebLightmap } from "./WebLightmap";
 import { WebReflectionProbe } from "./WebReflectionProb";
 import { WebVolumetricGI } from "./WebVolumetricGI";
+import { Vector2 } from "../../../../maths/Vector2";
 
-
+interface DynamicBaseRenderClass {
+    new(): WebBaseRenderNode;
+    readonly prototype: WebBaseRenderNode
+}
 
 export class WebBaseRenderNode implements IBaseRenderNode {
+    static BaseRenderNodeClass: DynamicBaseRenderClass;
     renderNodeType: number;
     boundsChange: boolean;
     distanceForSort: number;
@@ -33,7 +35,6 @@ export class WebBaseRenderNode implements IBaseRenderNode {
     staticMask: number;
     lightmapIndex: number;
     lightmapDirtyFlag: number;
-    probeReflectionUpdateMark: number;
     reflectionMode: number;
     lightProbUpdateMark: number;
     irradientMode: IrradianceMode;
@@ -42,11 +43,13 @@ export class WebBaseRenderNode implements IBaseRenderNode {
     lightmap: WebLightmap;
     probeReflection: WebReflectionProbe;
     volumetricGI: WebVolumetricGI;
-    shaderData: ShaderData;
+
     baseGeometryBounds: Bounds;
     transform: Transform3D;
     _worldParams: Vector4;
     _commonUniformMap: string[];
+    _additionShaderDataKeys: string[];
+    ismoved: Vector2 = new Vector2();
     private _bounds: Bounds;
     private _caculateBoundingBoxCall: any;
     private _caculateBoundingBoxFun: Function;
@@ -54,18 +57,18 @@ export class WebBaseRenderNode implements IBaseRenderNode {
     private _renderUpdatePreFun: Function;
     private _updateMark: number;
 
-    /**
-    * context3D:GLESRenderContext3D
-    * @internal
-    */
-    _renderUpdatePre_StatUse(context3D: IRenderContext3D): void {
-        if (this._updateMark == context3D.cameraUpdateMask)
-            return;
-        var time = performance.now();//T_RenderPreUpdate Stat
-        this._renderUpdatePreFun.call(this._renderUpdatePreCall, context3D);
-        Stat.renderPassStatArray[RenderPassStatisticsInfo.T_RenderPreUpdate] += (performance.now() - time);//Stat
-        this._updateMark = context3D.cameraUpdateMask;
+    protected _additionShaderData: Map<string, ShaderData>;
+
+    protected _shaderData: ShaderData;
+
+    public get shaderData() {
+        return this._shaderData;
     }
+
+    public set shaderData(value) {
+        this._shaderData = value;
+    }
+
 
     /**
      * context3D:GLESRenderContext3D
@@ -82,9 +85,6 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         this._caculateBoundingBoxFun.call(this._caculateBoundingBoxCall);
     }
 
-
-
-
     /**
      * get bounds
      */
@@ -100,6 +100,19 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         this._bounds = value;
     }
 
+    public get additionShaderData(): Map<string, ShaderData> {
+        return this._additionShaderData;
+    }
+    public set additionShaderData(value: Map<string, ShaderData>) {
+        this._additionShaderData = value;
+        if (value) {
+            this._additionShaderDataKeys = Array.from(this._additionShaderData.keys());
+        }
+        else {
+            this._additionShaderDataKeys = [];
+        }
+    }
+
     constructor() {
         this.renderelements = [];
         this._commonUniformMap = [];
@@ -107,7 +120,24 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         this.lightmapDirtyFlag = -1;
         this.lightmapScaleOffset = new Vector4(1, 1, 0, 0);
         this.set_caculateBoundingBox(this, this._ownerCalculateBoundingBox);
+        this._additionShaderData = new Map();
     }
+
+    setNodeCustomData(dataSlot: ENodeCustomData, data: number): void {
+        switch (dataSlot) {
+            case 0:
+                this._worldParams.y = data;
+                break;
+            case 1:
+                this._worldParams.z = data;
+                break;
+            case 2:
+                this._worldParams.w = data;
+                break;
+        }
+    }
+
+
 
     /**
      * 设置更新数据
@@ -129,7 +159,6 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         this._caculateBoundingBoxFun = fun;
     }
 
-
     /**
      * 视锥检测包围盒
      * @param boundFrustum 
@@ -145,7 +174,6 @@ export class WebBaseRenderNode implements IBaseRenderNode {
 
 
     /**
-     * @internal
      * @param value :RenderElementObj
      */
     setRenderelements(value: IRenderElement3D[]): void {
@@ -173,6 +201,7 @@ export class WebBaseRenderNode implements IBaseRenderNode {
 
     /**
      * @internal
+     * @param value 
      */
     setLightmapScaleOffset(value: Vector4) {
         value && value.cloneTo(this.lightmapScaleOffset);
@@ -233,7 +262,7 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         if (this.lightmapIndex >= 0 || !this.volumetricGI) return;
         if (this.volumetricGI.updateMark != this.lightProbUpdateMark) {
             this.lightProbUpdateMark = this.volumetricGI.updateMark;
-            this.volumetricGI.applyRenderData(this.shaderData);
+            this.volumetricGI.applyRenderData();
         }
     }
 
@@ -243,10 +272,10 @@ export class WebBaseRenderNode implements IBaseRenderNode {
      * @returns 
      */
     _applyReflection() {
-        if (!this.probeReflection || this.reflectionMode == ReflectionProbeMode.off) return;
-        if (this.probeReflection.updateMark != this.probeReflectionUpdateMark) {
-            this.probeReflectionUpdateMark = this.probeReflection.updateMark;
-            this.probeReflection.applyRenderData(this.shaderData);
+        if (!this.probeReflection || this.reflectionMode == ReflectionProbeMode.off)
+            return;
+        if (this.probeReflection.needUpdate()) {
+            this.probeReflection.applyRenderData();
         }
     }
 
@@ -265,10 +294,16 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         this.volumetricGI = null;
         this.renderelements.length = 0;
         this.renderelements = null;
-        this._commonUniformMap.length = 0;
-        this._commonUniformMap = null;
         this.shaderData && this.shaderData.destroy();
         this.shaderData = null;
+
+        this._commonUniformMap.length = 0;
+        this._commonUniformMap = null;
+
+        this.additionShaderData.clear();
+        this.additionShaderData = null;
+        this._additionShaderDataKeys.length = 0;
+        this._additionShaderDataKeys = null;
     }
 
 }

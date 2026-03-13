@@ -1,6 +1,7 @@
 /**
  * @en Config is used to set some global parameters. If you need to change them, please set them before initializing the engine.
  * @zh Config类用于配置一些全局参数。如需更改，请在初始化引擎之前设置。
+ * @blueprintable
  */
 export class Config {
     /**
@@ -15,15 +16,36 @@ export class Config {
      */
     static useWebGL2: boolean = true;
 
+    /**W
+     * @en 是否提供Spri-v的shader
+     * @zh
+     */
+    static useSPRIV: boolean = false;
+
+    /**@internal */
+    static _uniformBlock: boolean;
+
+    /** 
+    * @en Whether to enable UniformBuffer
+    * @zh 材质是否启用UniformBuffer
+    */
+    static matUseUBO: boolean = true;
+
+    /** 
+    * @en Whether to enable UniformBuffer
+    * @zh 是否启用UniformBuffer
+    */
+    static enableUniformBufferObject = true;
+
     /**
-     * @en FPS limit
-     * @zh 限制FPS 
+     * @en FPS limit, the maximum frame rate of the engine, the default is 60. If the developer does not want to fix the logic frame rate limit, set `Config.fixedFrames` to `false` to close the fixed frame mode, so that the logic update follows the frequency of the platform's `requestAnimationFrame` call as much as possible.
+     * @zh 定义了引擎全局的目标帧率上限（默认为 60）。如果开发者不希望固定逻辑帧率上限，可以将 `Config.fixedFrames` 设置为 `false`，关闭固定帧模式，使逻辑更新尽可能跟随平台的 `requestAnimationFrame` 调用频率执行。
      */
     static FPS = 60;
 
     /**
-     * @en Whether to use retina mode, which may create larger RT on iOS for better effects
-     * @zh 是否使用视网膜模式，在iOS上面可能会创建更大的RT，来达到更佳的效果
+     * @en Whether to use the retina mode. In retina mode, a larger canvas is created for finer display effects.
+     * @zh 是否使用视网膜模式。在视网膜模式下，会创建更大的Canvas，来达到更精细的显示效果
      */
     static useRetinalCanvas: boolean = false;
 
@@ -129,14 +151,31 @@ export class Config {
      * @zh 资源引用参数为0是否立即删除资源，如果不立即删除请调用DestrotyUnUse
      */
     static destroyResourceImmediatelyDefault = true;
-    /**@internal */
-    static _enableWindowRAFFunction: boolean = true;
+
+    /**
+     * @en The maximum size of the audio buffer cache in bytes. After exceeding this size, the oldest unused audio data in the cache will be cleared.
+     * @zh 声音缓冲区缓存的最大大小（字节）。超出后将清除缓存中最久未使用的音频数据。
+     */
+    static audioBufferCacheMaxSize: number = 5 * 1024 * 1024;
+
+
+    /**
+     * @en UV clipping mode for 2D rendering.
+     * - "gpu": Use GPU fragment shader to clip triangles (default, lower CPU overhead)
+     * - "cpu": Use CPU Sutherland-Hodgman algorithm to clip triangles (higher CPU overhead, precise clipping)
+     * @zh 2D渲染的UV裁剪模式。
+     * - "gpu": 使用GPU片元着色器裁剪三角形（默认，CPU开销低）
+     * - "cpu": 使用CPU Sutherland-Hodgman算法裁剪三角形（CPU开销高，精确裁剪）
+     */
+    static uvClipMode: "gpu" | "cpu" = "cpu";
 }
 
 export const PlayerConfig: {
     physics2D?: any,
     physics3D?: any,
+    light2D?: any,
     spineVersion?: string,
     workerLoaderLib?: string,
+    UI?: any;
     [key: string]: any,
 } = {};

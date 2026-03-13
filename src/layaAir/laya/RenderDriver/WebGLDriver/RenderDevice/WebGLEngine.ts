@@ -10,7 +10,6 @@ import { RenderClearFlag } from "../../../RenderEngine/RenderEnum/RenderClearFla
 import { RenderParams } from "../../../RenderEngine/RenderEnum/RenderParams";
 import { ShaderVariable } from "../../../RenderEngine/RenderShader/ShaderVariable";
 import { IRenderEngine } from "../../DriverDesign/RenderDevice/IRenderEngine";
-import { IRenderEngineFactory } from "../../DriverDesign/RenderDevice/IRenderEngineFactory";
 import { ITextureContext } from "../../DriverDesign/RenderDevice/ITextureContext";
 import { GL2TextureContext } from "./GL2TextureContext";
 import { GLTextureContext } from "./GLTextureContext";
@@ -28,10 +27,12 @@ import { ShaderDefine } from "../../RenderModuleData/Design/ShaderDefine";
 import { WebGLShaderData } from "../../RenderModuleData/WebModuleData/WebGLShaderData";
 import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { WebGLInternalTex } from "./WebGLInternalTex";
-import { GPUEngineStatisticsInfo } from "../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { EventDispatcher } from "../../../events/EventDispatcher";
 import { WebGLInternalRT } from "./WebGLInternalRT";
 import { RenderTargetFormat } from "../../../RenderEngine/RenderEnum/RenderTargetFormat";
+import { Config3D } from "../../../../Config3D";
+import { WebGLUniformBufferManager } from "./WebGLUniformBufferManager";
+import { Config } from "../../../../Config";
 
 /**
  * 封装Webgl
@@ -49,9 +50,14 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     //兼容ConchWebGL
     static _lastFrameBuffer_WebGLOBJ: WebGLFramebuffer = null;
 
+    static _lastShaderError: string;
+
     _context: WebGLRenderingContext | WebGL2RenderingContext;
 
+    _framePassCount: number = 0;
+
     private _lost: boolean = false;
+
     public get lost(): boolean {
         return this._lost;
     }
@@ -62,19 +68,14 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
 
     private _webglMode: WebGLMode;
 
-    /**@internal */
     private _propertyNameMap: any = {};
-    /**@internal */
     private _propertyNameCounter: number = 0;
-    /**@internal */
-    _renderOBJCreateContext: IRenderEngineFactory;
 
     /**@internal */
     _IDCounter: number = 0;
 
     /**@internal ShaderDebugMode*/
     _isShaderDebugMode: boolean = true;
-    _enableStatistics: boolean = false;
     /**@internal gl.TextureID*/
     _glTextureIDParams: Array<number>;
 
@@ -107,11 +108,6 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     //key BufferTargetType
     private _GLBufferBindMap: { [key: number]: GLBuffer | null };
 
-    private _curUBOPointer: number = 0;
-    //记录绑定UBO的glPointer
-    private _GLUBOPointerMap: Map<string, number> = new Map();
-    //记录绑定Pointer的UBO
-    private _GLBindPointerUBOMap: Map<number, GLBuffer> = new Map();
     //bind viewport
     private _lastViewport: Vector4;
     private _lastScissor: Vector4;
@@ -139,22 +135,18 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     //GLRenderState
     _GLRenderState: GLRenderState;
     // todo  这个 map 和 get 函数转移到 ShaderDefine 里面
-    /**@internal */
     private static _defineMap: { [key: string]: ShaderDefine } = {};
-    /**@internal */
     private static _defineCounter: number = 0;
     /**@internal */
     static _maskMap: Array<{ [key: number]: string }> = [];
-    // //TODO:管理Buffer
-    // private _bufferResourcePool: any;
-    // //TODO:管理Texture
-    // private _textureResourcePool: any;
-    // //TODO:管理FrameBuffer
-    // private _RenderBufferResource: any;
 
-    //GPU统计数据
-    private _GLStatisticsInfo: Map<GPUEngineStatisticsInfo, number> = new Map();
+    /** @internal */
+    bufferMgr: WebGLUniformBufferManager;
+
+    _uboBindingMap: { buffer: WebGLBuffer, offset: number, size: number }[];
+
     static instance: WebGLEngine;
+    /** @ignore */
     constructor(config: WebGLConfig, webglMode: WebGLMode = WebGLMode.Auto) {
         super();
         this._config = config;
@@ -164,8 +156,12 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         this._lastClearColor = new Color(0, 0, 0, 0);
         this._lastScissor = new Vector4(0, 0, 0, 0);
         this._webglMode = webglMode;
-        this._initStatisticsInfo();
         WebGLEngine.instance = this;
+    }
+
+    startFrame(): void {
+        this._framePassCount = 0;
+        this.event("startFrame", null);
     }
 
     endFrame(): void {
@@ -173,38 +169,25 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     }
 
     getInnerWidth() {
-        if (LayaEnv.isConch) {
-            return (window as any).getInnerWidth();
-        } else
-            return this._globalWidth;
+        return this._globalWidth;
     }
 
     getInnerHeight() {
-        if (LayaEnv.isConch) {
-            return (window as any).getInnerHeight();
-        } else
-            return this._globalHeight;
+        return this._globalHeight;
     }
 
 
     resizeOffScreen(width: number, height: number): void {
         this._globalWidth = width;
         this._globalHeight = height;
-        if (LayaEnv.isConch) {
-            if (WebGLEngine._lastFrameBuffer) {
-                WebGLEngine._lastFrameBuffer.dispose();
-                WebGLEngine._lastFrameBuffer_WebGLOBJ = null;
-            }
-            WebGLEngine._lastFrameBuffer = this.getTextureContext().createRenderTargetInternal(width, height, RenderTargetFormat.R8G8B8A8, RenderTargetFormat.None, false, false, 1) as WebGLInternalRT;
-            WebGLEngine._lastFrameBuffer_WebGLOBJ = WebGLEngine._lastFrameBuffer._framebuffer;
-        }
     }
     addTexGammaDefine(key: number, value: ShaderDefine): void {
         WebGLEngine._texGammaDefine[key] = value;
     }
 
     /**
-     * GL Context
+     * @en webGL rendering context
+     * @zh 获取 webGL 渲染上下文
      */
     get gl() {
         return this._context;
@@ -218,66 +201,13 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         return this._config;
     }
 
-    private _initStatisticsInfo() {
-        for (var i = 0; i < GPUEngineStatisticsInfo.Count; i++) {
-            this._GLStatisticsInfo.set(i, 0);
-        }
-    }
-
-    /**
-     * @internal
-     */
-    _addStatisticsInfo(info: GPUEngineStatisticsInfo, value: number) {
-        this._enableStatistics && this._GLStatisticsInfo.set(info, this._GLStatisticsInfo.get(info) + value);
-    }
-
-    /**
-     * 清除
-     * @internal
-     * @param info 
-     */
-    clearStatisticsInfo() {
-        if (this._enableStatistics) {
-            for (var i = 0; i < GPUEngineStatisticsInfo.FrameClearCount; i++) {
-                this._GLStatisticsInfo.set(i, 0);
-            }
-        }
-    }
-
-    /**
-     * @internal
-     * @param info 
-     * @returns 
-     */
-    getStatisticsInfo(info: GPUEngineStatisticsInfo): number {
-        return this._GLStatisticsInfo.get(info);
-    }
-
-    /**
-     * @internal
-     * @param glPointer 
-     * @returns 
-     */
-    _getBindUBOBuffer(glPointer: number): GLBuffer {
-        return this._GLBindPointerUBOMap.get(glPointer);
-    }
-
-    /**
-     * @internal
-     * @param glPointer 
-     * @param buffer 
-     */
-    _setBindUBOBuffer(glPointer: number, buffer: GLBuffer): void {
-        this._GLBindPointerUBOMap.set(glPointer, buffer);
-    }
-
     /**
      * create GL
      * @param canvas 
      */
-    initRenderEngine(canvas: any) {
+    initRenderEngine(canvas: HTMLCanvasElement) {
         let names;
-        let gl;
+        let gl: WebGLRenderingContext | WebGL2RenderingContext;
         switch (this._webglMode) {
             case WebGLMode.Auto:
                 names = ["webgl2", "experimental-webgl2", "webgl", "experimental-webgl"];
@@ -289,9 +219,9 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
                 names = ["webgl2", "experimental-webgl2"];
                 break;
         }
-        for (var i: number = 0; i < names.length; i++) {
+        for (let i: number = 0; i < names.length; i++) {
             try {
-                gl = canvas.getContext(names[i], this._config);
+                gl = <WebGLRenderingContext | WebGL2RenderingContext>canvas.getContext(names[i], this._config);
                 // gl.drawingBufferColorSpace = "display-p3";
             } catch (e) {
             }
@@ -315,7 +245,27 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         this._activeTextures = [];
         this._GLTextureContext = this.isWebGL2 ? new GL2TextureContext(this) : new GLTextureContext(this);
         this._GLRenderDrawContext = new GLRenderDrawContext(this);
+
         canvas.addEventListener("webglcontextlost", this.webglContextLost)
+        Config._uniformBlock = Config.enableUniformBufferObject && this.getCapable(RenderCapable.UnifromBufferObject);
+        Config.matUseUBO = Config.matUseUBO && this.getCapable(RenderCapable.UnifromBufferObject);
+        this._initBufferBlock();
+    }
+
+    private _initBufferBlock() {
+        const useUBO = (Config._uniformBlock || Config.matUseUBO);
+        if (useUBO) {
+            const gl = <WebGL2RenderingContext>this._context;
+
+            let offsetAlignment = gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT);
+            this.bufferMgr = new WebGLUniformBufferManager(this, offsetAlignment);
+
+            let maxBlockCount = gl.getParameter(gl.MAX_UNIFORM_BUFFER_BINDINGS);
+            this._uboBindingMap = new Array(maxBlockCount);
+            for (let i = 0; i < maxBlockCount; i++) {
+                this._uboBindingMap[i] = { buffer: null, offset: 0, size: 0 };
+            }
+        }
     }
 
     webglContextLost(e: any) {
@@ -413,7 +363,7 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         }
         if (clearFlag & RenderClearFlag.Stencil) {
             this._context.clearStencil(clearStencilValue);
-            this._GLRenderState.setStencilMask(true);
+            this._GLRenderState.setStencilWrite(true);
             flag |= this._context.STENCIL_BUFFER_BIT;
         }
         if (flag)
@@ -448,14 +398,6 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         return new GLVertexState(this);
     }
 
-    getUBOPointer(name: string): number {
-        if (!this._GLUBOPointerMap.has(name))
-            this._GLUBOPointerMap.set(name, this._curUBOPointer++);
-        return this._GLUBOPointerMap.get(name);
-    }
-
-
-
     getTextureContext(): ITextureContext {
         return this._GLTextureContext;
     }
@@ -464,15 +406,6 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     getDrawContext(): GLRenderDrawContext {
         return this._GLRenderDrawContext;
     }
-
-    getCreateRenderOBJContext(): IRenderEngineFactory {
-        return this._renderOBJCreateContext;
-    }
-
-    // //TODO:
-    // propertyNameToID(name: string): number {
-    //   return this.propertyNameToID(name);
-    // }
 
     /**
    * 通过Shader属性名称获得唯一ID。
@@ -537,7 +470,6 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
      * @internal
      */
     uploadUniforms(shader: GLShaderInstance, commandEncoder: CommandEncoder, shaderData: WebGLShaderData, uploadUnTexture: boolean): number {
-        shaderData.applyUBO && shaderData.applyUBOData();
         var data: any = shaderData._data;
         var shaderUniform: any[] = commandEncoder.getArrayData();
         var shaderCall: number = 0;
@@ -555,13 +487,10 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     /**
      * @internal
      */
-    uploadCustomUniforms(shader: GLShaderInstance, custom: any[], index: number, data: any): number {
+    uploadOneUniforms(shader: GLShaderInstance, shaderVariable: ShaderVariable, data: any): void {
         shader.bind();
-        var shaderCall: number = 0;
-        var one: ShaderVariable = custom[index];
-        if (one && data != null)
-            shaderCall += one.fun.call(one.caller, one, data);
-        return shaderCall;
+        if (shaderVariable && data != null)
+            shaderVariable.fun.call(shaderVariable.caller, shaderVariable, data);
     }
 
     unbindVertexState(): void {

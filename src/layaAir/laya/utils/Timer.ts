@@ -1,4 +1,3 @@
-import { CallLater } from "./CallLater";
 import { Utils } from "./Utils";
 
 /**
@@ -6,14 +5,12 @@ import { Utils } from "./Utils";
  * @zh Timer 是时钟管理类。它是一个单例，不要手动实例化此类，应该通过 Laya.timer 访问。
  */
 export class Timer {
-    /**@private */
+    /**@internal */
     static gSysTimer: Timer = null;
-
-    /**@private */
-    private static _pool: any[] = [];
-    /**@private */
-    static _mid: number = 1;
-
+    /**@internal */
+    static readonly callLaters: Timer = new Timer(false, true);
+    /**@internal */
+    static readonly _pool: TimerHandler[] = [];
 
     /**
      * @en Scale of the clock hand.
@@ -31,52 +28,45 @@ export class Timer {
      */
     currFrame: number = 0;
     /**
-     * @internal
      * @en The time interval between two frames, in milliseconds.
      * @zh 两帧之间的时间间隔，单位毫秒。
      */
-    _delta: number = 0;
-    /**@internal */
-    _lastTimer: number;
-    /**@private */
-    private _map: { [key: string]: TimerHandler } = {};
-    /**@private */
-    private _handlers: any[] = [];
-    /**@private */
-    private _temp: any[] = [];
-    /**@private */
-    private _count: number = 0;
+    delta: number = 0;
+    /**
+     * @en The unscaled time interval between two frames, in milliseconds.
+     * @zh 两帧之间的时间间隔（不受 scale 影响），单位毫秒。
+     */
+    unscaledDelta: number = 0;
+
+    private _lastTimer: number;
+    private _map: Record<string, TimerHandler> = {};
+    private _handlers: TimerHandler[] = [];
+    private _greedy: boolean;
 
     /**
      * @en Constructor method
+     * @param autoActive Whether to automatically activate the timer. If not, you need to call `_update` manually. Default is true.
+     * @param greedyMode Whether to use the greedy mode. In the greedy mode, the timer will try to execute the new added handler within `_update`. Default is false.
      * @zh 构造方法
+     * @param autoActive 是否自动激活时钟，否则需要手动调用 `_update`。默认为 true。
+     * @param greedyMode 是否使用贪婪模式，在贪婪模式下时钟会尝试在 `_update` 内执行新添加的 handler。默认为 false。
      */
-    constructor(autoActive: boolean = true) {
-        autoActive && Timer.gSysTimer && Timer.gSysTimer.frameLoop(1, this, this._update);
-        this.currTimer = this._getNowData();
-        this._lastTimer = this._getNowData();
+    constructor(autoActive?: boolean, greedyMode?: boolean) {
+        (autoActive || autoActive == null) && Timer.gSysTimer && Timer.gSysTimer.frameLoop(1, this, this._update);
+        this.currTimer = performance.now();
+        this._lastTimer = performance.now();
+        this._greedy = !!greedyMode;
     }
 
     /**
-     * 提供一个按照时间间隔更新的方法
-     * @param delay
+     * @en The time since last frame (unit: milliseconds).
+     * @zh 获取最后一帧的时间（单位：毫秒）。
      */
-    setInterval(delay: number): void {
-        Timer.gSysTimer && Timer.gSysTimer.clear(this, this._update);
-        Timer.gSysTimer && Timer.gSysTimer.loop(delay, this, this._update);
+    get totalTime(): number {
+        return this._lastTimer;
     }
 
     /**
-     * @en The time interval between two frames, in milliseconds.
-     * @zh 两帧之间的时间间隔，单位毫秒。
-     */
-    get delta(): number {
-        return this._delta;
-    }
-
-
-    /**
-     * @internal
      * @en The frame update handling function.
      * @zh 帧循环处理函数。
      */
@@ -85,23 +75,23 @@ export class Timer {
             timestamp = performance.now();
         if (this.scale <= 0) {
             this._lastTimer = timestamp;
-            this._delta = 0;
+            this.delta = 0;
             return;
         }
-        var frame: number = this.currFrame = this.currFrame + this.scale;
-        var now: number = timestamp;
-        var awake: boolean = (now - this._lastTimer) > 30000;
-        this._delta = (now - this._lastTimer) * this.scale;
-        var timer: number = this.currTimer = this.currTimer + this._delta;
-        this._lastTimer = now;
 
-        //处理handler
-        var handlers: any[] = this._handlers;
-        this._count = 0;
-        for (var i: number = 0, n: number = handlers.length; i < n; i++) {
-            var handler: TimerHandler = handlers[i];
-            if (handler.method !== null) {
-                var t: number = handler.userFrame ? frame : timer;
+        let frame: number = this.currFrame = this.currFrame + this.scale;
+        this.unscaledDelta = timestamp - this._lastTimer;
+        let awake: boolean = this.unscaledDelta > 30000;
+        this.delta = this.unscaledDelta * this.scale;
+        let timer: number = this.currTimer = this.currTimer + this.delta;
+        this._lastTimer = timestamp;
+
+        let handlers = this._handlers;
+        let killed = 0;
+        for (let i: number = 0, n: number = handlers.length - 1; i <= n; i++) {
+            let handler = handlers[i];
+            if (handler.method) {
+                let t: number = handler.userFrame ? frame : timer;
                 if (t >= handler.exeTime) {
                     if (handler.repeat) {
                         if (!handler.jumpFrame || awake) {
@@ -121,56 +111,45 @@ export class Timer {
                         handler.run(true);
                     }
                 }
-            } else {
-                this._count++;
+            }
+            else
+                killed++;
+
+            i === n && this._greedy && (n = handlers.length - 1);
+        }
+
+        if (killed > 30 || frame % 200 === 0)
+            this._clearHandlers();
+    }
+
+    private _clearHandlers(): void {
+        let handlers = this._handlers;
+        let j = 0;
+        for (let i: number = 0, n: number = handlers.length; i < n; i++) {
+            let handler: TimerHandler = handlers[i];
+            if (handler.method !== null) {
+                if (j !== i)
+                    handlers[j++] = handler;
+                else
+                    j++;
+            }
+            else {
+                if (this._map[handler.key] == handler)
+                    delete this._map[handler.key];
+                handler.clear();
+                Timer._pool.push(handler);
             }
         }
-
-        if (this._count > 30 || frame % 200 === 0) this._clearHandlers();
-    }
-
-    /** @private */
-    private _clearHandlers(): void {
-        var handlers: any[] = this._handlers;
-        for (var i: number = 0, n: number = handlers.length; i < n; i++) {
-            var handler: TimerHandler = handlers[i];
-            if (handler.method !== null) this._temp.push(handler);
-            else this._recoverHandler(handler);
-        }
-        this._handlers = this._temp;
-        handlers.length = 0;
-        this._temp = handlers;
-    }
-
-    /** @private */
-    private _recoverHandler(handler: TimerHandler): void {
-        if (this._map[handler.key] == handler) delete this._map[handler.key];
-        handler.clear();
-        Timer._pool.push(handler);
-    }
-
-    /**
-     * @private
-     * @en get now time data.
-     * @returns reutrn time data.
-     * @zh 立即获取时间数据
-     * @returns 返回时间数据
-     */
-    public _getNowData(): number {
-        return performance.now();
+        handlers.length = j;
     }
 
     /** @internal */
     _create(useFrame: boolean, repeat: boolean, delay: number, caller: any, method: Function, args: any[], coverBefore: boolean): TimerHandler {
-        //如果延迟为0，则立即执行
-        if (!delay) {
-            method.apply(caller, args);
-            return null;
-        }
+        let key = Utils.getGID(caller, method);
 
         //先覆盖相同函数的计时
-        if (coverBefore) {
-            var handler: TimerHandler = this._getHandler(caller, method);
+        if (coverBefore == null || coverBefore) {
+            let handler: TimerHandler = this._map[key];
             if (handler) {
                 handler.repeat = repeat;
                 handler.userFrame = useFrame;
@@ -178,38 +157,29 @@ export class Timer {
                 handler.caller = caller;
                 handler.method = method;
                 handler.args = args;
-                handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + this._getNowData() - this._lastTimer);
+                handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + performance.now() - this._lastTimer);
                 return handler;
             }
         }
 
         //找到一个空闲的timerHandler
-        handler = Timer._pool.length > 0 ? Timer._pool.pop() : new TimerHandler();
+        let handler = Timer._pool.length > 0 ? Timer._pool.pop() : new TimerHandler();
+        handler.key = key;
         handler.repeat = repeat;
         handler.userFrame = useFrame;
         handler.delay = delay;
         handler.caller = caller;
         handler.method = method;
         handler.args = args;
-        handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + this._getNowData() - this._lastTimer);
+        handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + performance.now() - this._lastTimer);
 
         //索引handler
-        this._indexHandler(handler);
+        this._map[key] = handler;
 
         //插入数组
         this._handlers.push(handler);
 
         return handler;
-    }
-
-    /** @private */
-    private _indexHandler(handler: TimerHandler): void {
-        var caller: any = handler.caller;
-        var method: any = handler.method;
-        var cid: number = caller ? caller.$_GID || (caller.$_GID = Utils.getGID()) : 0;
-        var mid: number = method.$_TID || (method.$_TID = Timer._mid++);
-        handler.key = cid + "_" + mid;
-        this._map[handler.key] = handler;
     }
 
     /**
@@ -226,7 +196,7 @@ export class Timer {
      * @param args 回调参数。
      * @param coverBefore 是否覆盖之前的延迟执行，默认为 true 。
      */
-    once(delay: number, caller: any, method: Function, args: any[] = null, coverBefore: boolean = true): void {
+    once(delay: number, caller: any, method: Function, args?: any[], coverBefore?: boolean): void {
         this._create(false, false, delay, caller, method, args, coverBefore);
     }
 
@@ -246,8 +216,8 @@ export class Timer {
      * @param coverBefore 是否覆盖之前的延迟执行，默认为 true 。
      * @param jumpFrame 时钟是否跳帧。基于时间的循环回调，单位时间间隔内，如能执行多次回调，出于性能考虑，引擎默认只执行一次，设置jumpFrame=true后，则回调会连续执行多次。
      */
-    loop(delay: number, caller: any, method: Function, args: any[] = null, coverBefore: boolean = true, jumpFrame: boolean = false): void {
-        var handler: TimerHandler = this._create(false, true, delay, caller, method, args, coverBefore);
+    loop(delay: number, caller: any, method: Function, args?: any[], coverBefore?: boolean, jumpFrame?: boolean): void {
+        let handler: TimerHandler = this._create(false, true, delay, caller, method, args, coverBefore);
         if (handler) handler.jumpFrame = jumpFrame;
     }
 
@@ -265,7 +235,7 @@ export class Timer {
      * @param args 回调参数。
      * @param coverBefore 是否覆盖之前的延迟执行，默认为 true。
      */
-    frameOnce(delay: number, caller: any, method: Function, args: any[] = null, coverBefore: boolean = true): void {
+    frameOnce(delay: number, caller: any, method: Function, args?: any[], coverBefore?: boolean): void {
         this._create(true, false, delay, caller, method, args, coverBefore);
     }
 
@@ -283,7 +253,7 @@ export class Timer {
      * @param args 回调参数。
      * @param coverBefore 是否覆盖之前的延迟执行，默认为 true。
      */
-    frameLoop(delay: number, caller: any, method: Function, args: any[] = null, coverBefore: boolean = true): void {
+    frameLoop(delay: number, caller: any, method: Function, args?: any[], coverBefore?: boolean): void {
         this._create(true, true, delay, caller, method, args, coverBefore);
     }
 
@@ -304,7 +274,7 @@ export class Timer {
      * @param method 定时器回调函数。
      */
     clear(caller: any, method: Function): void {
-        var handler: TimerHandler = this._getHandler(caller, method);
+        let handler: TimerHandler = this._map[Utils.getGID(caller, method)];
         if (handler) {
             handler.clear();
         }
@@ -317,47 +287,44 @@ export class Timer {
      * @param caller  执行域(this)。
      */
     clearAll(caller: any): void {
-        if (!caller) return;
-        for (var i: number = 0, n: number = this._handlers.length; i < n; i++) {
-            var handler: TimerHandler = this._handlers[i];
+        if (!caller)
+            return;
+
+        for (let i: number = 0, n: number = this._handlers.length; i < n; i++) {
+            let handler: TimerHandler = this._handlers[i];
             if (handler.caller === caller) {
                 handler.clear();
             }
         }
     }
 
-    /** @private */
-    private _getHandler(caller: any, method: any): TimerHandler {
-        var cid: number = caller ? caller.$_GID || (caller.$_GID = Utils.getGID()) : 0;
-        var mid: number = method.$_TID || (method.$_TID = Timer._mid++);
-        var key: any = cid + "_" + mid;
-        return this._map[key];
-    }
-
     /**
      * @en Delays the execution.
      * @param caller The scope of the object (this).
      * @param method The timer callback function. 
-     * @param args The callback arguments. Default is null.
+     * @param args The callback arguments.
      * @zh 延迟执行。
-     * @param	caller 执行域(this)。
-     * @param	method 定时器回调函数。
-     * @param	args 回调参数。
+     * @param caller 执行域(this)。
+     * @param method 定时器回调函数。
+     * @param args 回调参数。
      */
-    callLater(caller: any, method: Function, args: any[] = null): void {
-        CallLater.I.callLater(caller, method, args);
+    callLater(caller: any, method: Function, args?: any[]): void {
+        Timer.callLaters._create(false, false, 0, caller, method, args, true).exeTime = 0;
     }
 
     /**
      * @en Immediately executes the callLater.
      * @param caller The scope of the object (this).
      * @param method The callback function for the timer.
+     * @param forceRun Whether to force execution, regardless of whether there is a registered CallLater.
      * @zh 立即执行 callLater。
-     * @param	caller 执行域(this)。
-     * @param	method 定时器回调函数。
+     * @param caller 执行域(this)。
+     * @param method 定时器回调函数。
+     * @param forceRun 是否强制执行，不管是否有注册CallLater.
      */
-    runCallLater(caller: any, method: Function): void {
-        CallLater.I.runCallLater(caller, method);
+    runCallLater(caller: any, method: Function, forceRun?: boolean): void {
+        if (!Timer.callLaters.runTimer(caller, method) && forceRun)
+            method.apply(caller);
     }
 
     /**
@@ -365,27 +332,32 @@ export class Timer {
      * @param caller The scope of the object (this).
      * @param method The callback function for the timer.
      * @zh 取消执行 callLater。
-     * @param	caller 执行域(this)。
-     * @param	method 定时器回调函数。
+     * @param caller 执行域(this)。
+     * @param method 定时器回调函数。
      */
     clearCallLater(caller: any, method: Function): void {
-        CallLater.I.clear(caller, method);
+        Timer.callLaters.clear(caller, method);
     }
 
     /**
      * @en Immediately advance the timer, execute it, and then remove it from the queue.
      * @param caller The scope of the object (this).
      * @param method Timer callback function.
+     * @return Whether the call was successful.
      * @zh 立即提前执行定时器，执行后从队列中删除。
      * @param caller 执行域(this)。
      * @param method 定时器回调函数。
+     * @return 调用是否成功。
      */
-    runTimer(caller: any, method: Function): void {
-        var handler: TimerHandler = this._getHandler(caller, method);
+    runTimer(caller: any, method: Function): boolean {
+        let handler: TimerHandler = this._map[Utils.getGID(caller, method)];
         if (handler && handler.method != null) {
             this._map[handler.key] = null;
             handler.run(true);
+            return true;
         }
+        else
+            return false;
     }
 
     /**
@@ -409,19 +381,14 @@ export class Timer {
      * @zh 删除定时器，同时清理定时器上的所有事件。
      */
     destroy() {
-        for (var i = 0, n = this._handlers.length; i < n; i++) {
-            var handler = this._handlers[i];
+        for (let i = 0, n = this._handlers.length; i < n; i++) {
+            let handler = this._handlers[i];
             handler.clear();
         }
         this._handlers.length = 0;
-        this._map = {};
-        this._temp.length = 0;
     }
 }
 
-
-
-/** @private */
 class TimerHandler {
     /**
      * @en The key of the timer handler.
@@ -457,7 +424,7 @@ class TimerHandler {
      * @en The caller object for the timer method.
      * @zh 定时器方法的调用者对象。
      */
-    caller: any
+    caller: any;
 
     /**
      * @en The method to be executed by the timer.
@@ -494,10 +461,10 @@ class TimerHandler {
      * @param withClear 是否在执行后清除处理程序。
      */
     run(withClear: boolean): void {
-        var caller: any = this.caller;
+        let caller: any = this.caller;
         if (caller && caller.destroyed) return this.clear();
-        var method: Function = this.method;
-        var args: any[] = this.args;
+        let method: Function = this.method;
+        let args: any[] = this.args;
         withClear && this.clear();
         if (method == null) return;
         args ? method.apply(caller, args) : method.call(caller);

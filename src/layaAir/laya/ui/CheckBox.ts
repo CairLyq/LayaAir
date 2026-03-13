@@ -8,6 +8,7 @@ import { Button } from "./Button"
  * - `CheckBox` 组件还可以显示可选的文本标签，默认该标签位于 CheckBox 右侧。
  * - 使用 `dataSource` 赋值时，`CheckBox` 的默认属性是 `selected`。
  * - `change`事件，当按钮的选中状态（ `selected` 属性）发生改变时调度。
+ * @blueprintInheritable
  */
 export class CheckBox extends Button {
 
@@ -55,16 +56,11 @@ export class CheckBox extends Button {
      */
     set_dataSource(value: any) {
         this._dataSource = value;
-        // JavaScript 中布尔值有两种形式：原始值（true/false）和 对象包装器（new Boolean(true)）。
-        // instanceof Boolean 仅对对象包装器有效，对原始布尔值无效（如 true instanceof Boolean 返回 false）。
-        // 实际开发中，布尔值通常是原始值，因此instanceof 会漏掉大多数合法的布尔值输入。
-        // typeof 是 JavaScript 原生操作符，性能略高于 instanceof（后者需要遍历原型链）
-        if (typeof value == "boolean")
-            this.selected = value;
-        else if (typeof value == "string")
+        if (value instanceof Boolean)
+            this.selected = value as boolean;
+        else if (typeof (value) == 'string')
             this.selected = value === "true";
         else
             super.set_dataSource(value);
-
     }
 }

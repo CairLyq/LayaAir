@@ -1,17 +1,20 @@
-import { Context } from "../../renders/Context"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "DrawPieCmd";
 
 /**
  * @en Draw a pie chart
  * @zh 绘制扇形
  */
-export class DrawPieCmd {
+export class DrawPieCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the DrawPieCmd
      * @zh 绘制扇形命令的标识符
      */
-    static ID: string = "DrawPie";
+    static readonly ID: string = className;
 
     /**
      * @en The X-axis position to start drawing.
@@ -71,7 +74,7 @@ export class DrawPieCmd {
      * @returns 绘制扇形命令实例
      */
     static create(x: number, y: number, radius: number, startAngle: number, endAngle: number, fillColor: any, lineColor: any, lineWidth: number): DrawPieCmd {
-        var cmd: DrawPieCmd = Pool.getItemByClass("DrawPieCmd", DrawPieCmd);
+        var cmd: DrawPieCmd = Pool.getItemByClass(className, DrawPieCmd);
         cmd.x = x;
         cmd.y = y;
         cmd.radius = radius;
@@ -90,23 +93,23 @@ export class DrawPieCmd {
     recover(): void {
         this.fillColor = null;
         this.lineColor = null;
-        Pool.recover("DrawPieCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the drawing command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局 X 偏移
      * @param gy 全局 Y 偏移
      */
-    run(context: Context, gx: number, gy: number): void {
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
         let offset = (this.lineWidth >= 1 && this.lineColor) ? this.lineWidth / 2 : 0;
         let lineOffset = this.lineColor ? this.lineWidth : 0;
-        context._drawPie(this.x + offset + gx, this.y + offset + gy, this.radius - lineOffset, this._startAngle, this._endAngle, this.fillColor, this.lineColor, this.lineWidth, 0);
+        runner._drawPie(this.x + offset + gx, this.y + offset + gy, this.radius - lineOffset, this._startAngle, this._endAngle, this.fillColor, this.lineColor, this.lineWidth, 0);
     }
 
     /**
@@ -115,6 +118,13 @@ export class DrawPieCmd {
      */
     get cmdID(): string {
         return DrawPieCmd.ID;
+    }
+
+    /**
+     * @ignore @blueprintIgnore
+     */
+    needsLayoutRepaint(): number {
+        return 1;
     }
 
     /**
@@ -142,12 +152,10 @@ export class DrawPieCmd {
     }
 
     /**
-     * @en Get the boundary points of the pie chart
-     * @zh 获取扇形的边界点
+     * @ignore
      */
-    getBoundPoints(): number[] {
-        let rst: any[] = _tempPoints;
-        _tempPoints.length = 0;
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        let rst = assembler.points;
         let k: number = Math.PI / 180;
         let d1: number = this.endAngle - this.startAngle;
         let x = this.x, y = this.y, radius = this.radius;
@@ -157,7 +165,7 @@ export class DrawPieCmd {
             rst.push(x + radius, y - radius);
             rst.push(x + radius, y + radius);
             rst.push(x - radius, y + radius);
-            return rst;
+            return;
         }
         // 
         rst.push(x, y);	// 中心
@@ -185,10 +193,7 @@ export class DrawPieCmd {
             var csr: number = cs * k;
             rst.push(x + radius * Math.cos(csr), y + radius * Math.sin(csr));
         }
-        return rst;
     }
 }
 
-const _tempPoints: any[] = [];
-
-ClassUtils.regClass("DrawPieCmd", DrawPieCmd);
+ClassUtils.regClass(className, DrawPieCmd);

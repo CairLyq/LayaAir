@@ -3,9 +3,8 @@ import { Quaternion } from "../../../maths/Quaternion";
 import { Vector3 } from "../../../maths/Vector3";
 import { IColliderShape } from "../../interface/Shape/IColliderShape";
 import { pxCollider } from "../Collider/pxCollider";
-import { pxPhysicsCreateUtil } from "../pxPhysicsCreateUtil";
-import { partFlag } from "../pxPhysicsManager";
 import { pxPhysicsMaterial } from "../pxPhysicsMaterial";
+import { partFlag, pxStatics } from "../pxStatics";
 
 
 /**
@@ -58,8 +57,10 @@ export class pxColliderShape implements IColliderShape {
     _id: number;
 
     /**
-     * @en Filter data for collision and query. [0]: group, [1]: mask, [2]: event
-     * @zh 碰撞和查询的过滤数据。[0]: 组, [1]: 掩码, [2]: 事件
+     * @en Filter data for collision and query. 
+     * - 0: group, 1: mask, 2: event
+     * @zh 碰撞和查询的过滤数据。
+     * - 0]: 组, 1: 掩码, 2: 事件
      */
     filterData: pxFilterData = { word0: Physics3DUtils.PHYSXDEFAULTMASKVALUE, word1: Physics3DUtils.PHYSXDEFAULTMASKVALUE, word2: 0, word3: 0 };//PxFilterData
 
@@ -67,17 +68,14 @@ export class pxColliderShape implements IColliderShape {
     constructor() {
 
     }
-    /**
-     * @override
-     */
     protected _createShape() {
         this._id = pxColliderShape._pxShapeID++;
         this._pxMaterials[0] = new pxPhysicsMaterial();
-        this._pxShape = pxPhysicsCreateUtil._pxPhysics.createShape(
+        this._pxShape = pxStatics._physics.createShape(
             this._pxGeometry,
             this._pxMaterials[0]._pxMaterial,
             true,
-            new pxPhysicsCreateUtil._physX.PxShapeFlags(this._shapeFlags)
+            new pxStatics._physX.PxShapeFlags(this._shapeFlags)
         );
         this._pxShape && this._pxShape.setUUID(this._id);
         pxColliderShape._shapePool.set(this._id, this);
@@ -154,7 +152,7 @@ export class pxColliderShape implements IColliderShape {
 
     _setShapeFlags(flags: ShapeFlag) {
         this._shapeFlags = flags;
-        if (this._pxShape) this._pxShape.setFlags(new pxPhysicsCreateUtil._physX.PxShapeFlags(this._shapeFlags));
+        if (this._pxShape) this._pxShape.setFlags(new pxStatics._physX.PxShapeFlags(this._shapeFlags));
     }
 
     /**
@@ -194,7 +192,6 @@ export class pxColliderShape implements IColliderShape {
         }
 
     }
-
 
     /**
      * @en Destroys the collider shape and releases resources.

@@ -1,9 +1,10 @@
 import { Component } from "../../../components/Component";
 import { Vector3 } from "../../../maths/Vector3";
 import { IJoint } from "../../../Physics3D/interface/Joint/IJoint";
-import { Node } from "../../../display/Node";
 import { IPhysicsManager } from "../../../Physics3D/interface/IPhysicsManager";
 import { PhysicsColliderComponent } from "../PhysicsColliderComponent";
+import { Sprite3D } from "../../core/Sprite3D";
+
 /**
  * @en ConstraintComponent class is the base class for creating constraints.
  * @zh ConstraintComponent 类用于创建约束的父类。
@@ -11,23 +12,18 @@ import { PhysicsColliderComponent } from "../PhysicsColliderComponent";
 export class ConstraintComponent extends Component {
     /**@internal */
     _joint: IJoint;
-    /**@internal */
     private _enableCollison: boolean = false;
-    /**@internal @protected */
     protected _physicsManager: IPhysicsManager;
-    /**@internal @protected */
     protected _ownCollider: PhysicsColliderComponent;
-    /**@internal @protected */
     protected _connectCollider: PhysicsColliderComponent;
-    /**@internal @protected */
     protected _breakForce: number = Number.MAX_VALUE;
-    /**@internal @protected */
     protected _breakTorque: number = Number.MAX_VALUE;
-    /**@internal @protected */
     protected _ownColliderLocalPos: Vector3 = new Vector3();
-    /**@internal @protected */
     protected _connectColliderLocalPos: Vector3 = new Vector3();
     private _isJointInit: boolean = false;
+
+    declare readonly owner: Sprite3D;
+
     /**
      * @en Initializes the joint instance.
      * @zh 初始化关节实例。
@@ -41,10 +37,6 @@ export class ConstraintComponent extends Component {
         this._joint.setBreakTorque(this._breakTorque);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _initJoint() {
         //createJoint
         //Override it
@@ -182,10 +174,6 @@ export class ConstraintComponent extends Component {
         this._singleton = false;
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onAdded(): void {
     }
 
@@ -209,10 +197,6 @@ export class ConstraintComponent extends Component {
         //TODO
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onEnable(): void {
         if (!this._isJointInit) {
             this.initJoint();
@@ -220,20 +204,12 @@ export class ConstraintComponent extends Component {
         }
     }
 
-
-    /**
-     * @internal
-     * @protected
-     */
-    protected _onDisable(): void {
-    }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDestroy() {
         this._joint && this._joint.destroy();
+        this._joint = null;
+        this._ownCollider = null;
+        this._connectCollider = null;
+        this._physicsManager = null;
         this._isJointInit = false;
     }
 

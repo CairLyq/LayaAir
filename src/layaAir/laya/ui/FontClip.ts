@@ -1,4 +1,4 @@
-import { Event } from "../events/Event"
+import { TransformKind } from "../display/SpriteConst";
 import { Texture } from "../resource/Texture"
 import { Clip } from "./Clip"
 
@@ -11,6 +11,7 @@ import { Clip } from "./Clip"
  * fontClip.skin = "font1.png";//设置皮肤
  * fontClip.sheet = "abc123 456";//设置皮肤对应的内容，空格换行。此皮肤为2行5列（显示时skin会被等分为2行5列），第一行对应的文字为"abc123"，第二行为"456"
  * fontClip.value = "a1326";//显示"a1326"文字
+ * @blueprintInheritable
  */
 export class FontClip extends Clip {
     /**
@@ -58,7 +59,7 @@ export class FontClip extends Clip {
      * @zh 内部使用，显示文字的高度。
      */
     private _wordsH: number = 0;
-    
+
     /**
      * @en Font clip index.
      * @zh 字体切片索引。
@@ -186,23 +187,13 @@ export class FontClip extends Clip {
     }
 
     /**
-     * @internal
-     * @inheritDoc 
-     * @override
+     * @ignore
      */
-    _setWidth(value: number) {
-        super._setWidth(value);
-        this.callLater(this.changeValue);
-    }
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
 
-    /**
-     * @internal
-     * @inheritDoc 
-     * @override
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
-        this.callLater(this.changeValue);
+        if ((kind & TransformKind.Size) != 0)
+            this.callLater(this.changeValue);
     }
 
     /**

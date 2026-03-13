@@ -1,4 +1,7 @@
-import { MeshSprite3D } from "laya/d3/core/MeshSprite3D";
+/**
+description
+ 基于Laya3D的镜面反射平面渲染脚本,实现镜像摄像机的精确视角转换
+ */
 import { Camera } from "laya/d3/core/Camera";
 import { UnlitMaterial } from "laya/d3/core/material/UnlitMaterial";
 import { Scene3D } from "laya/d3/core/scene/Scene3D";
@@ -10,7 +13,7 @@ import { Vector3 } from "laya/maths/Vector3";
 import { Vector4 } from "laya/maths/Vector4";
 import { RenderTexture } from "laya/resource/RenderTexture";
 import { MeshRenderer } from "laya/d3/core/MeshRenderer";
-import { Utils3D } from "laya/d3/utils/Utils3D";
+import { Sprite3D } from "laya/d3/core/Sprite3D";
 
 export class ChinarMirrorPlane extends Script {
 
@@ -21,7 +24,7 @@ export class ChinarMirrorPlane extends Script {
 
 
 
-    public _mirrorPlane: MeshSprite3D;
+    public _mirrorPlane: Sprite3D;
     public mainCamera: Camera;
     private mirrorCamera: Camera = new Camera(); // 镜像摄像机
 
@@ -58,7 +61,7 @@ export class ChinarMirrorPlane extends Script {
     private static tempMat: Matrix4x4 = new Matrix4x4();
     private static tempV3 = new Vector3();
 
-    set mirrorPlane(value: MeshSprite3D) {
+    set mirrorPlane(value: Sprite3D) {
         this._mirrorPlane = value;
         var material: UnlitMaterial = new UnlitMaterial();
         value.getComponent(MeshRenderer).sharedMaterial = material;

@@ -1,0 +1,232 @@
+import { Matrix } from "../maths/Matrix";
+import { Vector2 } from "../maths/Vector2";
+import { Vector4 } from "../maths/Vector4";
+import { TileAlternativesData } from "./TileAlternativesData";
+import { TileShape } from "./TileMapEnum";
+import { TileSetCellData } from "./TileSetCellData";
+import { ChunkCellInfo } from "./TileMapChunkData";
+
+const BYTE_POS_CELL = 24;
+const BYTE_POS_GROUP = 16;
+const BYTE_MASK_CELL = 0xff << BYTE_POS_CELL;
+const BYTE_MASK_GROUP = 0xff << BYTE_POS_GROUP;
+const BYTE_MASK_NATIVE = 0xffff;
+
+const BYTE_MASK_ROTATECOUNT = 0x07;
+const BYTE_MASK_FLIP_H = 0x08;
+const BYTE_MASK_FLIP_V = 0x10;
+const BYTE_MASK_TRANSPOSE = 0x20;
+
+// transFlag 组成 rotateCount + flip_h << 3 + flip_v << 4 + transpose << 5
+// gid组成，需要回收机制 (CellData.id << 24)  |  group.id << 16  | NativeData 的x + y * x;
+export class TileMapUtils {
+
+    private static CACHE_UVs: Map<string, Vector4> = new Map();
+
+    public static getRotateCount(transFlag: number): number { return transFlag & BYTE_MASK_ROTATECOUNT; }
+
+    public static getFlipH(transFlag: number): boolean { return (transFlag & BYTE_MASK_FLIP_H) != 0; }
+
+    public static getFlipV(transFlag: number): boolean { return (transFlag & BYTE_MASK_FLIP_V) != 0; }
+
+    public static getTranspose(transFlag: number): boolean { return (transFlag & BYTE_MASK_TRANSPOSE) != 0; }
+
+    //获得CellIndex
+    public static parseCellIndex(gid: number): number { return (gid & BYTE_MASK_CELL) >> 24; }
+
+    public static parseGroupId(gid: number): number { return (gid & BYTE_MASK_GROUP) >> 16; }
+
+    //获得原始NativeId
+    public static parseNativeIndex(gid: number): number { return gid & BYTE_MASK_NATIVE; }
+
+    public static getNativeId(groupId: number, index: number) { return (groupId << BYTE_POS_GROUP) + index; }
+
+    //获得Gid 16-23位index 0-15位nativeId
+    public static getGid(cellindex: number, nativeId: number): number {
+        return (cellindex << BYTE_POS_CELL) + nativeId;
+    }
+
+    //二分查找队列中所在值的位置
+    public static quickFoundIndex(array: number[], value: number): number {
+        let mid = 0;
+        let startindex = 0;
+        let endindex = array.length - 1;
+        if (value < array[startindex] || value >= array[endindex]) { return -1; }
+        while (startindex + 1 < endindex) {
+            mid = Math.floor((startindex + endindex) / 2);
+            if (array[mid] == value) {
+                return mid;
+            } else if (array[mid] > value) {
+                endindex = mid;
+            } else {
+                startindex = mid;
+            }
+        }
+        return startindex;
+    }
+
+    // 旋转弧度 六边形旋转每次旋转60度，四边形旋转每次旋转90度
+    public static getRotateAngle(rotateCount: number, tileShape: TileShape): number {
+        let maxCount = tileShape == TileShape.TILE_SHAPE_HEXAGON ? 6 : 4;
+        rotateCount = Math.floor(rotateCount) % maxCount;
+        if (rotateCount < 0) {
+            rotateCount += maxCount;
+        }
+        return Math.PI * 2 * rotateCount / maxCount;
+    }
+
+
+    /**
+     * 获得transFlag
+     * @param rotateCount 旋转次数
+     * @param flip_h 水平翻转
+     * @param flip_v 垂直翻转
+     * @param transpose 斜角翻转
+     * @returns 
+     */
+    public static getTransFlag(rotateCount: number, flip_h: boolean, flip_v: boolean, transpose: boolean): number {
+        return rotateCount << 0 | (flip_h ? 1 : 0) << 3 | (flip_v ? 1 : 0) << 4 | (transpose ? 1 : 0) << 5;
+    }
+
+    public static parseTransFlag(tileshape: TileShape, transFlag: number, cellData: TileSetCellData): Vector4 {
+        let cellFlag = cellData.transFlag;
+        let key = transFlag + "_" + cellFlag + "_" + tileshape;
+        let cache = this.CACHE_UVs.get(key);
+        if (cache) {
+            return cache;
+        }
+
+        let transFlagHigh = transFlag & ~BYTE_MASK_ROTATECOUNT;
+        let cellFlagsHigh = cellFlag & ~BYTE_MASK_ROTATECOUNT;
+        let realFlagHigh = transFlagHigh ^ cellFlagsHigh;
+
+        let rotateCount = (this.getRotateCount(transFlag) + cellData.rotateCount) % 4;
+        let flip_h = this.getFlipH(realFlagHigh);
+        let flip_v = this.getFlipV(realFlagHigh);
+        let transpose = this.getTranspose(realFlagHigh);
+        
+        cache = new Vector4();
+        this.getUvRotate(tileshape, flip_h, flip_v, transpose, rotateCount, cache);
+        this.CACHE_UVs.set(key, cache);
+        return cache;
+    }
+
+    /**
+    * 对格子进行uv翻转
+    * 先做45度斜角翻转，然后再做水平或者垂直翻转,最后再旋转 (六边形旋转每次旋转60度，四边形旋转每次旋转90度)
+    * @param flip_h 水平翻转
+    * @param flip_v 垂直翻转
+    * @param transpose 斜角翻转
+    * @param rountCount 旋转次数
+    */
+    public static getUvRotate(tileshape: TileShape, flip_h: boolean = false, flip_v: boolean = false, transpose: boolean = false, rountCount: number = 0, out = Vector4.TEMP): Vector4 {
+        let vx = 1;
+        let vy = transpose ? -1 : 1;
+        const dx = (vx + vy) * 0.5;
+        const dy = (vx - vy) * 0.5;
+        vx = flip_h ? -1 : 1;
+        vy = flip_v ? -1 : 1;
+        let rotate = -this.getRotateAngle(rountCount, tileshape);
+        const cos = Math.cos(rotate);
+        const sin = Math.sin(rotate);
+        out.x = cos * vx * dx - sin * vx * dy;
+        out.y = cos * vy * dy - sin * vy * dx;
+        out.z = sin * vx * dx + cos * vx * dy;
+        out.w = sin * vy * dy + cos * vy * dx;
+        return out;
+    }
+
+    public static transfromPointByValue(matrix: Matrix, x: number, y: number, point: Vector2) {
+        point.x = matrix.a * x + matrix.c * y + matrix.tx;
+        point.y = matrix.b * x + matrix.d * y + matrix.ty;
+    }
+
+    public static transfromPointNByValue(matrix: Matrix, x: number, y: number, point: Vector2) {
+        point.x = matrix.a * x + matrix.c * y;
+        point.y = matrix.b * x + matrix.d * y;
+    }
+
+    public static getCellDataIndex(nativeData: TileAlternativesData) {
+        let keys = Object.keys(nativeData._tileDatas).map(Number);
+        keys.sort((a, b) => a - b);
+
+        for (let i = 0; i < keys.length; i++) {
+            if (keys[i] !== i) {
+                return i;
+            }
+        }
+        return keys.length > 0 ? keys[keys.length - 1] + 1 : 0;
+    }
+
+    /**
+     * 将 Tiled 45度 坐标系转换为 TileMapLayer 菱形坐标系。
+     * @param tiledX 
+     * @param tiledY
+     * @param out    复用输出
+     */
+    public static tiledTLayer(tiledX: number, tiledY: number, out: Vector2 = new Vector2()): Vector2 {
+        const tileMapY = tiledX + tiledY;
+        const parity = tileMapY & 1;
+        const tileMapX = (tiledX - tiledY - parity) >> 1;
+        out.x = tileMapX;
+        out.y = tileMapY;
+        return out;
+    }
+
+    /**
+     * 将 TileMapLayer 菱形坐标系转换回 Tiled 45度 坐标系。
+     * @param tileMapX 
+     * @param tileMapY 
+     * @param out      复用输出
+     */
+    public static layerToTiled(tileMapX: number, tileMapY: number, out: Vector2 = new Vector2()): Vector2 {
+        tileMapX = Math.floor(tileMapX);
+        tileMapY = Math.floor(tileMapY);
+        const parity = tileMapY & 1;
+        const tiledX = tileMapX + ((tileMapY + parity) >> 1);
+        const tiledY = tileMapY - tiledX;
+        out.x = tiledX;
+        out.y = tiledY;
+        return out;
+    }
+
+    /**
+     * Y优先排序比较：先 sortY，再 zOrderValue，再 cellx
+     */
+    public static compareYSort(a: ChunkCellInfo, b: ChunkCellInfo): number {
+        if (a.sortY !== b.sortY)
+            return a.sortY - b.sortY;
+        if (a.zOrderValue !== b.zOrderValue)
+            return a.zOrderValue - b.zOrderValue;
+        if (a.cellx !== b.cellx)
+            return a.cellx - b.cellx;
+        return a.chuckLocalindex - b.chuckLocalindex;
+    }
+
+    /**
+     * Z优先排序比较：先 zOrderValue，再 sortY，再 cellx
+     */
+    public static compareZSort(a: ChunkCellInfo, b: ChunkCellInfo): number {
+        if (a.zOrderValue !== b.zOrderValue)
+            return a.zOrderValue - b.zOrderValue;
+        if (a.sortY !== b.sortY)
+            return a.sortY - b.sortY;
+        if (a.cellx !== b.cellx)
+            return a.cellx - b.cellx;
+        return a.chuckLocalindex - b.chuckLocalindex;
+    }
+
+    /**
+     * X优先排序比较：先 cellx，再 sortY，再 zOrderValue
+     */
+    public static compareXSort(a: ChunkCellInfo, b: ChunkCellInfo): number {
+        if (a.cellx !== b.cellx)
+            return a.cellx - b.cellx;
+        if (a.sortY !== b.sortY)
+            return a.sortY - b.sortY;
+        if (a.zOrderValue !== b.zOrderValue)
+            return a.zOrderValue - b.zOrderValue;
+        return a.chuckLocalindex - b.chuckLocalindex;
+    }
+
+}

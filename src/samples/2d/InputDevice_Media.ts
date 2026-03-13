@@ -1,3 +1,7 @@
+/**
+description
+ 媒体设备输入功能，调用浏览器摄像头并播放视频
+ */
 import { Media } from "laya/device/media/Media";
 import { Browser } from "laya/utils/Browser";
 import { Handler } from "laya/utils/Handler";
@@ -28,7 +32,7 @@ export class InputDevice_Media {
 		var video = Browser.document.createElement("video");
 		video.width = Browser.clientWidth;
 		video.height = Browser.clientHeight;
-		video.style.zIndex = 1E5;
+		video.style.zIndex = "1E5";
 		Browser.document.body.appendChild(video);
 		video.controls = true;
 		video.src = url;

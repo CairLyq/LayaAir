@@ -1,3 +1,7 @@
+/**
+description
+ 地图设备定位与位置信息展示模块
+ */
 import { Laya } from "Laya";
 import { Geolocation } from "laya/device/geolocation/Geolocation";
 import { GeolocationInfo } from "laya/device/geolocation/GeolocationInfo";
@@ -14,7 +18,7 @@ export class InputDevice_Map {
 	// 百度地图
 	private map: any;
 	private marker: any;
-	private BMap: any = Browser.window.BMap;
+	private BMap: any = (Browser.window as any).BMap;
 	private convertor: any = new this.BMap.Convertor();
 
 	// Div

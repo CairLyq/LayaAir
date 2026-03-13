@@ -1,3 +1,7 @@
+/**
+description
+ 3D相机注视不同3D模型的示例程序
+ */
 import { Laya } from "Laya";
 import { Camera, CameraClearFlags } from "laya/d3/core/Camera";
 import { BlinnPhongMaterial } from "laya/d3/core/material/BlinnPhongMaterial";
@@ -113,9 +117,7 @@ export class CameraLookAt {
 		this.loadUI();
 	}
 	private loadUI(): void {
-
 		Laya.loader.load(["res/threeDimen/ui/button.png"], Handler.create(this, function (): void {
-
 			var changeActionButton: Button = (<Button>Laya.stage.addChild(new Button("res/threeDimen/ui/button.png", "切换注视目标")));
 			changeActionButton.size(200, 40);
 			changeActionButton.labelBold = true;

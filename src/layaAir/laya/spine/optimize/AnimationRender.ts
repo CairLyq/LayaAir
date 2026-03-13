@@ -1,14 +1,35 @@
+import { BufferUsage } from "../../RenderEngine/RenderEnum/BufferTargetType";
+import { IndexFormat } from "../../RenderEngine/RenderEnum/IndexFormat";
+import { LayaGL } from "../../layagl/LayaGL";
+import { Material } from "../../resource/Material";
+import { Mesh2D } from "../../resource/Mesh2D";
+import { ESpineRenderType } from "../SpineSkeleton";
+import { SpineMeshBase } from "../mesh/SpineMeshBase";
+import { SpineMeshUtils } from "../mesh/SpineMeshUtils";
 import { AttachmentParse } from "./AttachmentParse";
 import { IBCreator } from "./IBCreator";
-import { IBRenderData } from "./SketonOptimise";
+import { MultiRenderData } from "./MultiRenderData";
+import { SketonOptimise } from "./SketonOptimise";
 import { VBCreator } from "./VBCreator";
 import { ChangeDeform } from "./change/ChangeDeform";
 import { ChangeDrawOrder } from "./change/ChangeDrawOrder";
 import { ChangeRGBA } from "./change/ChangeRGBA";
 import { ChangeSlot } from "./change/ChangeSlot";
 import { IChange } from "./interface/IChange";
-import { IPreRender } from "./interface/IPreRender";
 import { IVBChange } from "./interface/IVBChange";
+
+export type FrameRenderData = {
+    ib?: Uint16Array | Uint32Array | Uint8Array;
+    vChanges?: IVBChange[];
+    mulitRenderData?: MultiRenderData;
+    type?: IndexFormat,
+    size?: number;
+}
+
+export type FrameChanges = {
+    iChanges?: IChange[],
+    vChanges?: IVBChange[]
+}
 const step = 1 / 30;
 /**
  * @en Represents an animation renderer for spine animations.
@@ -16,25 +37,20 @@ const step = 1 / 30;
  */
 export class AnimationRender {
     /**
-     * @en Temporary IBCreator for index buffer creation.
-     * @zh 用于创建索引缓冲区的临时IBCreator。
-     */
-    static tempIbCreate: IBCreator = new IBCreator();
-    /**
      * @en Name of the animation.
      * @zh 动画的名称。
      */
     name: string;
     /**
-     * @en Map of frame numbers to arrays of IChange objects.
-     * @zh 帧号到IChange对象数组的映射。
+     * @en Animation Corresponding Frame Change Queue.
+     * @zh 动画对应帧变化队列。
      */
-    changeIB: Map<number, IChange[]>;
+    changeMap: Map<number, FrameChanges>;
     /**
-     * @en Array of vertex buffer changes.
-     * @zh 顶点缓冲区变化的数组。
+     * @en Whether it is a dynamic mesh.
+     * @zh 是否为动态网格
      */
-    changeVB: IVBChange[];
+    isDynamic: boolean = false;
     /**
      * @en Array of frame numbers.
      * @zh 帧号数组。
@@ -66,7 +82,6 @@ export class AnimationRender {
      */
     isCache: boolean;
 
-
     /**
      * @en Creates a Float32Array representing a bone's transform.
      * @param bone The spine bone to get the transform from.
@@ -88,17 +103,11 @@ export class AnimationRender {
 
     /** @ignore */
     constructor() {
-        this.changeIB = new Map();
+        this.changeMap = new Map();
         this.frames = [];
         this.skinDataArray = [];
         this.boneFrames = [];
         this.eventsFrames = [];
-    }
-
-    private checkChangeVB() {
-        if (!this.changeVB) {
-            this.changeVB = [];
-        }
     }
 
     /**
@@ -116,22 +125,6 @@ export class AnimationRender {
             if (frames[i] > time)
                 return i - 1;
         return n - 1;
-        // let lastFrame = this.frameNumber - 1;
-        // if (frameIndex < -1) {
-        //     frameIndex = -1;
-        // }
-        // else if (frameIndex == lastFrame) {
-        //     if (time < frames[lastFrame]) {
-        //         frameIndex = -1;
-        //     }
-        // }
-        // else if (time >= frames[frameIndex + 1]) {
-        //     frameIndex++;
-        // }
-        // else if (time < frames[frameIndex]) {
-        //     frameIndex = 0;
-        // }
-        // return frameIndex;
     }
 
     /**
@@ -140,9 +133,10 @@ export class AnimationRender {
      * @zh 缓存动画的骨骼变换。
      * @param preRender 用于缓存的预渲染器。
      */
-    cacheBones(preRender: IPreRender) {
+    cacheBones(preRender: SketonOptimise) {
         let duration = preRender._play(this.name);
         let totalFrame = Math.round(duration / step) || 1;
+
         for (let i = 0; i <= totalFrame; i++) {
             let bones = preRender._updateState(i == 0 ? 0 : step);
             let frame: Float32Array[] = [];
@@ -163,86 +157,117 @@ export class AnimationRender {
      * @param animation 要检查的spine动画。
      * @param preRender 要使用的预渲染器。
      */
-    check(animation: spine.Animation, preRender: IPreRender) {
+    check(animation: spine.Animation, preRender: SketonOptimise) {
         this.name = animation.name;
 
         let timeline = animation.timelines;
-        let tempMap = this.changeIB;
-        let tempArray = this.frames;
+        let changeMap = this.changeMap;
+        let renderFrames = this.frames;
         //this.mainIb = mainib;
-        tempMap.clear();
-        tempArray.length = 0;
-        tempArray[0] = 0;
-        tempMap.set(0, []);
+        let hasClip: boolean = false;
 
-        let hasClip: boolean;
+        renderFrames.push(0);
+        changeMap.set(0, {});
+
+        let isDynamic = false;
         for (let i = 0, n = timeline.length; i < n; i++) {
             let time = timeline[i];
+            let frames = time.frames;
             if (time instanceof spine.AttachmentTimeline) {
-                let attachment = time as spine.AttachmentTimeline;
-                let frames = attachment.frames;
-                let attachmentNames = attachment.attachmentNames;
-                let slotIndex = attachment.slotIndex;
+                let attachmentNames = time.attachmentNames;
+                let slotIndex = time.slotIndex;
+                // let ntl = new AttachmentTimeline();
+
                 for (let j = 0, m = frames.length; j < m; j++) {
                     let frame = frames[j];
                     let change = new ChangeSlot();
                     change.slotId = slotIndex;
                     change.attachment = attachmentNames[j] || null;
-                    let arr = tempMap.get(frame);
-                    if (!arr) {
-                        tempArray.push(frame);
-                        arr = [];
-                        tempMap.set(frame, arr);
+                    let changeItem = changeMap.get(frame);
+                    if (!changeItem) {
+                        this.frames.indexOf(frame) == -1 && this.frames.push(frame);
+                        changeItem = {
+                            iChanges: []
+                        };
+                        changeMap.set(frame, changeItem);
                     }
+
+                    let arr = changeItem.iChanges = changeItem.iChanges || [];
                     arr.push(change);
                 }
+                isDynamic = true;
             }
             else if (time instanceof spine.DrawOrderTimeline) {
-                let drawOrder = time as spine.DrawOrderTimeline;
-                let frames = drawOrder.frames;
                 let orders = time.drawOrders;
                 for (let j = 0, m = frames.length; j < m; j++) {
                     let frame = frames[j];
                     let change = new ChangeDrawOrder();
                     change.order = orders[j];
-                    let arr = tempMap.get(frame);
-                    if (!arr) {
-                        tempArray.push(frame);
-                        arr = [];
-                        tempMap.set(frame, arr);
+                    let changeItem = changeMap.get(frame);
+                    if (!changeItem) {
+                        this.frames.indexOf(frame) == -1 && this.frames.push(frame);
+                        changeItem = {
+                            iChanges: []
+                        };
+                        changeMap.set(frame, changeItem);
                     }
-                    arr.unshift(change);
+
+                    let arr = changeItem.iChanges = changeItem.iChanges || [];
+                    arr.push(change);
+                    isDynamic = true;
                 }
+                // spine.timline
             }
-            else if (
-                //@ts-ignore
-                time instanceof (spine.ColorTimeline || spine.RGBATimeline)
-                //@ts-ignore
-                || (spine.TwoColorTimeline && time instanceof spine.TwoColorTimeline)
-            ) {
+            //@ts-ignore
+            else if (time instanceof (spine.ColorTimeline || spine.RGBATimeline) || (spine.TwoColorTimeline && time instanceof spine.TwoColorTimeline)) {
                 let rgba = time as spine.RGBATimeline;
-                let frames = rgba.frames;
                 let slotIndex = rgba.slotIndex;
-                if (frames.length == 5 && frames[0] == 0 && frames[4] == 0) {
+
+                if (frames.length == 5 && frames[0] == 0 && frames[4] == 0) {//优化，当0帧 透明度0时。
                     let change = new ChangeSlot();
                     change.slotId = slotIndex;
                     change.attachment = null;
-                    let arr = tempMap.get(0);
-                    if (!arr) {
-                        tempArray.push(0);
-                        arr = [];
-                        tempMap.set(0, arr);
+                    let frame = 0;
+                    let changeItem = changeMap.get(frame);
+                    if (!changeItem) {
+                        this.frames.indexOf(frame) == -1 && this.frames.push(frame);
+                        changeItem = {
+                            iChanges: []
+                        };
+                        changeMap.set(frame, changeItem);
                     }
+
+                    let arr = changeItem.iChanges = changeItem.iChanges || [];
                     arr.push(change);
                 }
                 else {
-                    this.checkChangeVB();
+
                     let changeRGBA = new ChangeRGBA(slotIndex);
+                    let startFrame = frames[0];
+                    let num = frames.length / 5 | 0;
+                    let endFrame = frames[(num - 1) * 5];
+
+                    changeRGBA.startFrame = startFrame;
+                    changeRGBA.endFrame = endFrame;
+
+                    let changeItem = changeMap.get(startFrame);
+                    if (!changeItem) {
+                        this.frames.indexOf(startFrame) == -1 && this.frames.push(startFrame);
+                        changeItem = {
+                            vChanges: []
+                        };
+                        changeMap.set(startFrame, changeItem);
+                    }
+
+                    this.frames.indexOf(endFrame) == -1 && this.frames.push(endFrame);
+
+                    let arr = changeItem.vChanges = changeItem.vChanges || [];
+                    arr.push(changeRGBA);
                     //this.vb = this.vb || mainvb.clone();
                     //changeRGBA.initChange(slotIndex, this.vb);
-                    this.changeVB.push(changeRGBA);
+                    // this.changeVB.push(changeRGBA);
                 }
-                // debugger;
+                isDynamic = true;
             }
             else if (time instanceof window.spine.ClippingAttachment) {
                 hasClip = true;
@@ -250,7 +275,6 @@ export class AnimationRender {
             else if (time instanceof window.spine.EventTimeline) {
                 if (preRender.canCache) {
                     let eventTime = time as spine.EventTimeline;
-                    let frames = eventTime.frames;
                     let events = eventTime.events;
                     for (let j = 0, m = frames.length; j < m; j++) {
                         let frame = frames[j];
@@ -261,11 +285,32 @@ export class AnimationRender {
                 }
             }
             else if (time instanceof spine.DeformTimeline) {
-                this.checkChangeVB();
                 let slotIndex = time.slotIndex;
                 let change = new ChangeDeform();
                 change.slotId = slotIndex;
-                this.changeVB.push(change);
+                let startFrame = frames[0];
+                let endFrame = frames[frames.length - 1];
+                change.startFrame = startFrame;
+                change.endFrame = endFrame;
+
+                let changeItem = changeMap.get(startFrame);
+                if (!changeItem) {
+                    this.frames.indexOf(startFrame) == -1 && this.frames.push(startFrame);
+                    changeItem = {
+                        vChanges: []
+                    };
+                    changeMap.set(startFrame, changeItem);
+                }
+
+                this.frames.indexOf(endFrame) == -1 && this.frames.push(endFrame);
+
+                let arr = changeItem.vChanges = changeItem.vChanges || [];
+                arr.push(change);
+                isDynamic = true;
+
+            }
+            else {
+                // console.warn("unknow timeline:",time);
             }
             // else if (time instanceof window.spine.AlphaTimeline) {
             //     debugger;
@@ -274,7 +319,9 @@ export class AnimationRender {
             //     debugger;
             // }
         }
-        tempArray.sort();
+
+        this.isDynamic = isDynamic;
+        renderFrames.sort();
 
         if (!hasClip) {
             if (preRender.canCache) {
@@ -282,39 +329,63 @@ export class AnimationRender {
                 this.isCache = true;
             }
         }
-        this.frameNumber = tempArray.length;
+        this.frameNumber = renderFrames.length;
     }
 
     /**
      * @en Creates skin animation render data.
      * @param mainVB The main vertex buffer creator.
      * @param mainIB The main index buffer creator.
+     * @param tempIbCreate Temp index buffer creator.
      * @param slotAttachMap Map of slot attachments.
      * @param attachMap Array of attachment parses.
+     * @param type Animtion Render Type.
      * @returns The created skin animation render data.
      * @zh 创建皮肤动画渲染数据。
      * @param mainVB 主顶点缓冲区创建器。
      * @param mainIB 主索引缓冲区创建器。
+     * @param tempIbCreate 临时索引缓冲区创建器。
      * @param slotAttachMap 插槽附件映射。
      * @param attachMap 附件解析数组。
+     * @param type 动画渲染类型。
      * @returns 创建的皮肤动画渲染数据。
      */
-    createSkinData(mainVB: VBCreator, mainIB: IBCreator, slotAttachMap: Map<number, Map<string, AttachmentParse>>, attachMap: AttachmentParse[]) {
+    createSkinData(
+        mainVB: VBCreator, mainIB: IBCreator, tempIbCreate: IBCreator,
+        slotAttachMap: Map<number, Map<string, AttachmentParse>>,
+        attachMap: AttachmentParse[], type: ESpineRenderType
+    ) {
         let skinData = new SkinAniRenderData();
-        let tempMap = this.changeIB;
-        let tempArray = this.frames;
-        skinData.init(tempMap, mainVB, mainIB, tempArray, slotAttachMap, attachMap, this.changeVB);
+        skinData.type = type;
+        let frames = this.frames;
+        skinData.init(this.changeMap, mainVB, mainIB, tempIbCreate, frames, slotAttachMap, attachMap, this.isDynamic);
         skinData.updateBoneMat = this.isCache ? (this.eventsFrames.length == 0 ? skinData.updateBoneMatCache : skinData.updateBoneMatCacheEvent) : skinData.updateBoneMatByBone;
         this.skinDataArray.push(skinData);
         return skinData;
+    }
+
+    destroy() {
+        for (let i = 0, n = this.skinDataArray.length; i < n; i++)
+            this.skinDataArray[i].destroy()
+        this.skinDataArray.length = 0;
+        this.frames.length = 0;
+        this.changeMap.clear();
     }
 }
 
 /**
  * @en Represents skin animation render data for spine animations.
  * @zh 表示骨骼动画的皮肤动画渲染数据。
+ * @blueprintIgnore
  */
 export class SkinAniRenderData {
+
+    /** 当前皮肤动画的最大顶点数 */
+    maxVertexCount = 0;
+    /** 当前皮肤动画的最大索引数 */
+    maxIndexCount = 0;
+
+    isDynamic: boolean = false;
     /**
      * @en Name of the skin animation.
      * @zh 皮肤动画的名称。
@@ -325,16 +396,18 @@ export class SkinAniRenderData {
      * @zh 指示皮肤是否可以实例化。
      */
     canInstance: boolean;
+
     /**
-     * @en Array of index buffer render data.
-     * @zh 索引缓冲区渲染数据数组。
+     * @en Default Mesh
+     * @zh 默认mesh 
      */
-    ibs: IBRenderData[];
-    /**
-     * @en Main index buffer render data.
-     * @zh 主索引缓冲区渲染数据。
+    _defaultMesh: Mesh2D;
+    /** 
+     * @en Default FrameData
+     * @zh 默认帧数据
      */
-    mainibRender: IBRenderData;
+    _defaultFrameData: FrameRenderData;
+
     /**
      * @en Vertex buffer creator.
      * @zh 顶点缓冲区创建器。
@@ -346,78 +419,44 @@ export class SkinAniRenderData {
      */
     mainIB: IBCreator;
     /**
-     * @en Indicates if multiple render calls are possible.
-     * @zh 指示是否可能进行多次渲染调用。
+     * @en Animtion Render Type.
+     * @zh 动画渲染类型。
      */
-    mutiRenderAble: boolean;
+    type: ESpineRenderType;
+
+    /**
+     * @en Animation Frame Data. 
+     * @zh 动画帧数据。
+     */
+    renderDatas: FrameRenderData[];
+
     /**
      * @en Indicates if normal rendering is required.
      * @zh 指示是否需要正常渲染。
      */
     isNormalRender: boolean;
-    /**
-     * @en Function to check vertex buffer changes.
-     * @zh 检查顶点缓冲区变化的函数。
-     */
-    checkVBChange: (slots: spine.Slot[]) => boolean;
+    // checkVBChange: (slots: spine.Slot[]) => boolean;
     /**
      * @en Function to update bone matrices.
      * @zh 更新骨骼矩阵的函数。
      */
-    updateBoneMat: (delta: number, animation: AnimationRender, bones: spine.Bone[], state: spine.AnimationState, boneMat: Float32Array) => void;
-    /**
-     * @en Array of vertex buffer changes.
-     * @zh 顶点缓冲区变化数组。
-     */
-    changeVB: IVBChange[];
+    updateBoneMat: (delta: number, animation: AnimationRender, bones: spine.Bone[], state: spine.AnimationState, boneMat: Float32Array, ofx: number, ofy: number) => void;
 
     /** @ignore */
     constructor() {
-        this.ibs = [];
-        this.checkVBChange = this.checkVBChangeEmpty;
+        // this.ibs = [];
+        this.renderDatas = [];
+        // this.materials = [];
+        // this.checkVBChange = this.checkVBChangeEmpty;
     }
 
 
-    /**
-     * @en Empty check for vertex buffer changes.
-     * @param slots Spine slots.
-     * @zh 空的顶点缓冲区变化检查。
-     * @param slots 骨骼插槽。
-     */
-    checkVBChangeEmpty(slots: spine.Slot[]): boolean {
-        return false;
+    getMesh() {
+        return this._defaultMesh;
     }
 
-    /**
-     * @en Checks for vertex buffer changes.
-     * @param slots Spine slots.
-     * @zh 检查顶点缓冲区变化。
-     * @param slots 骨骼插槽。
-     */
-    checkVBChangeS(slots: spine.Slot[]): boolean {
-        let result = false;
-        for (let i = 0, n = this.changeVB.length; i < n; i++) {
-            if (this.changeVB[i].updateVB(this.vb, slots)) {
-                result = true;
-            }
-        }
-        return result;
-    }
-
-
-
-    /**
-     * @en Gets the index buffer for a given frame index.
-     * @param frameIndex The frame index.
-     * @zh 获取给定帧索引的索引缓冲区。
-     * @param frameIndex 帧索引。
-     */
-    getIB(frameIndex: number) {
-        //return this.mainIb.realIb;
-        if (frameIndex == -1) {
-            return this.mainibRender;
-        }
-        return this.ibs[frameIndex];
+    getFrameData(frameIndex: number) {
+        return this.renderDatas[frameIndex] || this._defaultFrameData;
     }
 
     /**
@@ -434,8 +473,8 @@ export class SkinAniRenderData {
      * @param state 骨骼动画状态。
      * @param boneMat 骨骼矩阵数组。
      */
-    updateBoneMatCache(delta: number, animation: AnimationRender, bones: spine.Bone[], state: spine.AnimationState, boneMat: Float32Array): void {
-        this.vb.updateBoneCache(animation.boneFrames, delta / step, boneMat);
+    updateBoneMatCache(delta: number, animation: AnimationRender, bones: spine.Bone[], state: spine.AnimationState, boneMat: Float32Array, ofx: number = 0, ofy: number = 0): void {
+        this.vb.updateBoneCache(animation.boneFrames, delta / step, boneMat, ofx, ofy);
     }
 
     /**
@@ -505,96 +544,140 @@ export class SkinAniRenderData {
      * @param state 骨骼动画状态。
      * @param boneMat 骨骼矩阵数组。
      */
-    updateBoneMatByBone(delta: number, animation: AnimationRender, bones: spine.Bone[], state: spine.AnimationState, boneMat: Float32Array): void {
-        this.vb.updateBone(bones, boneMat);
+    updateBoneMatByBone(delta: number, animation: AnimationRender, bones: spine.Bone[], state: spine.AnimationState, boneMat: Float32Array, ofx: number = 0, ofy: number = 0): void {
+        this.vb.updateBone(bones, boneMat, ofx, ofy);
     }
 
     /**
      * @en Initializes the skin animation render data.
-     * @param tempMap Map of frame changes.
+     * @param changeMap Map of frame changes.
      * @param mainVB Main vertex buffer creator.
-     * @param mainIB Main index buffer creator.
-     * @param tempArray Array of frame numbers.
+     * @param ibCreator Main index buffer creator.
+     * @param tempCreator Temp index buffer creator.
+     * @param frames Array of frame numbers.
      * @param slotAttachMap Map of slot attachments.
      * @param attachMap Array of attachment parses.
-     * @param changeVB Array of vertex buffer changes.
+     * @param isDynamic Whether it is a dynamic mesh.
      * @zh 初始化皮肤动画渲染数据。
-     * @param tempMap 帧变化映射。
+     * @param changeMap 帧变化映射。
      * @param mainVB 主顶点缓冲区创建器。
-     * @param mainIB 主索引缓冲区创建器。
-     * @param tempArray 帧号数组。
+     * @param ibCreator 主索引缓冲区创建器。
+     * @param tempCreator 临时索引缓冲区创建器。
+     * @param frames 帧号数组。
      * @param slotAttachMap 插槽附件映射。
      * @param attachMap 附件解析数组。
-     * @param changeVB 顶点缓冲区变化数组。
+     * @param isDynamic 是否为动态网格
      */
-    init(tempMap: Map<number, IChange[]>, mainVB: VBCreator, mainIB: IBCreator, tempArray: number[], slotAttachMap: Map<number, Map<string, AttachmentParse>>, attachMap: AttachmentParse[], changeVB: IVBChange[]) {
-        this.mainIB = mainIB;
-        let mutiRenderAble = false;
-        if (changeVB) {
-            this.vb = mainVB.clone();
-            this.checkVBChange = this.checkVBChangeS;
-            let myChangeVB: IVBChange[] = this.changeVB = [];
-            for (let i = 0, n = changeVB.length; i < n; i++) {
-                let changeVBItem = changeVB[i].clone();
-                if (changeVBItem.initChange(this.vb)) {
-                    myChangeVB.push(changeVBItem);
-                }
-            }
-        }
+    init(changeMap: Map<number, FrameChanges>,
+        mainVB: VBCreator, ibCreator: IBCreator, tempCreator: IBCreator,
+        frames: number[], slotAttachMap: Map<number, Map<string, AttachmentParse>>,
+        attachMap: AttachmentParse[], isDynamic: boolean) {
+        this.mainIB = ibCreator;
+        this.isDynamic = isDynamic;
+        this.canInstance = !this.isDynamic;
 
-        if (tempArray.length == 1 && !tempMap.get(0).length) {
-            //没有修改IB的情况
-            if (this.vb) {
-                this.vb.initBoneMat();
-            }
-            else {
-                this.canInstance = true;
-            }
-            this.vb = this.vb || mainVB;
-            this.ibs.push(this.mainIB);
-            //this.mainIb = mainib;
-            if (this.mainIB.outRenderData.renderData.length > 1) {
-                mutiRenderAble = true;
-            }
-        }
-        else {
-            this.vb = this.vb || mainVB.clone();
-            for (let i = 0, n = tempArray.length; i < n; i++) {
-                let frame = tempArray[i];
-                let arr = tempMap.get(frame);
-                for (let j = 0, m = arr.length; j < m; j++) {
-                    if (!arr[j].change(this.vb, slotAttachMap)) {
-                        this.isNormalRender = true;
-                    }
-                }
-            }
+        if (isDynamic) {
+            this.vb = mainVB.clone();
 
             let tAttachMap = attachMap.slice();
-            let order;
-            this.vb.initBoneMat();
-            for (let j = 0, m = tempArray.length; j < m; j++) {
-                // debugger;
-                let iChanges = tempMap.get(tempArray[j]);
-                for (let k = 0, l = iChanges.length; k < l; k++) {
-                    let ichange = iChanges[k];
-                    let newOrder = ichange.changeOrder(tAttachMap);
-                    if (newOrder) {
-                        order = newOrder;
-                    }
+
+            let framesLength = frames.length;
+            let order: number[];
+            let lastData: FrameRenderData;
+
+            for (let i = 0; i < framesLength; i++) {
+                let frame = frames[i];
+                let fcs = changeMap.get(frame);
+                if (!fcs) {
+                    this.renderDatas[i] = lastData;
+                    continue;
                 }
-                let tempCreator = AnimationRender.tempIbCreate;
-                tempCreator.createIB(tAttachMap, this.vb, order);
-                let ibnew = tempCreator.ib.slice(0, tempCreator.ibLength);
-                let outRenderData = tempCreator.outRenderData;
-                let data: IBRenderData = { realIb: ibnew, outRenderData: outRenderData, type: tempCreator.type, size: tempCreator.size };
-                this.ibs[j] = data;
-                if (outRenderData.renderData.length > 1) {
-                    mutiRenderAble = true;
+
+                let iChanges = fcs.iChanges;
+
+                let data: FrameRenderData = {};
+                if (iChanges) {
+                    for (let j = 0, m = iChanges.length; j < m; j++) {
+                        let ichange = iChanges[j];
+
+                        if (!ichange.change(this.vb, slotAttachMap)) {
+                            this.isNormalRender = true;
+                        }
+
+                        let newOrder = ichange.changeOrder(tAttachMap);
+                        if (newOrder) {
+                            order = newOrder;
+                        }
+                    }
+
+                    //动画部分
+                    tempCreator.createIB(tAttachMap, this.vb, order);
+                    data.ib = tempCreator.ib.slice(0, tempCreator.ibLength);
+                    data.mulitRenderData = tempCreator.outRenderData;
+                    data.type = tempCreator.type;
+                    data.size = tempCreator.size;
+                }
+
+                let vChanges = fcs.vChanges;
+                if (vChanges) {
+                    let myChangeVB = [];
+                    for (let j = 0, m = vChanges.length; j < m; j++) {
+                        let changeVBItem = vChanges[j].clone();
+
+                        if (changeVBItem.initChange(this.vb)) {
+                            changeVBItem.startFrame = i;
+                            changeVBItem.endFrame = frames.indexOf(changeVBItem.endFrame);
+
+                            myChangeVB.push(changeVBItem);
+                        }
+                    }
+                    data.vChanges = myChangeVB;
+                }
+
+                this.renderDatas[i] = data;
+                lastData = data;
+
+                if (!frame) {
+                    if (!data.ib) {
+                        data.mulitRenderData = ibCreator.outRenderData;
+                        data.ib = ibCreator.ib.slice(0, this.mainIB.ibLength);
+                        data.type = ibCreator.type;
+                        data.size = ibCreator.size;
+                    }
+                    this._defaultFrameData = data;
                 }
             }
+
+            this.maxIndexCount = Math.max(tempCreator.maxIndexCount, this.mainIB.maxIndexCount);
+
+        } else {
+            this.vb = mainVB;
+            this._defaultMesh = SpineMeshUtils.createMesh(this.type, this.vb, ibCreator, this.isDynamic);
+            this._defaultMesh.lock = true;
+            this.maxIndexCount = ibCreator.maxIndexCount;
         }
-        this.mutiRenderAble = mutiRenderAble;
 
+        this.maxVertexCount = this.vb.maxVertexCount;
 
+        if (!this._defaultFrameData) {
+            this._defaultFrameData = {
+                mulitRenderData: ibCreator.outRenderData,
+                ib: ibCreator.ib.slice(0, this.mainIB.ibLength),
+                type: ibCreator.type,
+                size: ibCreator.size
+            }
+        }
     }
+
+    /**
+     * @en Destroy Render.
+     * @zh 销毁当前Render。
+     */
+    destroy() {
+        this._defaultMesh && this._defaultMesh.destroy();
+        this._defaultMesh = null;
+        this._defaultFrameData = null;
+        this.renderDatas = null;
+    }
+
 }

@@ -22,10 +22,10 @@ import { BufferState } from "../../../webgl/utils/BufferState";
 import { VertexMesh } from "../../../RenderEngine/RenderShader/VertexMesh";
 import { MorphTargetData } from "./MorphTargetData";
 import { Config } from "../../../../Config";
-import { Laya3D } from "../../../../Laya3D";
 import { EPhysicsCapable } from "../../../Physics3D/physicsEnum/EPhycisCapable";
 import { Laya3DRender } from "../../RenderObjs/Laya3DRender";
 import { NotReadableError } from "../../../utils/Error";
+
 /**
  * @internal
  */
@@ -56,12 +56,6 @@ export class Mesh extends Resource implements IClone {
     _triangleMesh: any;
     /**@internal */
     __convexMesh: Mesh;
-    /**
-      * @internal
-      */
-    static __init__(): void {
-    }
-
 
     /**
      * @deprecated 请使用Loader.load(url:string, type: ILaya.Loader.MESH)
@@ -76,15 +70,10 @@ export class Mesh extends Resource implements IClone {
         ILaya.loader.load(url, complete, null, Loader.MESH);
     }
 
-    /** @internal */
     private _btTriangleMesh: number;
-    /** @internal */
     private _minVerticesUpdate: number = -1;
-    /** @internal */
     private _maxVerticesUpdate: number = -1;
-    /** @internal */
     private _needUpdateBounds: boolean = true;
-    /** @internal */
     private _bounds: Bounds;
 
     /** @internal */
@@ -221,10 +210,6 @@ export class Mesh extends Resource implements IClone {
         return null;
     }
 
-
-    /**
-     * @internal
-     */
     private _getVerticeElementData(data: Array<Vector2 | Vector3 | Vector4 | Color>, elementUsage: number): void {
         data.length = this._vertexCount;
         var verDec: VertexDeclaration = this._vertexBuffer.vertexDeclaration;
@@ -277,9 +262,6 @@ export class Mesh extends Resource implements IClone {
         }
     }
 
-    /**
-     * @internal
-     */
     private _setVerticeElementData(data: Array<Vector2 | Vector3 | Vector4 | Color>, elementUsage: number): void {
         var verDec: VertexDeclaration = this._vertexBuffer.vertexDeclaration;
         var element: VertexElement = verDec.getVertexElementByUsage(elementUsage);
@@ -355,9 +337,8 @@ export class Mesh extends Resource implements IClone {
     }
 
     /**
-     * 销毁资源
-     * @internal
-     * @override
+     * @en Destroys the mesh and releases resources.
+     * @zh 销毁资源
      */
     protected _disposeResource(): void {
         for (var i: number = 0, n: number = this._subMeshes.length; i < n; i++)
@@ -575,7 +556,7 @@ export class Mesh extends Resource implements IClone {
     }
 
     /**
-     * @en Copies and fills normal data into an array.This method is a copy operation, which may be time-consuming.
+     * @en Copies and fills normal data into an array. This method is a copy operation, which may be time-consuming.
      * @param normals The array to fill with normal data.
      * @zh 拷贝并填充法线数据至数组。该方法为拷贝操作，比较耗费性能。
      * @param normals 用于填充法线数据的数组。
@@ -809,8 +790,9 @@ export class Mesh extends Resource implements IClone {
         if (this._convexMesh == null) {
             return null;
         }
-        if (this.__convexMesh == null && Laya3D._PhysicsCreateUtil && Laya3D._PhysicsCreateUtil.getPhysicsCapable(EPhysicsCapable.Physics_CreateCorveMesh)) {
-            this.__convexMesh = Laya3D._PhysicsCreateUtil.createCorveMesh(this);
+        let util = ILaya.Laya3D._PhysicsCreateUtil;
+        if (this.__convexMesh == null && util && util.getPhysicsCapable(EPhysicsCapable.Physics_CreateCorveMesh)) {
+            this.__convexMesh = util.createCorveMesh(this);
         }
         return this.__convexMesh;
     }
@@ -906,7 +888,7 @@ export class Mesh extends Resource implements IClone {
      * @zh 克隆当前网格。
      * @return 当前网格的克隆副本。
      */
-    clone(): any {//[实现IClone接口]
+    clone() {//[实现IClone接口]
         var dest: Mesh = new Mesh();
         this.cloneTo(dest);
         return dest;

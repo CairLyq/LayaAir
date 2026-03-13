@@ -1,40 +1,30 @@
-import { ILaya } from "../../ILaya";
-import { LayaEnv } from '../../LayaEnv';
-import { HideFlags, NodeFlags } from "../Const";
-import { Text } from "../display/Text";
-import { ButtonEffect } from "../effect/ButtonEffect";
-import { Event } from "../events/Event";
-import { Loader } from "../net/Loader";
-import { URL } from "../net/URL";
-import { Texture } from "../resource/Texture";
-import { Handler } from "../utils/Handler";
-import { Node } from './../display/Node';
-import { AutoBitmap } from "./AutoBitmap";
-import { Image } from "./Image";
+import { UIComponent } from "./UIComponent";
 import { ISelect } from "./ISelect";
 import { Styles } from "./Styles";
-import { UIComponent } from "./UIComponent";
-import { UIUtils } from "./UIUtils";
+import { HideFlags } from "../Const"
+import { Text } from "../display/Text"
+import { Event } from "../events/Event"
+import { Loader } from "../net/Loader"
+import { Texture } from "../resource/Texture"
+import { AutoBitmap } from "./AutoBitmap"
+import { UIUtils } from "./UIUtils"
+import { Handler } from "../utils/Handler"
+import { ILaya } from "../../ILaya";
+import { URL } from "../net/URL";
+import { TransformKind } from "../display/SpriteConst";
 /**
  * @en The Button component is used to represent a button with multiple states. The Button component can display a text label, an icon, or both.
  * The states can be single-state, two-state (normal, pressed), or three-state (normal, hover, pressed). By default, it is three-state.
  * @zh `Button` 组件用来表示多种状态的按钮。`Button` 组件可显示文本标签、图标或同时显示两者。
  * 多种状态，可以是单态，两态（移出、按下）和三态(移出、悬停、按下)，默认是三态。
+ * @blueprintInheritable
  */
 export class Button extends UIComponent implements ISelect {
-
-    static globalMouseDownHook: Handler;
-
     /**
      * @en Controls whether the button can toggle its display state. When the value is true, the display state can be toggled by clicking, such as switching between selected and unselected states.
      * @zh 用于控制按钮是否可切换显示状态；值为 true 时，才可以在运行后通过点击切换显示状态。例如选中状态和未选中状态。
      */
     toggle: boolean;
-
-    /** 
-     * @zh 原来所有对象都是加到Button底层，现在改成加到content上
-     */
-    protected _content: Image;
 
     /**
      * @en The text on the button.
@@ -92,10 +82,6 @@ export class Button extends UIComponent implements ISelect {
      */
     declare _graphics: AutoBitmap;
 
-    get content(): Node {
-        return this._content || this;
-    }
-
     /**
      * @en The state value of the button.
      * @zh 对象的状态值。
@@ -152,7 +138,7 @@ export class Button extends UIComponent implements ISelect {
         }
         if (this._stateNum != value) {
             this._stateNum = value < 1 ? 1 : value > 3 ? 3 : value;
-            this.thisGraphics().setState(this._state, this._stateNum);
+            this._graphics.setState(this._state, this._stateNum);
             if (this._skin) {
                 this.callLater(this.changeClips);
                 this._setStateChanged();
@@ -189,13 +175,9 @@ export class Button extends UIComponent implements ISelect {
     }
 
     set selected(value: boolean) {
-        const state = value ? 2 : 0;
-        // 通过双重检查确保：
-        // this._selected 与 value 一致。
-        // this.state 与 value 对应的状态码（2 或 0）一致。
-        if (this._selected != value || this.state != state) {
+        if (this._selected != value) {
             this._selected = value;
-            this.state = state;
+            this.state = this._selected ? 2 : 0;
             this.event(Event.CHANGE);
         }
     }
@@ -226,7 +208,7 @@ export class Button extends UIComponent implements ISelect {
         return this._strokeColors ? this._strokeColors.join(",") : "";
     }
     set strokeColors(value: string) {
-        this._strokeColors = UIUtils.fillArray(Styles.buttonLabelColors, value, String);
+        this._strokeColors = value ? UIUtils.fillArray(Styles.buttonLabelColors, value, String) : null;
         this._setStateChanged();
     }
 
@@ -386,15 +368,15 @@ export class Button extends UIComponent implements ISelect {
      * 值以逗号分隔。例如："6,6,6,6,1"。
      */
     get sizeGrid(): string {
-        if (this.thisGraphics().sizeGrid) return this.thisGraphics().sizeGrid.join(",");
+        if (this._graphics.sizeGrid) return this._graphics.sizeGrid.join(",");
         return null;
     }
 
     set sizeGrid(value: string) {
         if (value)
-            this.thisGraphics().sizeGrid = UIUtils.fillArray(Styles.defaultSizeGrid, value, Number);
+            this._graphics.sizeGrid = UIUtils.fillArray(Styles.defaultSizeGrid, value, Number);
         else
-            this.thisGraphics().sizeGrid = null;
+            this._graphics.sizeGrid = null;
     }
 
     /**
@@ -402,14 +384,14 @@ export class Button extends UIComponent implements ISelect {
      * @zh 图标x,y偏移，格式：100,100
      */
     get iconOffset(): string {
-        return this.thisGraphics()._offset ? this.thisGraphics()._offset.join(",") : null;
+        return this._graphics._offset ? this._graphics._offset.join(",") : null;
     }
 
     set iconOffset(value: string) {
         if (value)
-            this.thisGraphics()._offset = UIUtils.fillArray([1, 1], value, Number);
+            this._graphics._offset = UIUtils.fillArray([1, 1], value, Number);
         else
-            this.thisGraphics()._offset = [];
+            this._graphics._offset = [];
     }
 
     /**
@@ -429,18 +411,19 @@ export class Button extends UIComponent implements ISelect {
             this.skin = skin;
         this.label = label;
     }
+
     protected measureWidth(): number {
         if (this._skin)
             this.runCallLater(this.changeClips);
-        if (this._autoSize) return this.thisGraphics().width;
+        if (this._autoSize) return this._graphics.width;
         this.runCallLater(this.changeState);
-        return this.thisGraphics().width + (this._text ? this._text.width : 0);
+        return this._graphics.width + (this._text ? this._text.width : 0);
     }
 
     protected measureHeight(): number {
         if (this._skin)
             this.runCallLater(this.changeClips);
-        return this._text ? Math.max(this.thisGraphics().height, this._text.height) : this.thisGraphics().height;
+        return this._text ? Math.max(this._graphics.height, this._text.height) : this._graphics.height;
     }
 
     /**
@@ -457,25 +440,13 @@ export class Button extends UIComponent implements ISelect {
     }
 
     protected createChildren(): void {
-        if (!LayaEnv.isPlaying) { // 编辑器环境下不创建 @zhaoluohua
-            this.setGraphics(new AutoBitmap(), true);
-            return;
-        }
-        this._content = new Image();
-        super.addChild(this._content);
-        //特殊处理，增加按钮特效逻辑 @zhoushaoqing
-        let buttonEffect = new ButtonEffect();
-        buttonEffect.effectScale = 0.9;
-        buttonEffect.tweenTime = 160;
-        buttonEffect.target = this._content;
-        this._content.setGraphics(new AutoBitmap(), true);
+        this.setGraphics(new AutoBitmap(), true);
     }
 
     protected createText(): void {
         if (!this._text) {
             this._text = new Text();
-            // 这个属性开了，连续渲染的文本不能合批
-            // this._text.overflow = Text.HIDDEN;
+            this._text.overflow = Text.HIDDEN;
             this._text.align = "center";
             this._text.valign = "middle";
             this._text.width = this._width;
@@ -484,10 +455,6 @@ export class Button extends UIComponent implements ISelect {
         }
     }
     protected initialize(): void {
-        if (this._mouseState !== 1) {
-            this.mouseEnabled = true;
-            this._setBit(NodeFlags.HAS_MOUSE, true);
-        }
         this.on(Event.MOUSE_OVER, this, this.onMouse);
         this.on(Event.MOUSE_OUT, this, this.onMouse);
         this.on(Event.MOUSE_DOWN, this, this.onMouse);
@@ -553,7 +520,7 @@ export class Button extends UIComponent implements ISelect {
         if (this._destroyed)
             return;
 
-        this.thisGraphics().source = tex;
+        this._graphics.source = tex;
         if (tex)
             this.callLater(this.changeClips);
         this._setStateChanged();
@@ -563,24 +530,21 @@ export class Button extends UIComponent implements ISelect {
 
 
     /**
-     * @internal
+     * @ignore
      */
-    _setWidth(value: number) {
-        super._setWidth(value);
-        if (this._autoSize) {
-            this.thisGraphics().width = value;
-            this._text && (this._text.width = value);
-        }
-    }
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
 
-    /**
-     * @internal
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
         if (this._autoSize) {
-            this.thisGraphics().height = value;
-            this._text && (this._text.height = value);
+            if ((kind & TransformKind.Width) != 0) {
+                this._graphics.width = this._width;
+                this._text && (this._text.width = this._width);
+            }
+
+            if ((kind & TransformKind.Height) != 0) {
+                this._graphics.height = this._height;
+                this._text && (this._text.height = this._height);
+            }
         }
     }
 
@@ -601,24 +565,16 @@ export class Button extends UIComponent implements ISelect {
         height = img.sourceHeight / (img._stateNum || this._stateNum);
 
         if (this._autoSize) {
-            this.thisGraphics().width = this._isWidthSet ? this._width : width;
-            this.thisGraphics().height = this._isHeightSet ? this._height : height;
+            this._graphics.width = this._isWidthSet ? this._width : width;
+            this._graphics.height = this._isHeightSet ? this._height : height;
             if (this._text) {
-                this._text.width = this.thisGraphics().width;
-                this._text.height = this.thisGraphics().height;
-            }
-            if (this._content) {
-                this._content.pivot(this.thisGraphics().width / 2, this.thisGraphics().height / 2);
-                this._content.pos(this.thisGraphics().width / 2, this.thisGraphics().height / 2);
+                this._text.width = this._graphics.width;
+                this._text.height = this._graphics.height;
             }
         } else {
             if (this._text) {
                 this._text.x = width;
                 this._text.height = height;
-            }
-            if (this._content) {
-                this._content.pivot(width / 2, height / 2);
-                this._content.pos(width / 2, height / 2);
             }
         }
     }
@@ -632,7 +588,7 @@ export class Button extends UIComponent implements ISelect {
         if (this._skin)
             this.runCallLater(this.changeClips);
         let index = Math.max(this._state, 0);
-        this.thisGraphics().setState(index, this._stateNum);
+        this._graphics.setState(index, this._stateNum);
         if (this.label) {
             this._text.color = this._labelColors[index];
             if (this._strokeColors) this._text.strokeColor = this._strokeColors[index];
@@ -658,38 +614,10 @@ export class Button extends UIComponent implements ISelect {
             super.set_dataSource(value);
     }
 
-    override addChild<T extends Node>(node: T): T {
-        if (!this._content) {
-            return super.addChild(node);
-        }
-        return this._content.addChild(node);
-    }
-
-    /**
-     * 根据子节点的名字，获取子节点对象。
-     * @param	name 子节点的名字。
-     * @return	节点对象。
-     */
-    override getChildByName(name: string): Node {
-        for (let child of this.content._children) {
-            if (child && child.name === name)
-                return child;
-        }
-        return null;
-    }
-
-    /**
-     * 
-     * @returns 获取当前对象的AutoBitmap
-     */
-    thisGraphics(): AutoBitmap {
-        if (this._content) {
-            return this._content._graphics;
-        } else {
-            return this._graphics;
-        }
-    }
-
+    /** @internal @blueprintEvent */
+    Button_bpEvent: {
+        [Event.CHANGE]: () => void;
+    };
 }
 
 const stateMap: any = { "mouseup": 0, "mouseover": 1, "mousedown": 2, "mouseout": 0 };

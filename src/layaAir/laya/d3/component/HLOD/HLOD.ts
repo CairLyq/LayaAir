@@ -12,6 +12,7 @@ const tempVec = new Vector3();
 /**
  * @en HLOD (Hierarchical Level of Detail) component for optimizing rendering performance.
  * @zh HLOD（分层细节层次）组件，用于优化渲染性能。
+ * @blueprintIgnore
  */
 export class HLOD extends Component {
     /**@internal */
@@ -35,6 +36,7 @@ export class HLOD extends Component {
     /**@internal */
     private _size: number;
 
+    declare readonly owner: Sprite3D;
 
     constructor() {
         super();
@@ -117,13 +119,13 @@ export class HLOD extends Component {
     onPreRender() {
         // this.recalculateBounds();
         // //查看相机的距离
-        let checkCamera = (this.owner.scene as Scene3D).cullInfoCamera as Camera;
+        let checkCamera = this.owner.scene.cullInfoCamera;
         let maxYDistance = checkCamera.maxlocalYDistance;
         let cameraFrustum = checkCamera.boundFrustum;
-        Vector3.subtract((this.owner as Sprite3D).transform.position, checkCamera.transform.position, tempVec);
+        Vector3.subtract(this.owner.transform.position, checkCamera.transform.position, tempVec);
         //大于farplane,或者不在视锥内.不做lod操作
         let length = tempVec.length();
-        if (length > checkCamera.farPlane || cameraFrustum.containsPoint((this.owner as Sprite3D).transform.position) == 0) {
+        if (length > checkCamera.farPlane || cameraFrustum.containsPoint(this.owner.transform.position) == 0) {
             return;
         }
         let rateYDistance = length / checkCamera.farPlane * maxYDistance;

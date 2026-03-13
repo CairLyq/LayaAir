@@ -1,28 +1,125 @@
+import { Const } from "../Const";
 import { IRenderContext2D } from "../RenderDriver/DriverDesign/2DRenderPass/IRenderContext2D";
 import { IRenderElement2D } from "../RenderDriver/DriverDesign/2DRenderPass/IRenderElement2D";
-import { ShaderData } from "../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { ShaderData, ShaderDataType } from "../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { I2DBaseRenderDataHandle } from "../RenderDriver/RenderModuleData/Design/2D/IRender2DDataHandle";
+import { IRenderStruct2D } from "../RenderDriver/RenderModuleData/Design/2D/IRenderStruct2D";
+import { ShaderDefine } from "../RenderDriver/RenderModuleData/Design/ShaderDefine";
+import { Shader3D } from "../RenderEngine/RenderShader/Shader3D";
 import { Component } from "../components/Component";
 import { Sprite } from "../display/Sprite";
+import { BaseRender2DType, TransformKind } from "../display/SpriteConst";
 import { LayaGL } from "../layagl/LayaGL";
+import { Vector2 } from "../maths/Vector2";
 import { Vector4 } from "../maths/Vector4";
-import { Context } from "../renders/Context";
 import { Material } from "../resource/Material";
-
-export enum BaseRender2DType {
-    baseRenderNode = 0,
-    spine = 1,
-    particle = 2,
-    spineSimple = 3
-}
+import { ShaderDefines2D } from "../webgl/shader/d2/ShaderDefines2D";
 
 export enum Render2DOrderMode {
     elementIndex,
     ysort
 }
 
+/**
+ * 2D 渲染基类
+ */
 export class BaseRenderNode2D extends Component {
     /**@internal */
     private static _uniqueIDCounter: number = 0;
+
+    /**
+     * 渲染节点颜色ID
+     * @readonly
+     */
+    static BASERENDER2DCOLOR: number;
+    /**
+     * 渲染节点纹理ID
+     * @readonly
+     */
+    static BASERENDER2DTEXTURE: number;
+    /**
+     * 渲染节点纹理范围ID
+     * @readonly
+     */
+    static TILINGOFFSET: number;
+    /**
+     * 渲染节点size ID
+     * @readonly
+     */
+    static BASERENDERSIZE: number;
+
+    /**
+     * 渲染节点纹理ID
+     * @readonly
+     */
+    static NORMAL2DTEXTURE: number;
+    /**
+     * @readonly
+     */
+    static NORMAL2DSTRENGTH: number;
+
+    /**
+     * 2D渲染节点宏
+     * @readonly
+     */
+    static SHADERDEFINE_BASERENDER2D: ShaderDefine;
+
+    /**
+     * 2D灯光宏
+     * @readonly
+     */
+    static SHADERDEFINE_LIGHT2D_ENABLE: ShaderDefine;
+    /** @readonly */
+    static SHADERDEFINE_LIGHT2D_EMPTY: ShaderDefine;
+    /** @readonly */
+    static SHADERDEFINE_LIGHT2D_ADDMODE: ShaderDefine;
+    /** @readonly */
+    static SHADERDEFINE_LIGHT2D_SUBMODE: ShaderDefine;
+    /** @readonly */
+    static SHADERDEFINE_LIGHT2D_NORMAL_PARAM: ShaderDefine;
+    /**
+     * @internal
+     */
+    static initBaseRender2DCommandEncoder() {
+        BaseRenderNode2D.BASERENDER2DCOLOR = Shader3D.propertyNameToID("u_baseRenderColor");
+        BaseRenderNode2D.BASERENDER2DTEXTURE = Shader3D.propertyNameToID("u_baseRender2DTexture");
+        BaseRenderNode2D.TILINGOFFSET = Shader3D.propertyNameToID("u_tilingOffset");
+        // BaseRenderNode2D.BASERENDERSIZE = Shader3D.propertyNameToID("u_baseRenderSize2D");
+
+        BaseRenderNode2D.NORMAL2DTEXTURE = Shader3D.propertyNameToID("u_normal2DTexture");
+        BaseRenderNode2D.NORMAL2DSTRENGTH = Shader3D.propertyNameToID("u_normal2DStrength");
+
+        BaseRenderNode2D.SHADERDEFINE_BASERENDER2D = Shader3D.getDefineByName("BASERENDER2D");
+        BaseRenderNode2D.SHADERDEFINE_LIGHT2D_ENABLE = Shader3D.getDefineByName("LIGHT2D_ENABLE");
+        BaseRenderNode2D.SHADERDEFINE_LIGHT2D_EMPTY = Shader3D.getDefineByName("LIGHT2D_EMPTY");
+        BaseRenderNode2D.SHADERDEFINE_LIGHT2D_ADDMODE = Shader3D.getDefineByName("LIGHT2D_SCENEMODE_ADD");
+        BaseRenderNode2D.SHADERDEFINE_LIGHT2D_SUBMODE = Shader3D.getDefineByName("LIGHT2D_SCENEMODE_SUB");
+        BaseRenderNode2D.SHADERDEFINE_LIGHT2D_NORMAL_PARAM = Shader3D.getDefineByName("LIGHT2D_NORMAL_PARAM");
+
+        const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("BaseRender2D");
+        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_NMATRIX_0, "u_NMatrix_0", ShaderDataType.Vector3);
+        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_NMATRIX_1, "u_NMatrix_1", ShaderDataType.Vector3);
+        // commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_NMATRIX_0, "u_NMatrix_0", ShaderDataType.Vector3);
+        // commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_NMATRIX_1, "u_NMatrix_1", ShaderDataType.Vector3);
+        commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDER2DCOLOR, "u_baseRenderColor", ShaderDataType.Color);
+        commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDER2DTEXTURE, "u_baseRender2DTexture", ShaderDataType.Texture2D);
+        commandUniform.addShaderUniform(BaseRenderNode2D.TILINGOFFSET, "u_tilingOffset", ShaderDataType.Vector4);
+        // commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDERSIZE, "u_baseRenderSize2D", ShaderDataType.Vector2);
+        commandUniform.addShaderUniform(BaseRenderNode2D.NORMAL2DTEXTURE, "u_normal2DTexture", ShaderDataType.Texture2D);
+        commandUniform.addShaderUniform(BaseRenderNode2D.NORMAL2DSTRENGTH, "u_normal2DStrength", ShaderDataType.Float);
+        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_CLIPMATDIR, "u_clipMatDir", ShaderDataType.Vector4);
+        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_CLIPMATPOS, "u_clipMatPos", ShaderDataType.Vector4);
+    }
+
+    /**
+    * @internal
+    */
+    static _setRenderElement2DMaterial(element: IRenderElement2D, material: Material) {
+        element.subShader = material._shader.getSubShaderAt(0);
+        material._setOwner2DElement(element);
+        element.materialShaderData = material._shaderValues;
+    }
+
     /**
      * @internal
      * 渲染节点 
@@ -30,39 +127,42 @@ export class BaseRenderNode2D extends Component {
     _renderElements: IRenderElement2D[];
 
     /**
+     * @internal
      * 材质集
      */
     _materials: Material[];
 
     /**
+     * @internal
      * 渲染类型
      */
     _renderType: BaseRender2DType = BaseRender2DType.baseRenderNode;
 
     /**
+     * @internal
      * 帧循环标记
      */
     _renderUpdateMask: number = 0;
 
     /**
+     * @internal
      * sprite ShaderData,可以为null
      */
     _spriteShaderData: ShaderData;
 
-
-
+    /**
+     * @internal
+     */
+    _struct: IRenderStruct2D;
     /**
      * 唯一ID
      */
     private _renderid: number;
 
     /**
-     * @internal
-     * 渲染标签位
-     * render flag layer bit
+     * 渲染标签位,用于渲染分层
      */
     private _layer: number = 0;
-
 
     /**
      * 节点内的渲染排序模式
@@ -70,123 +170,293 @@ export class BaseRenderNode2D extends Component {
     private _ordingMode: Render2DOrderMode;
 
     /**
+     * 渲染目标大小
+     */
+    private _rtsize: Vector2 = new Vector2();
+
+    protected _lightReceive: boolean = false;
+
+    /**
+     * @internal Light params
+     */
+    _lightUpdateMark: number = 0;
+    /**
+     *@internal Light params 
+     *render是否已经记录在manager中，避免重复记录
+     */
+    _lightRecord: boolean = false;
+
+    declare readonly owner: Sprite;
+
+    /**
+     * 渲染层掩码，用于裁剪规则一
+     */
+    private _renderLayer: number = 1;
+
+    /**
+     * 渲染范围，用于裁剪规则二
+     */
+    protected _rect: Vector4 = new Vector4();
+
+    protected _boundsChange: boolean = false;
+
+    protected _renderHandle: I2DBaseRenderDataHandle;
+
+    /**
+     * 获取渲染层掩码
+     */
+    get renderLayer(): number {
+        return this._renderLayer;
+    }
+
+    /**
+     * 设置渲染层掩码
+     */
+    set renderLayer(value: number) {
+        this._renderLayer = value;
+    }
+
+    /**
+     * 获取渲染范围
+     */
+    get rect(): Vector4 {
+        if (this._boundsChange) {
+            //todo 计算渲染范围
+            this._boundsChange = false;
+        }
+        return this._rect;
+    }
+
+
+    public get boundsChange(): boolean {
+        return this._boundsChange;
+    }
+    public set boundsChange(value: boolean) {
+        this._boundsChange = value;
+    }
+    // /**
+    //  * 设置渲染范围
+    //  */
+    // set rect(value: Vector4) {
+    //     this._rect = value;
+    // }
+
+    /**
      * 基于不同BaseRender的uniform集合
-     * @internal
      */
     protected _getcommonUniformMap(): Array<string> {
-        return ["sprite2D"];
+        return ["BaseRender2D"];
     }
 
-    /**
-     * @internal
-     * @returns 
-     */
-    protected _getRect(): Vector4 {
-        return null;//get sprite ?
+    protected _initDefaultRenderData?(): void;
+
+    // protected _getRect(): Vector4 {
+    //     return this._rect;
+    // }
+
+    /** @internal */
+    _transformChange() {
+        //TODO
+        this.boundsChange = true;
     }
 
-    protected _transformChange() {
-
-    }
-
-    /**
-   * 返回第一个材质。
-   */
-    get sharedMaterial(): Material {
-        return this._materials[0];
-    }
-
-    set sharedMaterial(value: Material) {
-        var lastValue: Material = this._materials[0];
-        if (lastValue !== value) {
-            this._materials[0] = value;
-            this._changeMaterialReference(lastValue, value);
-            this._renderElements[0] && this._setRenderElement2DMaterial(this._renderElements[0], value);
-        }
-    }
-
-    private _setRenderElement2DMaterial(element: IRenderElement2D, material: Material) {
-        element.subShader = material._shader.getSubShaderAt(0);
-        //element.materialId = material.id;
-        element.materialShaderData = material._shaderValues;
-    }
-
-    /**
-     * @internal
-     */
     private _changeMaterialReference(lastValue: Material, value: Material): void {
         (lastValue) && (lastValue._removeReference());
         (value) && (value._addReference());//TODO:value可以为空
     }
 
+
+
+    /**@ignore */
     constructor() {
         super();
         this._renderid = BaseRenderNode2D._uniqueIDCounter++;
-        this._spriteShaderData = LayaGL.renderDeviceFactory.createShaderData(null);
         this._renderType = BaseRender2DType.baseRenderNode;
         this._ordingMode = Render2DOrderMode.elementIndex;
-        this._layer = 1;
+        this._renderHandle = this._createRenderHandle();
     }
 
-    /**
-     * cmd run时调用，可以用来计算matrix等获得即时context属性
-     * @param context 
-     * @param px 
-     * @param py 
-     */
-    addCMDCall?(context: Context, px: number, py: number): void;
 
     /**
      * 帧更新，可以放一些顶点更新，数据计算等
-     * @protected
      * @param context 
      */
     renderUpdate?(context: IRenderContext2D): void;
 
-    /**
-     * 渲染前更新，准备所需的渲染数据
-     * @param context 
-     */
-    preRenderUpdate?(context: IRenderContext2D): void;
-
-    /**
-     * @internal
-     * @protected
-     */
-    protected _onEnable(): void {
-        super._onEnable();
-        if (this.owner) {
-            (this.owner as Sprite).renderNode2D = this;;
-        }
+    protected _onAdded(): void {
+        this.owner._initShaderData();
+        this.owner.renderNode2D = this;
+        this._struct = this.owner._struct;
+        this._spriteShaderData = this._struct.spriteShaderData;
+        this.owner._struct.renderDataHandler = this._renderHandle;
+        this.owner._struct.renderElements = this._renderElements;
+        this.owner._struct.renderType = this._renderType;
+        this.owner._updateStruct();
+        this._initDefaultRenderData && this._initDefaultRenderData();
     }
 
-    /**
-     * @internal
-     * @protected
-     */
+    protected _onEnable(): void {
+        this.owner.renderNode2D = this;
+        super._onEnable();
+        //更新矩阵
+        this.owner.globalTrans._spTransChanged(TransformKind.TRS);
+
+        if (this._lightReceive)
+            this._addRenderToLightManager();
+    }
+
     protected _onDisable(): void {
-        if (this.owner) {
-            (this.owner as Sprite).renderNode2D = null;
-        }
+        this.owner.renderNode2D = null;
+        if (this._lightReceive)
+            this._removeRenderFromLightManager();
+
+        super._onDisable();
     }
 
     /**
      * override it
-     * @internal
      */
     protected _onDestroy() {
         for (var i = 0, n = this._materials.length; i < n; i++) {
             let m = this._materials[i];
             m && !m.destroyed && m._removeReference();
         }
-        this._spriteShaderData.destroy();
-        this.owner = null;
+        this._renderHandle.destroy();
     }
 
+    /** @ignore */
+    _getRenderHandle(): I2DBaseRenderDataHandle {
+        return this._renderHandle;
+    }
+
+    protected _createRenderHandle(): I2DBaseRenderDataHandle {
+        return LayaGL.render2DRenderPassFactory.create2DBaseRenderDataHandle();
+    }
+
+    protected _isMaterialVaild(value: Material): boolean {
+        return true;
+    }
+
+    /**
+     * @en render layer
+     * @zh 渲染层。
+     */
+    get layer(): number {
+        return this._layer;
+    }
+
+    set layer(value: number) {
+        if (this._layer !== value) {
+            if (value >= 0 && value <= 30) {
+                this._removeRenderFromLightManager();
+                this._layer = value;
+                this._addRenderToLightManager();
+                this._resetUpdateMark();
+            } else {
+                throw new Error("Layer value must be 0-30.");
+            }
+        }
+    }
+
+    /**
+     * @en Whether to receive light
+     * @zh 是否接受灯光。
+     */
+    get lightReceive() {
+        return this._lightReceive;
+    }
+
+    set lightReceive(value: boolean) {
+        if (value === this._lightReceive)
+            return;
+        this._lightReceive = value;
+        if (value) {
+            this._addRenderToLightManager();
+        } else {
+            this._removeRenderFromLightManager();
+        }
+        this._renderHandle.lightReceive = value;
+        this._resetUpdateMark();
+    }
+
+    _resetUpdateMark() {
+        this._lightUpdateMark = 0;
+    }
+
+    _updateLight() {
+        if (!this.lightReceive || !this.owner.scene || !this.owner.scene._light2DManager) return;
+        const light2DManager = this.owner.scene._light2DManager;
+        const updateMark = light2DManager._getLayerUpdateMark(this.layer);
+        if (this._lightUpdateMark !== updateMark) {
+            this._lightUpdateMark = updateMark;
+            light2DManager._updateShaderDataByLayer(this.layer, this.owner._struct.spriteShaderData);
+        }
+    }
+
+    /**
+     * light Manager
+     */
+    private _addRenderToLightManager() {
+        if (this.owner.scene) {
+            let light2DManager = this.owner.scene._light2DManager;
+            if (light2DManager && !this._lightRecord) {
+                light2DManager.addRender(this);
+                this._lightRecord = true;
+            }
+        }
+    }
+
+    /**
+     * lightManager
+     */
+    private _removeRenderFromLightManager() {
+        if (this.owner.scene) {
+            const light2DManager = this.owner.scene._light2DManager;
+            if (light2DManager && this._lightRecord) {
+                light2DManager.removeRender(this);
+                this._lightRecord = false;
+            }
+        }
+    }
+
+    /**
+     * @en get first Material
+     * @zh 第一个材质。
+     */
+    get sharedMaterial(): Material {
+        return this._materials[0];
+    }
+
+    set sharedMaterial(value: Material) {
+        if (value && !this._isMaterialVaild(value))
+            return;
+        const lastValue: Material = this._materials[0];
+        if (lastValue !== value) {
+            this._materials[0] = value;
+            this._changeMaterialReference(lastValue, value);
+            this._renderElements[0] && BaseRenderNode2D._setRenderElement2DMaterial(this._renderElements[0], value);
+        }
+    }
+
+    /** @internal */
+    _getRenderElements(): IRenderElement2D[] {
+        return this._renderElements;
+    }
+
+    /**
+     * @en Get 2D render component ID
+     * @zh 获得2D渲染组件标识ID
+     * @returns 获得ID
+     */
+    getRenderID() {
+        return this._renderid;
+    }
+
+    /**
+     * @internal
+     */
     clear(): void {
         this._renderElements.length = 0;
-
     }
-
 
 }

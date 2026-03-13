@@ -1,4 +1,4 @@
-import { Sprite } from "../../display/Sprite";
+import { ISpineRenderDataHandle } from "../../RenderDriver/RenderModuleData/Design/2D/IRender2DDataHandle";
 import { Color } from "../../maths/Color";
 import { Spine2DRenderNode } from "../Spine2DRenderNode";
 import { SpineAdapter } from "../SpineAdapter";
@@ -13,6 +13,11 @@ import { ISpineOptimizeRender } from "./interface/ISpineOptimizeRender";
  * @zh 普通 Spine 渲染实现类。
  */
 export class SpineNormalRender implements ISpineOptimizeRender {
+    enableCache: boolean = false;
+   
+    clearCacheMaterials(): void {
+        //throw new NotImplementedError();
+    }
     getSpineColor(): Color {
         return this._spineColor;
     }
@@ -21,8 +26,9 @@ export class SpineNormalRender implements ISpineOptimizeRender {
      * @zh 销毁渲染器。
      */
     destroy(): void {
-        this._renerer.destroy();
-        //throw new NotImplementedError();
+        this._renderer.destroy();
+        this._renderer = null;
+        this._owner._renderElements.length = 0;
     }
     /**
      * @en Initializes bake data.
@@ -36,12 +42,13 @@ export class SpineNormalRender implements ISpineOptimizeRender {
     /** @internal */
     _owner: Spine2DRenderNode;
     /** @internal */
-    _renerer: ISpineRender;
+    _renderer: ISpineRender;
     /** @internal */
     _skeleton: spine.Skeleton;
     /**@internal */
     _spineColor: Color
-
+    /** @internal */
+    _skinIndex: number = 0;
     /**
      * @en Initializes the renderer.
      * @param skeleton The spine skeleton.
@@ -55,20 +62,17 @@ export class SpineNormalRender implements ISpineOptimizeRender {
      * @param state Spine 动画状态。
      */
     init(skeleton: spine.Skeleton, templet: SpineTemplet, renderNode: Spine2DRenderNode, state: spine.AnimationState): void {
-        this._renerer = SpineAdapter.createNormalRender(templet, false);
+        this._renderer = SpineAdapter.createNormalRender(templet);
         this._skeleton = skeleton;
         this._owner = renderNode;
         let scolor = skeleton.color;
+
         this._spineColor = new Color(scolor.r, scolor.g, scolor.b, scolor.a);
-        let color =  renderNode._spriteShaderData.getColor(SpineShaderInit.Color) || new Color();
-        color.setValue(scolor.r, scolor.g, scolor.b , scolor.a );
-        if (renderNode._renderAlpha !== undefined) {
-            color.a *= renderNode._renderAlpha;
-        }else
-            color.a *= (renderNode.owner as Sprite).alpha;
-        renderNode._spriteShaderData.setColor(SpineShaderInit.Color, color);
+        (renderNode._getRenderHandle() as ISpineRenderDataHandle).baseColor = this._spineColor;
+
         renderNode._spriteShaderData.removeDefine(SpineShaderInit.SPINE_FAST);
         renderNode._spriteShaderData.removeDefine(SpineShaderInit.SPINE_RB);
+        renderNode._spriteShaderData.addDefine(SpineShaderInit.SPINE_COLOR2);
     }
 
     /**
@@ -87,7 +91,7 @@ export class SpineNormalRender implements ISpineOptimizeRender {
      * @param index 要设置的皮肤索引。
      */
     setSkinIndex(index: number): void {
-        //throw new NotImplementedError();
+        this._skinIndex = index;
     }
 
 
@@ -99,6 +103,9 @@ export class SpineNormalRender implements ISpineOptimizeRender {
      */
     changeSkeleton(skeleton: spine.Skeleton) {
         this._skeleton = skeleton;
+        //@ts-ignore
+        skeleton.showSkinByIndex(this._skinIndex);
+        this._skeleton.setSlotsToSetupPose();
     }
 
     /**
@@ -108,7 +115,16 @@ export class SpineNormalRender implements ISpineOptimizeRender {
      * @param time 当前渲染时间。
      */
     render(time: number) {
-        this._owner.clear();
-        this._renerer.draw(this._skeleton, this._owner, -1, -1);
+        this._owner.clearRenderElement();
+        this._renderer.draw(this._skeleton, this._owner, -1, -1);
+        this._owner.owner._struct.renderElements = this._owner._renderElements;
+    }
+
+    /**
+     * @en Completes the animation.
+     * @zh 完成动画。
+     */
+    complete(): void {
+        //throw new NotImplementedError();
     }
 }

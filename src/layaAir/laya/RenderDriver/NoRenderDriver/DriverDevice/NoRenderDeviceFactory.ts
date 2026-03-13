@@ -4,8 +4,6 @@ import { DrawType } from "../../../RenderEngine/RenderEnum/DrawType";
 import { IndexFormat } from "../../../RenderEngine/RenderEnum/IndexFormat";
 import { MeshTopology } from "../../../RenderEngine/RenderEnum/RenderPologyMode";
 import { ShaderPass } from "../../../RenderEngine/RenderShader/ShaderPass";
-import { UnifromBufferData } from "../../../RenderEngine/UniformBufferData";
-import { UniformBufferObject } from "../../../RenderEngine/UniformBufferObject";
 import { VertexDeclaration } from "../../../RenderEngine/VertexDeclaration";
 import { Color } from "../../../maths/Color";
 import { Matrix3x3 } from "../../../maths/Matrix3x3";
@@ -15,17 +13,21 @@ import { Vector2 } from "../../../maths/Vector2";
 import { Vector3 } from "../../../maths/Vector3";
 import { Vector4 } from "../../../maths/Vector4";
 import { BaseTexture } from "../../../resource/BaseTexture";
+import { HTMLCanvas } from "../../../resource/HTMLCanvas";
 import { Resource } from "../../../resource/Resource";
+import { NotImplementedError } from "../../../utils/Error";
+import { FastSinglelist } from "../../../utils/SingletonList";
 import { ShaderProcessInfo, ShaderCompileDefineBase } from "../../../webgl/utils/ShaderCompileDefineBase";
 import { CommandUniformMap, UniformProperty } from "../../DriverDesign/RenderDevice/CommandUniformMap";
 import { IBufferState } from "../../DriverDesign/RenderDevice/IBufferState";
 import { IIndexBuffer } from "../../DriverDesign/RenderDevice/IIndexBuffer";
+import { SetRenderDataCMD, RenderCMDType, SetShaderDefineCMD } from "../../DriverDesign/RenderDevice/IRenderCMD";
 import { IRenderDeviceFactory } from "../../DriverDesign/RenderDevice/IRenderDeviceFactory";
 import { IRenderGeometryElement } from "../../DriverDesign/RenderDevice/IRenderGeometryElement";
 import { IShaderInstance } from "../../DriverDesign/RenderDevice/IShaderInstance";
 import { IVertexBuffer } from "../../DriverDesign/RenderDevice/IVertexBuffer";
 import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
-import { ShaderData, ShaderDataItem, ShaderDataType, uboParams } from "../../DriverDesign/RenderDevice/ShaderData";
+import { ShaderData, ShaderDataItem, ShaderDataType } from "../../DriverDesign/RenderDevice/ShaderData";
 import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { ShaderDefine } from "../../RenderModuleData/Design/ShaderDefine";
 import { WebDefineDatas } from "../../RenderModuleData/WebModuleData/WebDefineDatas";
@@ -46,7 +48,7 @@ export class NoRenderDeviceFactory implements IRenderDeviceFactory {
     createRenderGeometryElement(mode: MeshTopology, drawType: DrawType): IRenderGeometryElement {
         return new NoRenderGeometryElement();
     }
-    createEngine(config: Config, canvas: any): Promise<void> {
+    createEngine(config: Config, canvas: HTMLCanvas): Promise<void> {
         return Promise.resolve();
     }
     createGlobalUniformMap(blockName: string): CommandUniformMap {
@@ -64,6 +66,8 @@ export class NoRenderCommandUnifojrmMap extends CommandUniformMap {
     }
     /**
      * 增加一个Uniform参数
+     * @param propertyID 
+     * @param propertyKey 
      */
     addShaderUniform(propertyID: number, propertyKey: string, uniformtype: ShaderDataType, block: string = null): void {
 
@@ -71,22 +75,19 @@ export class NoRenderCommandUnifojrmMap extends CommandUniformMap {
 
     /**
      * 增加一个UniformArray参数
-     * @param propertyID 
-     * @param propertyName 
      */
     addShaderUniformArray(propertyID: number, propertyName: string, uniformtype: ShaderDataType, arrayLength: number, block: string = ""): void {
 
     } //兼容WGSL
-
-    /**
-     * 增加一个Uniform
-     */
-    addShaderBlockUniform(propertyID: number, blockname: string, blockProperty: UniformProperty[]): void {
-
-    }
 }
 
 export class NoRenderShaderInstance implements IShaderInstance {
+    _serializeShader(): ArrayBuffer {
+        throw new NotImplementedError();
+    }
+    _deserialize(buffer: ArrayBuffer): boolean {
+        throw new NotImplementedError();
+    }
     _create(shaderProcessInfo: ShaderProcessInfo, shaderPass: ShaderPass): void {
     }
     _disposeResource(): void {
@@ -94,6 +95,8 @@ export class NoRenderShaderInstance implements IShaderInstance {
 }
 
 export class NoRenderIndexBuffer implements IIndexBuffer {
+    setData(buffer: ArrayBuffer, bufferOffset: number, dataStartIndex: number, dataCount: number): void {
+    }
     destroy(): void {
     }
     _setIndexDataLength(data: number): void {
@@ -131,11 +134,14 @@ export class NoRenderBufferState implements IBufferState {
 }
 
 export class NoRenderGeometryElement implements IRenderGeometryElement {
+    getDrawDataParams(out: FastSinglelist<number>): void {
+    }
     bufferState: IBufferState;
     mode: MeshTopology;
     drawType: DrawType;
     instanceCount: number;
     indexFormat: IndexFormat;
+    drawParams: FastSinglelist<number>;
     setDrawArrayParams(first: number, count: number): void {
     }
     setDrawElemenParams(count: number, offset: number): void {
@@ -153,22 +159,6 @@ export class NoRenderShaderData extends ShaderData {
     /** @internal */
     _defineDatas: WebDefineDatas = new WebDefineDatas();
 
-    /**
-     * @internal
-     * 增加一个UBO Block
-     * @param key 
-     * @param ubo 
-     * @param uboData 
-     */
-    _addCheckUBO(key: string, ubo: UniformBufferObject, uboData: UnifromBufferData) {
-
-    }
-
-    _releaseUBOData() {
-
-    }
-
-
     getDefineData(): WebDefineDatas {
         return this._defineDatas;
     }
@@ -181,40 +171,43 @@ export class NoRenderShaderData extends ShaderData {
     }
 
     /**
-     * 增加Shader宏定义。
+     * @ignore
      */
     addDefine(define: ShaderDefine): void {
         this._defineDatas.add(define);
     }
 
+    /**
+     * @ignore
+     */
     addDefines(define: IDefineDatas): void {
-        this._defineDatas.addDefineDatas(define);
+        this._defineDatas.addDefineDatas(define as WebDefineDatas);
     }
 
     /**
-     * 移除Shader宏定义。
+     * @ignore
      */
     removeDefine(define: ShaderDefine): void {
         this._defineDatas.remove(define);
     }
 
     /**
-     * 是否包含Shader宏定义。
+     * @ignore
      */
     hasDefine(define: ShaderDefine): boolean {
         return this._defineDatas.has(define);
     }
 
-    /**
-     * 清空宏定义。
-     */
     clearDefine(): void {
+
+    }
+    clearData(): void {
 
     }
 
     /**
      * 获取布尔。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  布尔。
      */
     getBool(index: number): boolean {
@@ -223,8 +216,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置布尔。
-     * @param	index shader索引。
-     * @param	value 布尔。
+     * @param index shader索引。
+     * @param value 布尔。
      */
     setBool(index: number, value: boolean): void {
         this._data[index] = value;
@@ -232,7 +225,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取整形。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  整形。
      */
     getInt(index: number): number {
@@ -241,8 +234,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置整型。
-     * @param	index shader索引。
-     * @param	value 整形。
+     * @param index shader索引。
+     * @param value 整形。
      */
     setInt(index: number, value: number): void {
         this._data[index] = value;
@@ -250,7 +243,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取浮点。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return	浮点。
      */
     getNumber(index: number): number {
@@ -259,8 +252,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置浮点。
-     * @param	index shader索引。
-     * @param	value 浮点。
+     * @param index shader索引。
+     * @param value 浮点。
      */
     setNumber(index: number, value: number): void {
         this._data[index] = value;
@@ -268,7 +261,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取Vector2向量。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return Vector2向量。
      */
     getVector2(index: number): Vector2 {
@@ -277,8 +270,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置Vector2向量。
-     * @param	index shader索引。
-     * @param	value Vector2向量。
+     * @param index shader索引。
+     * @param value Vector2向量。
      */
     setVector2(index: number, value: Vector2): void {
         this._data[index] = value;
@@ -286,7 +279,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取Vector3向量。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return Vector3向量。
      */
     getVector3(index: number): Vector3 {
@@ -295,8 +288,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置Vector3向量。
-     * @param	index shader索引。
-     * @param	value Vector3向量。
+     * @param index shader索引。
+     * @param value Vector3向量。
      */
     setVector3(index: number, value: Vector3): void {
         this._data[index] = value;
@@ -304,7 +297,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取颜色。
-     * @param 	index shader索引。
+     * @param index shader索引。
      * @return  向量。
      */
     getVector(index: number): Vector4 {
@@ -313,8 +306,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置向量。
-     * @param	index shader索引。
-     * @param	value 向量。
+     * @param index shader索引。
+     * @param value 向量。
      */
     setVector(index: number, value: Vector4): void {
         this._data[index] = value;
@@ -340,7 +333,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取矩阵。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  矩阵。
      */
     getMatrix4x4(index: number): Matrix4x4 {
@@ -349,8 +342,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置矩阵。
-     * @param	index shader索引。
-     * @param	value  矩阵。
+     * @param index shader索引。
+     * @param value  矩阵。
      */
     setMatrix4x4(index: number, value: Matrix4x4): void {
         this._data[index] = value;
@@ -367,6 +360,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置矩阵。
+     * @param index 
+     * @param value 
      */
     setMatrix3x3(index: number, value: Matrix3x3): void {
         this._data[index] = value;
@@ -374,7 +369,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取Buffer。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return
      */
     getBuffer(index: number): Float32Array {
@@ -383,8 +378,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置Buffer。
-     * @param	index shader索引。
-     * @param	value  buffer数据。
+     * @param index shader索引。
+     * @param value  buffer数据。
      */
     setBuffer(index: number, value: Float32Array): void {
         this._data[index] = value;
@@ -392,8 +387,8 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 设置纹理。
-     * @param	index shader索引。
-     * @param	value 纹理。
+     * @param index shader索引。
+     * @param value 纹理。
      */
     setTexture(index: number, value: BaseTexture): void {
         this._data[index] = value;
@@ -401,23 +396,10 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 获取纹理。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  纹理。
      */
     getTexture(index: number): BaseTexture {
-        return this._data[index];
-    }
-
-    /**
-     * 
-     * @param index 
-     * @param value 
-     */
-    setUniformBuffer(index: number, value: UniformBufferObject) {
-        this._data[index] = value;
-    }
-
-    getUniformBuffer(index: number): UniformBufferObject {
         return this._data[index];
     }
 
@@ -452,6 +434,8 @@ export class NoRenderShaderData extends ShaderData {
                 break;
             case ShaderDataType.Texture2D:
             case ShaderDataType.TextureCube:
+            case ShaderDataType.Texture2DArray:
+            case ShaderDataType.Texture3D:
                 this.setTexture(uniformIndex, <BaseTexture>value);
                 break;
             case ShaderDataType.Buffer:
@@ -482,6 +466,8 @@ export class NoRenderShaderData extends ShaderData {
                 return this.getMatrix4x4(uniformIndex);
             case ShaderDataType.Texture2D:
             case ShaderDataType.TextureCube:
+            case ShaderDataType.Texture2DArray:
+            case ShaderDataType.Texture3D:
                 return this.getTexture(uniformIndex);
             case ShaderDataType.Buffer:
                 return this.getBuffer(uniformIndex);
@@ -504,7 +490,7 @@ export class NoRenderShaderData extends ShaderData {
 
     /**
      * 克隆。
-     * @param	destObject 克隆源。
+     * @param destObject 克隆源。
      */
     cloneTo(destObject: NoRenderShaderData): void {
         let destData: { [key: string]: number | boolean | Vector2 | Vector3 | Vector4 | Matrix3x3 | Matrix4x4 | Resource } = destObject._data;
@@ -548,34 +534,13 @@ export class NoRenderShaderData extends ShaderData {
     }
 
     /**
-     * clone UBO Data
-     * @internal
-     * @param uboDatas 
-     */
-    _cloneUBO(uboDatas: Map<string, uboParams>) {
-
-    }
-
-    /**
      * 克隆。
      * @return	 克隆副本。
      */
-    clone(): any {
+    clone() {
         var dest: NoRenderShaderData = new NoRenderShaderData();
         this.cloneTo(dest);
         return dest;
-    }
-
-    reset() {
-        for (var k in this._data) {
-            //维护Refrence
-            var value: any = this._data[k];
-            if (value instanceof Resource) {
-                value._removeReference();
-            }
-        }
-        this._data = {};
-        this._defineDatas.clear();
     }
 
     destroy(): void {
@@ -589,6 +554,100 @@ export class NoRenderShaderData extends ShaderData {
             }
         }
         this._data = null;
+    }
+}
+
+export class NoRenderSetRenderData extends SetRenderDataCMD {
+    type: RenderCMDType;
+    protected _dataType: ShaderDataType;
+    protected _propertyID: number;
+    protected _dest: NoRenderShaderData;
+    protected _value: ShaderDataItem;
+
+    data_v4: Vector4;
+    data_v3: Vector3;
+    data_v2: Vector2;
+    data_mat: Matrix4x4;
+    data_number: number;
+    data_texture: BaseTexture;
+    data_Color: Color;
+    data_Buffer: Float32Array;
+    get dataType(): ShaderDataType {
+        return this._dataType;
+    }
+
+    set dataType(value: ShaderDataType) {
+        this._dataType = value;
+    }
+
+    get propertyID(): number {
+        return this._propertyID;
+    }
+
+    set propertyID(value: number) {
+        this._propertyID = value;
+    }
+
+    get dest(): NoRenderShaderData {
+        return this._dest;
+    }
+
+    set dest(value: NoRenderShaderData) {
+        this._dest = value;
+    }
+
+    get value(): ShaderDataItem {
+        return this._value;
+    }
+    set value(value: ShaderDataItem) {
+
+    }
+
+    constructor() {
+        super();
+        this.type = RenderCMDType.ChangeData;
+    }
+
+    apply(context: any): void {
+    }
+}
+
+export class NoRenderSetShaderDefine extends SetShaderDefineCMD {
+    type: RenderCMDType;
+    protected _define: ShaderDefine;
+    protected _dest: NoRenderShaderData;
+    protected _add: boolean;
+
+    get define(): ShaderDefine {
+        return this._define;
+    }
+
+    set define(value: ShaderDefine) {
+        this._define = value;
+    }
+
+    get dest(): NoRenderShaderData {
+        return this._dest;
+    }
+
+    set dest(value: NoRenderShaderData) {
+        this._dest = value;
+    }
+
+    get add(): boolean {
+        return this._add;
+    }
+
+    set add(value: boolean) {
+        this._add = value;
+    }
+
+    constructor() {
+        super();
+        this.type = RenderCMDType.ChangeShaderDefine;
+    }
+
+    apply(context: any): void {
     }
 }
 

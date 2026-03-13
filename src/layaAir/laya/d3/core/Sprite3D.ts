@@ -4,7 +4,6 @@ import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
 import { Stat } from "../../utils/Stat";
 import { Prefab } from "../../resource/HierarchyResource";
 import { ILaya } from "../../../ILaya";
-import { NodeFlags } from "../../Const";
 import { Matrix4x4 } from "../../maths/Matrix4x4";
 import { Quaternion } from "../../maths/Quaternion";
 import { Vector3 } from "../../maths/Vector3";
@@ -15,6 +14,7 @@ import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/Sha
 import { Transform3D } from "./Transform3D";
 import { CommandUniformMap } from "../../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
 import { Event } from "../../events/Event";
+import { StatElement } from "../../layagl/StatisticsContext";
 /**
  * @internal
  */
@@ -29,30 +29,32 @@ export enum StaticFlag {
  */
 export class Sprite3D extends Node {
     /**
-     * @internal
      * @en Shader variable name for world matrix.
      * @zh 着色器变量名，世界矩阵。
+     * @readonly
      */
     static WORLDMATRIX: number;
     /**
      * @en Indicates the front face direction. -1 for inverted back face, 1 for normal situation.
      * @zh -1 表示翻转了背面，1 表示正常情况。
+     * @readonly
      */
     static WORLDINVERTFRONT: number;
-    /**@internal */
+
+    /** @internal */
     static sprite3DCommandUniformMap: CommandUniformMap;
-    /**@internal */
-    protected static _uniqueIDCounter: number = 0;
 
     /**
      * @internal
      */
     static __init__(): void {
         Sprite3D.WORLDMATRIX = Shader3D.propertyNameToID("u_WorldMat");
-        Sprite3D.WORLDINVERTFRONT = Shader3D.propertyNameToID("u_WroldInvertFront");
+        Sprite3D.WORLDINVERTFRONT = Shader3D.propertyNameToID("u_WorldInvertFront");
+
         Sprite3D.sprite3DCommandUniformMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("Sprite3D");
+
         Sprite3D.sprite3DCommandUniformMap.addShaderUniform(Sprite3D.WORLDMATRIX, "u_WorldMat", ShaderDataType.Matrix4x4);
-        Sprite3D.sprite3DCommandUniformMap.addShaderUniform(Sprite3D.WORLDINVERTFRONT, "u_WroldInvertFront", ShaderDataType.Vector4);
+        Sprite3D.sprite3DCommandUniformMap.addShaderUniform(Sprite3D.WORLDINVERTFRONT, "u_WorldInvertFront", ShaderDataType.Vector4);
     }
 
     /**
@@ -70,6 +72,7 @@ export class Sprite3D extends Node {
      * @param position 世界位置，worldPositionStays 为 false 时生效。默认为 null。
      * @param rotation 世界旋转，worldPositionStays 为 false 时生效。默认为 null。
      * @returns 克隆实例。
+     * @blueprintIgnore
      */
     static instantiate(original: Sprite3D, parent: Node = null, worldPositionStays: boolean = true, position: Vector3 = null, rotation: Quaternion = null): Sprite3D {
         var destSprite3D: Sprite3D = (<Sprite3D>original.clone());
@@ -101,7 +104,6 @@ export class Sprite3D extends Node {
         });
     }
 
-    /** @internal */
     private _id: number;
 
     /** @internal */
@@ -112,6 +114,9 @@ export class Sprite3D extends Node {
     _transform: Transform3D;
     /**@internal 0表示不是渲染节点*/
     _isRenderNode: number = 0;
+
+    declare _children: Sprite3D[];
+    declare _scene: Scene3D;
 
     /**
      * @en Unique identifier ID.
@@ -133,7 +138,7 @@ export class Sprite3D extends Node {
         if (this._layer !== value) {
             if (value >= 0 && value <= 30) {
                 this._layer = value;
-                this.event(Event.LAYERCHANGE, value);
+                this.event(Event.LAYER_CHANGE, value);
             } else {
                 throw new Error("Layer value must be 0-30.");
             }
@@ -151,7 +156,7 @@ export class Sprite3D extends Node {
     /**@internal IDE only*/
     set isStatic(value: boolean) {
         this._isStatic = value ? StaticFlag.StaticBatch : StaticFlag.Normal;
-        this.event(Event.staticMask, this._isStatic);
+        this.event(Event.STATIC_MASK, this._isStatic);
     }
 
     /**
@@ -178,40 +183,27 @@ export class Sprite3D extends Node {
      * @param name 精灵名称。
      * @param isStatic 是否为静态。
      */
-    constructor(name: string = null, isStatic: boolean = false) {
+    constructor(name?: string, isStatic?: boolean) {
         super();
-        this._id = ++Sprite3D._uniqueIDCounter;
-        this._is3D = true;
+        this._nodeType = 1;
+        this._id = ++_uniqueIDCounter;
         this._transform = Laya3DRender.Render3DModuleDataFactory.createTransform(this);
         this._isStatic = isStatic ? StaticFlag.StaticBatch : StaticFlag.Normal;
         this.layer = 0;
-        this.name = name ? name : "New Sprite3D";
+        if (name != null)
+            this.name = name;
     }
 
-    /**
-    * @internal
-    * @protected
-    */
     protected _onActive(): void {
         super._onActive();
-        Stat.sprite3DCount++;
+        LayaGL.statAgent.recordCountData(StatElement.C_Sprite3DCount, 1);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onInActive(): void {
         super._onInActive();
-        Stat.sprite3DCount--;
+        LayaGL.statAgent.recordCountData(StatElement.C_Sprite3DCount, -1);
     }
 
-
-    /**
-     * @internal
-     * @inheritDoc
-     * @override
-     */
     protected _onAdded(): void {
         if (this._parent instanceof Sprite3D) {
             var parent3D: Sprite3D = (<Sprite3D>this._parent);
@@ -222,35 +214,22 @@ export class Sprite3D extends Node {
         super._onAdded();
     }
 
-    /**
-     * @internal
-     * @inheritDoc
-     * @override
-     */
     protected _onRemoved(): void {
         super._onRemoved();
         if (this._parent instanceof Sprite3D)
             this.transform._setParent(null);
     }
 
-    /**
-     * @internal
-     * @protected
-     * @param type 
-     */
     protected onStartListeningToType(type: string) {
         super.onStartListeningToType(type);
-        if (type.startsWith("collision"))
-            this._setBit(NodeFlags.PROCESS_COLLISIONS, true);
-        else if (type.startsWith("trigger"))
-            this._setBit(NodeFlags.PROCESS_TRIGGERS, true);
+        if (type.startsWith("collision") || type.startsWith("trigger"))
+            this.event(Event.UPDATE_PHY_EVENT_FILTER);
     }
 
     /**
-     * @override
      * @internal
      * 克隆。
-     * @param	destObject 克隆源。
+     * @param destObject 克隆源。
      */
     _cloneTo(destObject: Sprite3D, srcRoot: Node, dstRoot: Node): void {
         if (this._destroyed)
@@ -271,27 +250,20 @@ export class Sprite3D extends Node {
         destObject.layer = this.layer;
         super._cloneTo(destObject, srcRoot, dstRoot);
     }
-
-    /**
-     * @internal
-     */
-    private static _createSprite3DInstance(scrSprite: Sprite3D): Node {
-        var node: Node = scrSprite._create();
-        var children: any[] = scrSprite._children;
-        for (var i: number = 0, n: number = children.length; i < n; i++) {
-            var child: any = Sprite3D._createSprite3DInstance(children[i])
+    private static _createSprite3DInstance(scrSprite: Sprite3D): Sprite3D {
+        let node: Sprite3D = new (<typeof Sprite3D>Object.getPrototypeOf(scrSprite).constructor)();
+        let children = <Sprite3D[]>scrSprite._children;
+        for (let i: number = 0, n: number = children.length; i < n; i++) {
+            let child = Sprite3D._createSprite3DInstance(children[i]);
             node.addChild(child);
         }
         return node;
     }
 
-    /**
-     * @internal
-     */
-    private static _parseSprite3DInstance(srcRoot: Node, dstRoot: Node, scrSprite: Node, dstSprite: Node): void {
-        var srcChildren: any[] = scrSprite._children;
-        var dstChildren: any[] = dstSprite._children;
-        for (var i: number = 0, n: number = srcChildren.length; i < n; i++)
+    private static _parseSprite3DInstance(srcRoot: Sprite3D, dstRoot: Sprite3D, scrSprite: Sprite3D, dstSprite: Sprite3D): void {
+        let srcChildren = <Sprite3D[]>scrSprite._children;
+        let dstChildren = <Sprite3D[]>dstSprite._children;
+        for (let i: number = 0, n: number = srcChildren.length; i < n; i++)
             Sprite3D._parseSprite3DInstance(srcRoot, dstRoot, srcChildren[i], dstChildren[i])
         scrSprite._cloneTo(dstSprite, srcRoot, dstRoot);
     }
@@ -302,8 +274,8 @@ export class Sprite3D extends Node {
      * @zh 克隆。
      * @returns	克隆副本。
      */
-    clone(): Node {
-        var dstSprite3D: Node = Sprite3D._createSprite3DInstance(this);
+    clone() {
+        let dstSprite3D = Sprite3D._createSprite3DInstance(this);
         Sprite3D._parseSprite3DInstance(this, dstSprite3D, this, dstSprite3D);
         return dstSprite3D;
     }
@@ -321,12 +293,6 @@ export class Sprite3D extends Node {
         super.destroy(destroyChild);
         this._transform = null;
     }
-
-    /**
-     * @internal
-     */
-    protected _create(): Node {
-        return new Sprite3D();
-    }
 }
 
+var _uniqueIDCounter = 0;

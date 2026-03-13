@@ -24,8 +24,11 @@ class AtlasLoader implements IResourceLoader {
 
                 //带图片信息的类型
                 let pics: Array<string> = data.meta.image.split(",");
-                for (let pic of pics)
-                    toloadPics.push(task.loader.load(folderPath + pic + query, null, task.progress.createCallback()));
+                for (let pic of pics) {
+                    if (!pic.startsWith("res://"))
+                        pic = folderPath + pic + query;
+                    toloadPics.push(task.loader.load(pic, null, task.progress.createCallback()));
+                }
             } else {  //不带图片信息
                 toloadPics.push(task.loader.load(Utils.replaceFileExtension(task.url, "png"), null, task.progress.createCallback()));
             }
@@ -60,10 +63,22 @@ class AtlasLoader implements IResourceLoader {
                     subTextures.push(tt);
                 }
 
-                return new AtlasResource(directory, pics, subTextures);
+                let res = <AtlasResource>task.obsoluteInst;
+                if (res) {
+                    res.update(pics, subTextures);
+                    res.dir = directory;
+                    res.animation = data.animation;
+                    res.event("reload");
+                    return res;
+                }
+                else {
+                    res = new AtlasResource(directory, pics, subTextures);
+                    res.animation = data.animation;
+                    return res;
+                }
             });
         });
     }
 }
 
-Loader.registerLoader(["atlas"], AtlasLoader, Loader.ATLAS);
+Loader.registerLoader(["atlas"], AtlasLoader, Loader.ATLAS, true);

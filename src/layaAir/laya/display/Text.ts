@@ -1,10 +1,9 @@
 import { Sprite } from "./Sprite";
 import { BitmapFont } from "./BitmapFont";
-import { TextStyle } from "./css/TextStyle"
-import { Event } from "../events/Event"
-import { Point } from "../maths/Point"
-import { Rectangle } from "../maths/Rectangle"
-import { WordText } from "../utils/WordText"
+import { TextStyle } from "./css/TextStyle";
+import { Event } from "../events/Event";
+import { Point } from "../maths/Point";
+import { Rectangle } from "../maths/Rectangle";
 import { ILaya } from "../../ILaya";
 import { Config } from "../../Config";
 import { Utils } from "../utils/Utils";
@@ -18,14 +17,22 @@ import { HtmlParser } from "../html/HtmlParser";
 import { UBBParser } from "../html/UBBParser";
 import { HtmlParseOptions } from "../html/HtmlParseOptions";
 import { Browser } from "../utils/Browser";
+import { SpriteConst, TransformKind } from "./SpriteConst";
+import { TextRenderConfig } from "../webgl/text/TextRenderConfig";
+import { Node } from "./Node";
+import { IGraphicsCmd } from "./IGraphics";
+import { FillTextCmd } from "./cmd/FillTextCmd";
+import { Render2DProcessor } from "./Render2DProcessor";
 
 /**
  * @en The Text class is used to create display objects to show text.
  * Note: If the runtime system cannot find the specified font, it will render the text with the system default font, which may cause display anomalies. (Usually, it displays normally on computers, but may display abnormally on some mobile devices due to the lack of the set font.)
  *  - Event.CHANGE event dispatched after the text content changes.
+ *  - Event.LINK event dispatched when a link is clicked.
  * @zh Text类用于创建显示对象以显示文本。
  * 注意：如果运行时系统找不到设定的字体，则用系统默认的字体渲染文字，从而导致显示异常。(通常电脑上显示正常，在一些移动端因缺少设置的字体而显示异常)。
  *  - Event.CHANGE 事件表示文本内容发生改变后调度。
+ *  - Event.LINK 事件表示点击链接时调度。
  */
 export class Text extends Sprite {
 
@@ -33,31 +40,32 @@ export class Text extends Sprite {
      * @en Visible without any clipping.
      * @zh visible不进行任何裁切。
      */
-    static VISIBLE: string = "visible";
+    static readonly VISIBLE: string = "visible";
     /**
      * @en Scroll does not display character pixels outside the text area and supports the scroll interface.
      * @zh scroll 不显示文本域外的字符像素，并且支持 scroll 接口。
      */
-    static SCROLL: string = "scroll";
+    static readonly SCROLL: string = "scroll";
     /**
      * @en Hidden does not display characters beyond the text area.
      * @zh hidden 不显示超出文本域的字符。
      */
-    static HIDDEN: string = "hidden";
+    static readonly HIDDEN: string = "hidden";
     /**
      * @en Shrink the entire text to fit the text box when it exceeds the text area.
      * @zh shrink 超出文本域时，文本整体缩小以适应文本框。
      */
-    static SHRINK: string = "shrink";
+    static readonly SHRINK: string = "shrink";
     /**
      * @en Ellipsis truncates the text and displays an ellipsis at the end when it exceeds the text area.
      * @zh ellipsis 超出文本域时，文本被截断，并且文本最后显示省略号。
      */
-    static ELLIPSIS: string = "ellipsis";
+    static readonly ELLIPSIS: string = "ellipsis";
 
     /**
      * @en Language pack, a collection of key:value pairs, indexed by key, replaced with target value language.
      * @zh 语言包，是一个包含key:value的集合，用key索引，替换为目标value语言。
+     * @blueprintIgnore
      */
     static langPacks: Record<string, string>;
     /**
@@ -66,11 +74,11 @@ export class Text extends Sprite {
      */
     static RightToLeft: boolean = false;
 
-    /**
-     * @en Predicted length text, used to improve calculation efficiency, find the largest character for different languages.
-     * @zh 预测长度的文字，用来提升计算效率，不同语言找一个最大的字符即可。
+    /** 
+     * @en The character used to display password fields.
+     * @zh 用于显示密码字段的字符。
+     * @blueprintIgnore
      */
-    static _testWord: string = "游";
     static _passwordChar = "●";
 
     /**
@@ -138,7 +146,7 @@ export class Text extends Sprite {
      * @zh 表示使用此文本格式的文本字段是否自动换行。
      * 如果 wordWrap 的值为 true，则该文本字段自动换行；如果值为 false，则该文本字段不自动换行。
      */
-    protected _wordWrap: boolean;
+    protected _wordWrap: boolean = false;
 
     /**
      * @internal
@@ -147,7 +155,7 @@ export class Text extends Sprite {
      * @zh 指定文本字段是否是密码文本字段。
      * 如果此属性的值为 true，则文本字段被视为密码文本字段，并使用星号而不是实际字符来隐藏输入的字符。如果为 false，则不会将文本字段视为密码文本字段。
      */
-    protected _asPassword: boolean;
+    protected _asPassword: boolean = false;
 
     protected _htmlParseOptions: HtmlParseOptions;
 
@@ -174,15 +182,16 @@ export class Text extends Sprite {
     protected _bitmapFont: BitmapFont;
     protected _scrollPos: Point | null;
     protected _bgDrawCmd: DrawRectCmd;
-    protected _html: boolean;
-    protected _ubb: boolean;
+    protected _html: boolean = false;
+    protected _ubb: boolean = false;
     protected _lines: Array<ITextLine>;
     protected _elements: Array<HtmlElement>
     protected _objContainer: Sprite;
-    protected _maxWidth: number;
-    protected _hideText: boolean;
+    protected _maxWidth: number = 0;
+    protected _hideText: boolean = false;
     private _updatingLayout: boolean;
     private _fontSizeScale: number;
+    private _fontGlobalScale: number;
 
     /**
      * @internal
@@ -194,6 +203,10 @@ export class Text extends Sprite {
      * An callback function for wrappers to do something after layout updated.
      */
     _onPostLayout: () => void;
+    /**
+     * An callback to translate the text.
+     */
+    _onTranslate: (text: string, options: any, role?: number) => string;
 
     /**
      * @en Constructor method of Text.
@@ -202,6 +215,7 @@ export class Text extends Sprite {
     constructor() {
         super();
 
+        this._renderType |= SpriteConst.TEXT;
         this._textStyle = new TextStyle();
         this._textStyle.fontSize = Config.defaultFontSize;
         this._text = "";
@@ -210,6 +224,7 @@ export class Text extends Sprite {
         this._lines = [];
         this._padding = [0, 0, 0, 0];
         this._fontSizeScale = 1;
+        this.graphics._useSpriteRect = true;
     }
 
     /**
@@ -252,64 +267,55 @@ export class Text extends Sprite {
         recoverLines(this._lines);
         HtmlElement.returnToPool(this._elements);
 
+        if (this._bgDrawCmd) //去除lock标志，让它在destroy时被回收
+            (this._bgDrawCmd as IGraphicsCmd).lock = false;
+
         super.destroy(destroyChild);
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    _getBoundPointsM(ifRotate: boolean = false): any[] {
-        var rec: Rectangle = Rectangle.TEMP;
-        rec.setTo(0, 0, this.width, this.height);
-        return rec._getBoundPoints();
+    protected measureWidth(): number {
+        this.typeset();
+        return this._textWidth;
     }
 
     /**
-     * @en Get the scrollable visible window.
-     * @param realSize Whether to use the real size of the image. Default is false.
-     * @zh 获取滚动可视视窗。
-     * @param realSize 是否使用图片的真实大小。默认为 false。
+     * @ignore
      */
-    getGraphicBounds(realSize: boolean = false): Rectangle {
-        var rec: Rectangle = Rectangle.TEMP;
-        rec.setTo(0, 0, this.width, this.height);
-        return rec;
+    protected measureHeight(): number {
+        this.typeset();
+        return this._textHeight;
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    get_width(): number {
-        if (this._isWidthSet) return this._width;
-        return this.textWidth;
-    }
-    /**
-     * @internal
-     */
-    _setWidth(value: number) {
-        super._setWidth(value);
-        if (!this._updatingLayout)
-            this.markChanged();
-        else
-            this.drawBg();
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
+
+        if ((kind & TransformKind.Size) != 0) {
+            if (this._scrollRect != null) {
+                this._updateScrollRect();
+            }
+
+            if (!this._updatingLayout)
+                this.markChanged();
+            else
+                this.drawBg();
+        }
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    get_height(): number {
-        if (this._isHeightSet) return this._height;
-        return this.textHeight;
-    }
-    /**
-     * @internal
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
-        if (!this._updatingLayout)
-            this.markChanged();
-        else
-            this.drawBg();
+    private _updateScrollRect(): void {
+        let rect = this._scrollRect || new Rectangle();
+        let rectWidth = this._isWidthSet ? this._width : this._textWidth;
+        let rectHeight = this._isHeightSet ? this._height : this._textHeight;
+        rect.setTo(0, 0, rectWidth, rectHeight);
+        this.scrollRect = rect;
     }
 
     /**
@@ -390,11 +396,13 @@ export class Text extends Sprite {
                 this.markChanged();
         }
         else if (value && (Utils.getFileExtension(value) || value.startsWith("res://"))) {
-            let t = value;
             let fontObj = ILaya.loader.getRes(value);
             if (!fontObj || fontObj.obsolute) {
+                this._realFont = "Arial";
+                let t = this._textStyle.font;
+
                 ILaya.loader.load(value).then(fontObj => {
-                    if (!fontObj || this._realFont != t)
+                    if (this._textStyle.font != t || !fontObj)
                         return;
 
                     if (fontObj instanceof BitmapFont)
@@ -419,6 +427,14 @@ export class Text extends Sprite {
             if (this._text)
                 this.markChanged();
         }
+    }
+
+    /**
+     * @en The actual font name used for rendering.
+     * @zh 实际用于渲染的字体名称。
+     */
+    get realFont() {
+        return this._realFont;
     }
 
     /**
@@ -449,17 +465,10 @@ export class Text extends Sprite {
     }
 
     set color(value: string) {
-        this.set_color(value);
-    }
-
-    /**
-     * @internal
-     */
-    set_color(value: string): void {
         if (this._textStyle.color != value) {
             this._textStyle.color = value;
             //如果仅仅更新颜色，无需重新排版
-            if (!this._isChanged && this._graphics && this._elements.length == 0)
+            if (!this._isChanged && !this._html && !this._ubb)
                 this._graphics.replaceTextColor(this._textStyle.color);
             else
                 this.markChanged();
@@ -704,7 +713,11 @@ export class Text extends Sprite {
     set overflow(value: string) {
         if (this._overflow != value) {
             this._overflow = value;
-            this.markChanged();
+            if (value !== Text.VISIBLE) {
+                this._updateScrollRect();
+            }
+            else
+                this.scrollRect = null;
         }
     }
 
@@ -738,6 +751,10 @@ export class Text extends Sprite {
         }
     }
 
+    /**
+     * @en Whether to display strikethrough.
+     * @zh 是否显示删除线。
+     */
     get strikethrough(): boolean {
         return this._textStyle.strikethrough;
     }
@@ -750,7 +767,8 @@ export class Text extends Sprite {
     }
 
     /**
-     * 下划线的颜色，为null则使用字体颜色。
+     * @en The color of the strikethrough. If null, it uses the font color.
+     * @zh 下划线的颜色，为null则使用字体颜色。
      */
     get strikethroughColor(): string {
         return this._textStyle.strikethroughColor;
@@ -766,14 +784,17 @@ export class Text extends Sprite {
 
     /**
      * @en Whether single character rendering is enabled. Enable this if the text content changes frequently, such as an increasing number, to prevent inefficient use of cache.
-     * @zh 是否启用单个字符渲染。如果Textd的内容一直改变，例如是一个增加的数字，就设置这个，防止无效占用缓存 
+     * @zh 是否启用单个字符渲染。如果Text的内容一直改变，例如是一个增加的数字，就设置这个，防止无效占用缓存 
      */
     get singleCharRender(): boolean {
         return this._singleCharRender;
     }
 
     set singleCharRender(value: boolean) {
-        this._singleCharRender = value;
+        if (this._singleCharRender !== value) {
+            this._singleCharRender = value;
+            this.markChanged();
+        }
     }
 
     /**
@@ -834,63 +855,6 @@ export class Text extends Sprite {
     }
 
     /**
-     * @en Parse the template content.
-     * @param template The template content.
-     * @returns The template string with placeholders substituted by their corresponding values from _templateVars.
-     * @zh 解析模板。
-     * @param template 模板内容 
-     * @returns 模板字符串，其中占位符由_templateVars中的相应值替换。
-     */
-    protected parseTemplate(template: string): string {
-        let pos1: number = 0, pos2: number, pos3: number;
-        let tag: string;
-        let value: string;
-        let result: string = "";
-        while ((pos2 = template.indexOf("{", pos1)) != -1) {
-            if (pos2 > 0 && template.charCodeAt(pos2 - 1) == 92)//\
-            {
-                result += template.substring(pos1, pos2 - 1);
-                result += "{";
-                pos1 = pos2 + 1;
-                continue;
-            }
-
-            result += template.substring(pos1, pos2);
-            pos1 = pos2;
-            pos2 = template.indexOf("}", pos1);
-            if (pos2 == -1)
-                break;
-
-            if (pos2 == pos1 + 1) {
-                result += template.substring(pos1, pos1 + 2);
-                pos1 = pos2 + 1;
-                continue;
-            }
-
-            tag = template.substring(pos1 + 1, pos2);
-            pos3 = tag.indexOf("=");
-            if (pos3 != -1) {
-                value = this._templateVars[tag.substring(0, pos3)];
-                if (value == null)
-                    result += tag.substring(pos3 + 1);
-                else
-                    result += value;
-            }
-            else {
-                value = this._templateVars[tag];
-                if (value != null)
-                    result += value;
-            }
-            pos1 = pos2 + 1;
-        }
-
-        if (pos1 < template.length)
-            result += template.substring(pos1);
-
-        return result;
-    }
-
-    /**
      * @en Text Template
      * @zh 文本模板
      */
@@ -921,7 +885,7 @@ export class Text extends Sprite {
      * @param value 值
      * @returns 当前 Text 实例。
      */
-    public setVar(name: string, value: any): Text {
+    public setVar(name: string, value: any): this {
         if (!this._templateVars)
             this._templateVars = {};
         this._templateVars[name] = value;
@@ -1015,10 +979,12 @@ export class Text extends Sprite {
 
     /**
      * @en Typeset the text.
+     * @param force Whether to force typesetting.
      * @zh 排版文本。
+     * @param force 是否强制排版。
      */
-    typeset() {
-        this._isChanged && ILaya.systemTimer.runCallLater(this, this._typeset);
+    typeset(force?: boolean) {
+        (this._isChanged || force) && ILaya.systemTimer.runCallLater(this, this._typeset, true);
     }
 
     /**
@@ -1043,6 +1009,21 @@ export class Text extends Sprite {
     }
 
     /**
+     * @en Hide the text. This is commonly used for input text field when it is focused.
+     * @zh 隐藏文本。常用于输入文本框处于焦点时。
+     */
+    hideText(value: boolean) {
+        this._hideText = value;
+        if (value) {
+            this.graphics.clear(true, this._bgDrawCmd);
+        }
+        else {
+            this.markChanged();
+            this.typeset();
+        }
+    }
+
+    /**
      * 排版文本。
      * 进行宽高计算，渲染、重绘文本。
      */
@@ -1056,17 +1037,20 @@ export class Text extends Sprite {
             this._objContainer.removeChildren();
 
         let text = this._text;
+
+        if (this._onTranslate)
+            text = this._onTranslate(text, this._templateVars);
+
         let isPrompt: boolean;
         if (!text && this._prompt) {
             text = this._prompt;
+            if (this._onTranslate)
+                text = this._onTranslate(text, null, 1);
             isPrompt = true;
         }
 
         if (!text) {
-            if (this._bgDrawCmd)
-                this.graphics.removeCmd(this._bgDrawCmd);
-            this.graphics.clear(true);
-            this.drawBg();
+            this.graphics.clear(true, this._bgDrawCmd);
 
             this._textWidth = this._textHeight = 0;
             this._scrollPos = null;
@@ -1083,7 +1067,7 @@ export class Text extends Sprite {
         if (this._parseEscapeChars)
             text = text.replace(escapeCharsPattern, getReplaceStr);
         if (!isPrompt && this._templateVars)
-            text = this.parseTemplate(text);
+            text = Utils.parseTemplate(text, this._templateVars);
 
         if (this._ubb) {
             text = UBBParser.defaultParser.parse(text);
@@ -1137,7 +1121,6 @@ export class Text extends Sprite {
             wordWrap = true;
         }
         let rectHeight = this._isHeightSet ? (this._height - padding[0] - padding[2]) : Number.MAX_VALUE;
-        let bfont = this._bitmapFont;
         let alignItems = this._textStyle.alignItems == "middle" ? 1 : (this._textStyle.alignItems == "bottom" ? 2 : 0);
 
         let lineX: number, lineY: number;
@@ -1145,7 +1128,9 @@ export class Text extends Sprite {
         let lastCmd: ITextCmd;
         let charWidth: number, charHeight: number;
         let fontSize: number;
+        let bfont = this._bitmapFont;
         let ctxFont: string;
+        let textRender = Render2DProcessor.runner._textRender;
 
         let getTextWidth = (text: string) => {
             if (bfont)
@@ -1178,17 +1163,9 @@ export class Text extends Sprite {
                 charWidth = bfont.getMaxWidth(fontSize);
                 charHeight = bfont.getMaxHeight(fontSize);
             } else {
-                Browser.context.font = ctxFont = (style.italic ? "italic " : "") + (style.bold ? "bold " : "") + fontSize + "px " + this._realFont;
-                let mr: any = Browser.context.measureText(Text._testWord);
-
-                if (mr) {
-                    charWidth = mr.width;
-                    charHeight = Math.ceil(mr.height || fontSize);
-                }
-                else {
-                    charWidth = 100;
-                    charHeight = fontSize;
-                }
+                Browser.context.font = ctxFont = (style.bold ? "bold " : "") + fontSize + "px " + this._realFont;
+                charWidth = fontSize;
+                charHeight = textRender.getFontHeight(this._realFont, fontSize, style.bold);
             }
 
             let lines = text.split("\n");
@@ -1221,11 +1198,7 @@ export class Text extends Sprite {
             if (typeof (target) === "string") {
                 if (!width)
                     width = getTextWidth(target);
-                if (!cmd.wt)
-                    cmd.wt = new WordText();
-                cmd.wt.setText(target);
-                cmd.wt.width = width;
-                cmd.wt.splitRender = this._singleCharRender;
+                cmd.text = target;
                 cmd.ctxFont = ctxFont;
                 cmd.fontSize = fontSize;
                 cmd.width = width;
@@ -1279,25 +1252,23 @@ export class Text extends Sprite {
         };
 
         let splitCmd = (cmd: ITextCmd, pos: number) => {
-            let ccode = cmd.wt.text.charCodeAt(pos);
+            let ccode = cmd.text.charCodeAt(pos);
             if (isLowSurrogate(ccode))
                 pos--;
             if (pos == 0)
                 return false;
 
-            let str = cmd.wt.text.substring(pos);
+            let str = cmd.text.substring(pos);
 
-            cmd.wt.setText(cmd.wt.text.substring(0, pos));
-            cmd.width = cmd.wt.width = getTextWidth2(cmd.wt.text, cmd.ctxFont, cmd.fontSize);
+            cmd.text = cmd.text.substring(0, pos);
+            cmd.width = getTextWidth2(cmd.text, cmd.ctxFont, cmd.fontSize);
 
             let cmd2: ITextCmd = cmdPool.length > 0 ? cmdPool.pop() : <any>{};
-            if (!cmd2.wt)
-                cmd2.wt = new WordText();
-            cmd2.wt.setText(str);
+            cmd2.text = str;
             cmd2.style = cmd.style;
             cmd2.ctxFont = cmd.ctxFont;
             cmd2.fontSize = cmd.fontSize;
-            cmd2.width = cmd2.wt.width = getTextWidth2(str, cmd.ctxFont, cmd.fontSize);
+            cmd2.width = getTextWidth2(str, cmd.ctxFont, cmd.fontSize);
             cmd2.height = cmd.height;
 
             cmd2.next = cmd.next;
@@ -1422,8 +1393,8 @@ export class Text extends Sprite {
                                 if (cmd.obj != null)
                                     break;
 
-                                testResult = wordBoundaryTest.exec(cmd.wt.text);
-                                let textLen = cmd.wt.text.length;
+                                testResult = wordBoundaryTest.exec(cmd.text);
+                                let textLen = cmd.text.length;
                                 if (testResult == null) { //边界就在文本的末尾
                                     addLine();
                                     if (isPunc && totalLen == 0) { //再次检查标点符号不能在行首
@@ -1620,7 +1591,7 @@ export class Text extends Sprite {
                 i = 1;
             else {
                 i = this._lines.findIndex(line => line.y + line.height > rectHeight);
-                if (i == 0) i = 1;
+                if (i === 0) i = 1;
             }
             let linesDeleted = false;
             if (i != -1 && this._lines.length > i) {
@@ -1646,9 +1617,7 @@ export class Text extends Sprite {
                 else if ((!next && linesDeleted) || cmd.x + cmd.width > rectWidth - 10) { //10用来放省略号
                     if (cmd.obj) { //如果最后是个图片，那就删除图片，换成省略号
                         cleanCmd(cmd, true);
-
-                        cmd.wt = new WordText();
-                        cmd.wt.setText(ellipsisStr);
+                        cmd.text = ellipsisStr;
                         if (textCmd) {
                             cmd.ctxFont = textCmd.ctxFont;
                             cmd.fontSize = textCmd.fontSize;
@@ -1661,22 +1630,21 @@ export class Text extends Sprite {
                             cmd.height = charHeight;
                             cmd.style = this._textStyle;
                         }
-                        cmd.wt.splitRender = this._singleCharRender;
                     }
                     else {
                         let space = cmd.x + cmd.width - rectWidth;
                         let remove = space < 5 ? 2 : space < 10 ? 1 : 0; //视剩余空间删减字符数量
                         let min = cmd === curLine.cmd ? 1 : 0; //如果是这行的第一个元素，则至少保留一个字符
-                        let i = cmd.wt.text.length;
+                        let i = cmd.text.length;
                         while (i > min && remove > 0) {
-                            if (isLowSurrogate(cmd.wt.text.charCodeAt(i - 1)))
+                            if (isLowSurrogate(cmd.text.charCodeAt(i - 1)))
                                 i--;
                             i--;
                             remove--;
                         }
-                        cmd.wt.setText(cmd.wt.text.substring(0, i) + ellipsisStr);
+                        cmd.text = cmd.text.substring(0, i) + ellipsisStr;
                     }
-                    cmd.width = cmd.wt.width = getTextWidth2(cmd.wt.text, cmd.ctxFont, cmd.fontSize);
+                    cmd.width = getTextWidth2(cmd.text, cmd.ctxFont, cmd.fontSize);
                     cmd.next = null;
                     done = true;
                     addLine(true);//重新计算最后一行行高
@@ -1743,9 +1711,10 @@ export class Text extends Sprite {
             this._objContainer.size(this._width, this._height);
 
             if (this._scrollPos || this._overflow == Text.HIDDEN && this._objContainer.numChildren > 0) {
-                if (!this._objContainer.scrollRect)
-                    this._objContainer.scrollRect = new Rectangle();
-                this._objContainer.scrollRect.setTo(0, 0, this._width, this._height);
+                let rect = this._objContainer.scrollRect || new Rectangle();
+                let rectWidth = this._isWidthSet ? this._width : this._textWidth;
+                let rectHeight = this._isHeightSet ? this._height : this._textHeight;
+                this._objContainer.scrollRect = rect.setTo(0, 0, rectWidth, rectHeight);
             }
             else
                 this._objContainer.scrollRect = null;
@@ -1762,10 +1731,9 @@ export class Text extends Sprite {
      */
     protected renderText(): void {
         let graphics = this.graphics;
-        if (this._bgDrawCmd)
-            this.graphics.removeCmd(this._bgDrawCmd);
-        graphics.clear(true);
-        this.drawBg();
+        graphics.clear(true, this._bgDrawCmd);
+
+        this._fontGlobalScale = TextRenderConfig.fontScale;
 
         let padding = this._padding;
         let paddingLeft = padding[3];
@@ -1776,12 +1744,6 @@ export class Text extends Sprite {
         let rectHeight = this._isHeightSet ? this._height : this._textHeight;
         let bottom = rectHeight - padding[2];
         let clipped = this._overflow == Text.HIDDEN || this._overflow == Text.SCROLL;
-
-        if (clipped) {
-            graphics.save();
-            graphics.clipRect(0, 0, rectWidth, rectHeight);
-            this.repaint();
-        }
 
         rectWidth -= (padding[3] + padding[1]);
         rectHeight -= (padding[0] + padding[2]);
@@ -1822,7 +1784,7 @@ export class Text extends Sprite {
                 else if (!lineClipped) {
                     if (bfont) {
                         let tx: number = 0;
-                        let str = cmd.wt.text;
+                        let str = cmd.text;
                         let color = bfont.tint ? cmd.style.color : "#FFFFFF";
                         let scale = Math.floor((bfont.autoScaleSize ? cmd.style.fontSize : bfont.fontSize) * this._fontSizeScale) / bfont.fontSize;
                         for (let i = 0, n = str.length; i < n; i++) {
@@ -1835,10 +1797,14 @@ export class Text extends Sprite {
                             }
                         }
                     } else {
-                        if (cmd.style.stroke)
-                            graphics.fillBorderText(cmd.wt, x + cmd.x, y + cmd.y, cmd.ctxFont, cmd.style.color, null, cmd.style.stroke, cmd.style.strokeColor);
-                        else
-                            graphics.fillText(cmd.wt, x + cmd.x, y + cmd.y, cmd.ctxFont, cmd.style.color, null);
+                        let gcmd = FillTextCmd.create(cmd.text, x + cmd.x, y + cmd.y, null, cmd.style.color, null, cmd.style.stroke, cmd.style.strokeColor);
+                        gcmd.fontFamily = this._realFont;
+                        gcmd.fontSize = cmd.fontSize;
+                        gcmd.bold = cmd.style.bold;
+                        gcmd.italic = cmd.style.italic;
+                        gcmd.singleCharRender = this._singleCharRender;
+                        gcmd._preMeasuredWidth = cmd.width;
+                        graphics.addCmd(gcmd);
                     }
                 }
 
@@ -1866,8 +1832,9 @@ export class Text extends Sprite {
             }
         }
 
-        if (clipped)
-            graphics.restore();
+        if (clipped) {
+            this._updateScrollRect();
+        }
     }
 
     /**
@@ -1882,6 +1849,7 @@ export class Text extends Sprite {
                 cmd.x = cmd.y = 0;
                 cmd.width = cmd.height = 1;
                 cmd.percent = true;
+                (cmd as IGraphicsCmd).lock = true;
                 this._bgDrawCmd = cmd;
             }
             cmd.fillColor = this._bgColor;
@@ -1890,18 +1858,37 @@ export class Text extends Sprite {
 
             let cmds = this.graphics.cmds;
             let i = cmds.indexOf(cmd);
-            if (i != 0) {
-                if (i != -1)
+            if (i !== 0) {
+                if (i !== -1)
                     cmds.splice(i, 1);
                 cmds.unshift(cmd);
                 this.graphics.cmds = cmds;
             }
+            else
+                this.graphics.repaint();
         }
         else if (cmd) {
-            this.graphics.removeCmd(cmd);
+            this.graphics.removeCmd(cmd, true);
+            this._bgDrawCmd = null;
         }
     }
+
+    /** @ignore */
+    protected _setParent(value: Node, index: number = -1): void {
+        super._setParent(value, index);
+
+        if (value && this._fontGlobalScale != null && this._fontGlobalScale !== TextRenderConfig.fontScale) {
+            this.repaint();
+        }
+    }
+
+    /** @internal @blueprintEvent */
+    Text_bpEvent: {
+        [Event.CHANGE]: () => void;
+        [Event.LINK]: (href: string) => void;
+    }
 }
+
 export interface ITextCmd {
     x: number;
     y: number;
@@ -1910,13 +1897,14 @@ export interface ITextCmd {
     style: TextStyle;
     ctxFont: string;
     fontSize: number;
-    wt: WordText;
+    text: string;
     obj: IHtmlObject;
     linkEnd: boolean;
     next: ITextCmd;
     prev: ITextCmd;
 }
 
+/**  @blueprintIgnore */
 export interface ITextLine {
     x: number;
     y: number;
@@ -1952,8 +1940,6 @@ function cleanCmd(cmd: ITextCmd, releaseObj: boolean) {
         }
         cmd.obj = null;
     }
-    else if (cmd.wt)
-        cmd.wt.cleanCache();
 }
 
 const emojiTest = /[\uD800-\uDBFF][\uDC00-\uDFFF]/;

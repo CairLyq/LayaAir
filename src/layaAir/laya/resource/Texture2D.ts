@@ -13,6 +13,8 @@ import { TextureFormat } from "../RenderEngine/RenderEnum/TextureFormat";
 import { LayaEnv } from "../../LayaEnv";
 import { HDREncodeFormat } from "../RenderEngine/RenderEnum/HDREncodeFormat";
 import { LayaGL } from "../layagl/LayaGL";
+import { Browser } from "../utils/Browser";
+import { NotImplementedError } from "../utils/Error";
 
 /**
  * @en Interface for texture property parameters.
@@ -218,10 +220,10 @@ export class Texture2D extends BaseTexture {
             if (LayaEnv.isConch && imageSource._nativeObj) {
                 texture._pixels = new Uint8Array(imageSource._nativeObj.getImageData(0, 0, imageSource.width, imageSource.height));
             } else {
-                ILaya.Browser.canvas.size(imageSource.width, imageSource.height);
-                ILaya.Browser.canvas.clear();
-                ILaya.Browser.context.drawImage(imageSource, 0, 0, imageSource.width, imageSource.height);
-                texture._pixels = new Uint8Array(ILaya.Browser.context.getImageData(0, 0, imageSource.width, imageSource.height).data.buffer);
+                Browser.canvas.size(imageSource.width, imageSource.height);
+                Browser.canvas.clear();
+                Browser.context.drawImage(imageSource, 0, 0, imageSource.width, imageSource.height);
+                texture._pixels = new Uint8Array(Browser.context.getImageData(0, 0, imageSource.width, imageSource.height).data.buffer);
             }
         }
 
@@ -235,13 +237,15 @@ export class Texture2D extends BaseTexture {
 
         let ddsInfo = DDSTextureInfo.getDDSTextureInfo(data);
 
-        let sRGB = constructParams[5];
+        let sRGB = constructParams ? constructParams[5] : false;
 
-        let texture = new Texture2D(ddsInfo.width, ddsInfo.height, ddsInfo.format, ddsInfo.mipmapCount > 1, false, sRGB);
+        let texture = new Texture2D(ddsInfo.width, ddsInfo.height, ddsInfo.format, ddsInfo.mipmapCount > 1 ,  false, sRGB );
 
         texture.setDDSData(ddsInfo);
-        if (propertyParams)
+        if (propertyParams){
             texture.setProperties(propertyParams);
+            texture._premultiplyAlpha = propertyParams.premultiplyAlpha;
+        }
 
         return texture;
     }
@@ -255,8 +259,10 @@ export class Texture2D extends BaseTexture {
         let texture = new Texture2D(ktxInfo.width, ktxInfo.height, ktxInfo.format, ktxInfo.mipmapCount > 1, false, ktxInfo.sRGB);
 
         texture.setKTXData(ktxInfo);
-        if (propertyParams)
+        if (propertyParams){
             texture.setProperties(propertyParams);
+            texture._premultiplyAlpha = propertyParams.premultiplyAlpha;
+        }
         return texture;
     }
 
@@ -264,7 +270,7 @@ export class Texture2D extends BaseTexture {
      * @internal
      */
     static _parsePVR(data: ArrayBuffer, propertyParams: TexturePropertyParams = null, constructParams: TextureConstructParams = null): Texture2D {
-        throw "pvr !";
+        throw new NotImplementedError();
     }
 
     /**
@@ -284,7 +290,7 @@ export class Texture2D extends BaseTexture {
     _canRead: boolean = false;
     /**@internal */
     _pixels: Uint8Array;
-    /**@internal */
+    /** @internal */
     _premultiplyAlpha: boolean = false;
 
     /**

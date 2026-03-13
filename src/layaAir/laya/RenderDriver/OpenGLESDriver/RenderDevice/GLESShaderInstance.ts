@@ -2,7 +2,10 @@ import { LayaGL } from "../../../layagl/LayaGL";
 import { IShaderInstance } from "../../DriverDesign/RenderDevice/IShaderInstance";
 import { GLSLCodeGenerator } from "../../../RenderEngine/RenderShader/GLSLCodeGenerator";
 import { ShaderPass } from "../../../RenderEngine/RenderShader/ShaderPass";
-import {  ShaderProcessInfo } from "../../../webgl/utils/ShaderCompileDefineBase";
+import { ShaderProcessInfo } from "../../../webgl/utils/ShaderCompileDefineBase";
+import { NotImplementedError } from "../../../utils/Error";
+
+import { Config } from "../../../../Config";
 /**
  * @internal
  * <code>ShaderInstance</code> 类用于实现ShaderInstance。
@@ -18,17 +21,26 @@ export class GLESShaderInstance implements IShaderInstance {
 	constructor() {
 
 	}
+	_serializeShader(): ArrayBuffer {
+		throw new NotImplementedError();
+	}
+	_deserialize(buffer: ArrayBuffer): boolean {
+		throw new NotImplementedError();
+	}
 
 	_create(shaderProcessInfo: ShaderProcessInfo, shaderPass: ShaderPass): void {
 		this._shaderPass = shaderPass;
+		let useMaterial = Config.matUseUBO;//TODO 临时解决2D Mat
+		Config.matUseUBO = (!shaderProcessInfo.is2D) && Config.matUseUBO;
 		let shaderObj = GLSLCodeGenerator.GLShaderLanguageProcess3D(shaderProcessInfo.defineString, shaderProcessInfo.attributeMap, shaderProcessInfo.uniformMap, shaderProcessInfo.vs, shaderProcessInfo.ps);
+		Config.matUseUBO = useMaterial;
 		this._attributeMapTemp.clear();
 		for (var k in shaderProcessInfo.attributeMap) {
 			this._attributeMapTemp.set(k, shaderProcessInfo.attributeMap[k][0]);
 		}
-	
+
 		this._nativeObj = new (window as any).conchGLESShaderInstance(shaderProcessInfo.is2D, shaderObj.vs, shaderObj.fs, this._attributeMapTemp, (shaderPass.moduleData as any)._nativeObj);
-		
+
 	}
 
 	/**
@@ -37,6 +49,5 @@ export class GLESShaderInstance implements IShaderInstance {
 	 */
 	_disposeResource(): void {
 		this._nativeObj.destroy();
-		this._nativeObj = null;
 	}
 }

@@ -5,6 +5,7 @@ const QUAD_TRIANGLES = [0, 1, 2, 2, 3, 0];
 /**
  * @en Represents a parser for spine attachments.
  * @zh 表示一个spine附件解析器。
+ * @blueprintIgnore
  */
 export class AttachmentParse {
     /**
@@ -22,11 +23,11 @@ export class AttachmentParse {
      * @zh 附件的颜色。
      */
     color: TColor;
-    /**
-     * @en The specific color of the attachment.
-     * @zh 附件的特定颜色。
-     */
-    attachmentColor: TColor;
+    
+    lightColor: TColor;
+    
+    /** @internal 双顶点色 */
+    darkColor: TColor;
     /**
      * @en The blend mode of the attachment.
      * @zh 附件的混合模式。
@@ -66,7 +67,11 @@ export class AttachmentParse {
      * @en Indicates if the attachment is a clipping attachment.
      * @zh 指示附件是否为裁剪附件。
      */
-    isclip: boolean;
+    isClip: boolean;
+    /**
+     * @en the attachment is a path attachment.
+     * @zh 是否为路径解析器
+     */
     isPath:boolean;
     /**
      * @en The source data of the attachment.
@@ -96,6 +101,12 @@ export class AttachmentParse {
     vertexBones:number = 0;
 
     /**
+     * @en The bones that affect a vertex.
+     * @zh 影响一个顶点的骨骼。
+     */
+    bones: Set<number> = new Set<number>();
+
+    /**
      * @en Initializes the attachment parser with the given parameters.
      * @param attachment The spine attachment to parse.
      * @param boneIndex The index of the bone.
@@ -109,7 +120,7 @@ export class AttachmentParse {
      * @param deform 变形数组。
      * @param slot 插槽数据。
      */
-    init(attachment: spine.Attachment, boneIndex: number, slotId: number, deform: number[], slot: spine.SlotData) {
+    init(attachment: spine.Attachment, boneIndex: number, slotId: number, deform: number[], slot: spine.SlotData ) {
         this.slotId = slotId;
         this.sourceData = attachment;
         this.attachment = attachment.name;
@@ -118,8 +129,10 @@ export class AttachmentParse {
         this.blendMode = slot.blendMode;
         let color = this.color = new Color();
         let attchmentColor: spine.Color;
-        
-        if (attachment instanceof window.spine.RegionAttachment) {
+        let darkColor:spine.Color = slot.darkColor;
+        // let boneMap:number[] = AttachmentParse.boneMap;
+
+        if (attachment instanceof spine.RegionAttachment) {
             attchmentColor = attachment.color;
             let region = attachment as spine.RegionAttachment;
             this.vertexArray = region.offset as Float32Array;
@@ -127,9 +140,13 @@ export class AttachmentParse {
             this.indexArray = QUAD_TRIANGLES;
             this.uvs = region.uvs;
             //region.region.
-            this.textureName = (region.region as any).page.name;
+            if (region.region) {
+                this.textureName = (region.region as any).page.name;
+            }
+            this.vertexBones = 1;
+            this.bones.add(boneIndex);
         }
-        else if (attachment instanceof window.spine.MeshAttachment) {
+        else if (attachment instanceof spine.MeshAttachment) {
             attchmentColor = attachment.color;
             let vside = SpineOptimizeConst.BONEVERTEX;
             //return false;
@@ -146,7 +163,7 @@ export class AttachmentParse {
                 this.stride = 2;
                 this.indexArray = mesh.triangles;
                 this.uvs = mesh.uvs;
-
+                this.bones.add(boneIndex);
             }
             else {
                 if (deform && deform.length > 1) {
@@ -174,7 +191,9 @@ export class AttachmentParse {
                     let nid = 0;
 
                     for (; v < n; v++, b += 3, nid++) {
-                        result.push([vertices[b], vertices[b + 1], vertices[b + 2], bones[v]]);
+                        let boneIndex = bones[v];
+                        result.push([vertices[b], vertices[b + 1], vertices[b + 2], boneIndex]);
+                        this.bones.add(boneIndex);
                     }
 
                     if(result.length > needPoint) {
@@ -194,9 +213,9 @@ export class AttachmentParse {
                 }
             }
         }
-        else if (attachment instanceof window.spine.ClippingAttachment) {
+        else if (attachment instanceof spine.ClippingAttachment) {
             this.attachment = null;
-            this.isclip = true;
+            this.isClip = true;
         }
         else if (attachment instanceof spine.PathAttachment) {
             this.attachment = attachment.name;
@@ -207,20 +226,23 @@ export class AttachmentParse {
             //debugger;
             this.attachment = null;
         }
+
         if (this.textureName) {
-            this.vertexCount = this.uvs.length / 2;
+            this.vertexCount = this.vertexArray.length / this.stride;
             this.indexCount = this.indexArray.length;
         }
+
+
         if (attchmentColor) {
-            if (attchmentColor.a != 1 || attchmentColor.r != 1 || attchmentColor.g != 1 && attchmentColor.b != 1) {
-                this.attachmentColor = attchmentColor;
-            }
+            this.lightColor = attchmentColor;
             color.r = slotColor.r * attchmentColor.r;
             color.g = slotColor.g * attchmentColor.g;
             color.b = slotColor.b * attchmentColor.b;
             color.a = slotColor.a * attchmentColor.a;
         }
 
+        this.darkColor = darkColor;
+        
         return true;
     }
 }

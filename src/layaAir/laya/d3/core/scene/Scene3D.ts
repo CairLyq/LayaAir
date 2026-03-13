@@ -1,7 +1,6 @@
 import { Config3D } from "../../../../Config3D";
 import { ILaya } from "../../../../ILaya";
 import { Sprite } from "../../../display/Sprite";
-import { Context } from "../../../renders/Context";
 import { Texture2D } from "../../../resource/Texture2D";
 import { Handler } from "../../../utils/Handler";
 import { Timer } from "../../../utils/Timer";
@@ -21,15 +20,11 @@ import { ShadowCasterPass } from "../../shadowMap/ShadowCasterPass";
 import { BaseTexture } from "../../../resource/BaseTexture";
 import { BlitFrameBufferCMD } from "../render/command/BlitFrameBufferCMD";
 import { DirectionLightCom } from "../light/DirectionLightCom";
-import { Sprite3D } from "../Sprite3D";
 import { PointLightCom } from "../light/PointLightCom";
 import { SpotLightCom } from "../light/SpotLightCom";
 import { FilterMode } from "../../../RenderEngine/RenderEnum/FilterMode";
 import { RenderCapable } from "../../../RenderEngine/RenderEnum/RenderCapable";
 import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
-import { UnifromBufferData, UniformBufferParamsType } from "../../../RenderEngine/UniformBufferData";
-import { UniformBufferObject } from "../../../RenderEngine/UniformBufferObject";
-import { BufferUsage } from "../../../RenderEngine/RenderEnum/BufferTargetType";
 import { Prefab } from "../../../resource/HierarchyResource";
 import { Stat } from "../../../utils/Stat";
 import { ComponentDriver } from "../../../components/ComponentDriver";
@@ -44,10 +39,8 @@ import { Color } from "../../../maths/Color";
 import { Vector3 } from "../../../maths/Vector3";
 import { Vector4 } from "../../../maths/Vector4";
 import { RenderTexture } from "../../../resource/RenderTexture";
-import { Laya3D } from "../../../../Laya3D";
 import { IPhysicsManager } from "../../../Physics3D/interface/IPhysicsManager";
 import { LayaGL } from "../../../layagl/LayaGL";
-import { IElementComponentManager } from "./IScenceComponentManager";
 import { ISceneNodeData } from "../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
 import { ShaderDataType, ShaderData, ShaderDataItem } from "../../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
 import { Laya3DRender } from "../../RenderObjs/Laya3DRender";
@@ -55,6 +48,11 @@ import { CommandUniformMap } from "../../../RenderDriver/DriverDesign/RenderDevi
 import { RenderTexture2D } from "../../../resource/RenderTexture2D";
 import { BaseRender } from "../render/BaseRender";
 import { Viewport } from "../../../maths/Viewport";
+import { IElementComponentManager } from "../../../components/IScenceComponentManager";
+import { Config } from "../../../../Config";
+import { Sprite3D } from "../Sprite3D";
+import { VolumetricGI } from "../../component/Volume/VolumetricGI/VolumetricGI";
+import { Node } from "../../../display/Node";
 
 export enum FogMode {
     Linear = 0, //Linear
@@ -67,16 +65,13 @@ export enum FogMode {
  * @zh Scene3D类用于实现3D场景。
  */
 export class Scene3D extends Sprite {
-    /** @internal */
     private static _lightTexture: Texture2D;
-    /** @internal */
     private static _lightPixles: Float32Array;
     /** @internal */
     static _shadowCasterPass: ShadowCasterPass;
     /**@internal */
     static physicsSettings: PhysicsSettings = new PhysicsSettings();
-    /**Scene3D UniformMap */
-    static sceneUniformMap: CommandUniformMap;
+
     /** Scene UniformPropertyID */
     /** @internal */
     static FOGCOLOR: number;
@@ -100,11 +95,9 @@ export class Scene3D extends Sprite {
     static TIME: number;
     /**@internal */
     static GIRotate: number;
-    /** @internal */
-    static sceneID: number;
 
-    /**@internal scene uniform block */
-    static SCENEUNIFORMBLOCK: number;
+    /**Scene3D UniformMap */
+    static sceneUniformMap: CommandUniformMap;
     //------------------legacy lighting-------------------------------
     /** @internal */
     static LIGHTDIRECTION: number;
@@ -139,7 +132,7 @@ export class Scene3D extends Sprite {
      * @en Scene component management table
      * @zh 场景组件管理表 
      */
-    static componentManagerMap: Map<string, any> = new Map();
+    static componentManagerMap: Map<string, new () => IElementComponentManager> = new Map();
 
     /**
      * @en The update mark of the scene.
@@ -161,13 +154,14 @@ export class Scene3D extends Sprite {
      * @param type 要注册的管理器类型。
      * @param cla 管理器实例。
      */
-    static regManager(type: string, cla: any) {
+    static regManager(type: string, cla: new () => IElementComponentManager): void {
         Scene3D.componentManagerMap.set(type, cla);
     }
 
     /**
      * @en init shaderData
      * @zh 着色器数据初始化
+     * @internal
      */
     static shaderValueInit() {
         Scene3DShaderDeclaration.SHADERDEFINE_FOG = Shader3D.getDefineByName("FOG");
@@ -193,38 +187,17 @@ export class Scene3D extends Sprite {
         Scene3D.CLUSTERBUFFER = Shader3D.propertyNameToID("u_LightClusterBuffer");
         Scene3D.TIME = Shader3D.propertyNameToID("u_Time");
         Scene3D.GIRotate = Shader3D.propertyNameToID("u_GIRotate");
-        Scene3D.SCENEUNIFORMBLOCK = Shader3D.propertyNameToID(UniformBufferObject.UBONAME_SCENE);
+
         let sceneUniformMap: CommandUniformMap = Scene3D.sceneUniformMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("Scene3D");
-        if (Config3D._uniformBlock) {
-
-            sceneUniformMap.addShaderBlockUniform(Scene3D.SCENEUNIFORMBLOCK, UniformBufferObject.UBONAME_SCENE, [
-                {
-                    id: Scene3D.TIME,
-                    propertyName: "u_Time",
-                    uniformtype: ShaderDataType.Float
-                },
-                {
-                    id: Scene3D.FOGPARAMS,
-                    propertyName: "u_FogParams",
-                    uniformtype: ShaderDataType.Vector4
-                },
-                {
-                    id: Scene3D.FOGCOLOR,
-                    propertyName: "u_FogColor",
-                    uniformtype: ShaderDataType.Vector4
-                }
-            ])
-        } else {
-            sceneUniformMap.addShaderUniform(Scene3D.FOGCOLOR, "u_FogColor", ShaderDataType.Color);
-            sceneUniformMap.addShaderUniform(Scene3D.FOGPARAMS, "u_FogParams", ShaderDataType.Vector4);
-            sceneUniformMap.addShaderUniform(Scene3D.TIME, "u_Time", ShaderDataType.Float);
-        }
-
-        sceneUniformMap.addShaderUniform(Scene3D.DIRECTIONLIGHTCOUNT, "u_DirationLightCount", ShaderDataType.Int);
+        sceneUniformMap.addShaderUniform(Scene3D.TIME, "u_Time", ShaderDataType.Float);
+        sceneUniformMap.addShaderUniform(Scene3D.FOGPARAMS, "u_FogParams", ShaderDataType.Vector4);
+        sceneUniformMap.addShaderUniform(Scene3D.FOGCOLOR, "u_FogColor", ShaderDataType.Color);
         sceneUniformMap.addShaderUniform(Scene3D.LIGHTBUFFER, "u_LightBuffer", ShaderDataType.Texture2D);
         sceneUniformMap.addShaderUniform(Scene3D.CLUSTERBUFFER, "u_LightClusterBuffer", ShaderDataType.Texture2D);
-
         sceneUniformMap.addShaderUniform(Scene3D.GIRotate, "u_GIRotate", ShaderDataType.Float);
+        sceneUniformMap.addShaderUniform(Scene3D.DIRECTIONLIGHTCOUNT, "u_DirationLightCount", ShaderDataType.Int);
+        ReflectionProbe.init();
+        VolumetricGI.init();
     }
 
     /**
@@ -233,6 +206,7 @@ export class Scene3D extends Sprite {
      * including directional lights, point lights, and spotlights.
      * @zh 初始化 ShaderData 的传统光照值。
      * 此函数为各种类型的灯光（包括方向光、点光源和聚光灯）设置着色器与场景之间的统一映射。
+     * @internal
      */
     static legacyLightingValueInit() {
         Scene3D.LIGHTDIRECTION = Shader3D.propertyNameToID("u_DirLightDirection");
@@ -267,26 +241,6 @@ export class Scene3D extends Sprite {
 
     /**
      * @internal
-     * @en create Scene UniformBuffer
-     * @returns New Scene UniformBuffer
-     * @zh 创建场景统一缓冲区
-     * @returns 新的场景统一缓冲区
-     */
-    static createSceneUniformBlock(): UnifromBufferData {
-        let uniformpara: Map<string, UniformBufferParamsType> = new Map<string, UniformBufferParamsType>();
-        uniformpara.set("u_Time", UniformBufferParamsType.Number);
-        uniformpara.set("u_FogParams", UniformBufferParamsType.Vector4);
-        uniformpara.set("u_FogColor", UniformBufferParamsType.Vector4);
-        let uniformMap = new Map<number, UniformBufferParamsType>();
-        uniformpara.forEach((value, key) => {
-            uniformMap.set(Shader3D.propertyNameToID(key), value);
-        });
-        return new UnifromBufferData(uniformMap);
-    }
-
-
-    /**
-     * @internal
      */
     static __init__(): void {
         var multiLighting: boolean = Config3D._multiLighting;
@@ -307,7 +261,7 @@ export class Scene3D extends Sprite {
         }
         Scene3D._shadowCasterPass = new ShadowCasterPass();
         //UniformBuffer
-        if (Config3D._uniformBlock)
+        if (Config._uniformBlock)
             configShaderValue.add(Shader3D.SHADERDEFINE_ENUNIFORMBLOCK);
 
         let supportFloatTex = LayaGL.renderEngine.getCapable(RenderCapable.TextureFormat_R32G32B32A32);
@@ -318,6 +272,9 @@ export class Scene3D extends Sprite {
         if (supportFloatLinearFiltering) {
             configShaderValue.add(Shader3D.SHADERDEFINE_FLOATTEXTURE_FIL_LINEAR);
         }
+        let supportStorageBuffer = LayaGL.renderEngine.getCapable(RenderCapable.StorageBuffer);
+        if (supportStorageBuffer)
+            configShaderValue.add(Shader3D.SHADERDEFINE_STORAGEBUFFER)
     }
 
     /**
@@ -351,8 +308,6 @@ export class Scene3D extends Sprite {
     _reflectionsResolution: string = "256";
     /**@internal ide配置文件使用 */
     _reflectionsIblSamples = 128;
-
-
 
     /** @internal */
     private _group: string;
@@ -388,8 +343,6 @@ export class Scene3D extends Sprite {
     _sunColor: Color = new Color(1.0, 1.0, 1.0);
     /**@internal */
     _sundir: Vector3 = new Vector3();
-    /**@internal*/
-    _id = Scene3D.sceneID++;
     /** @internal */
     _mainDirectionLight: DirectionLightCom;
     /** @internal */
@@ -402,10 +355,6 @@ export class Scene3D extends Sprite {
     _collsionTestList: number[] = [];
     /** @internal */
     _shaderValues: ShaderData;
-    /** @internal */
-    _sceneUniformData: UnifromBufferData;
-    /** @internal */
-    _sceneUniformObj: UniformBufferObject;
     /** @internal */
     _key: SubmitKey = new SubmitKey();
     /** @internal */
@@ -443,6 +392,12 @@ export class Scene3D extends Sprite {
 
     /** @internal */
     private _componentElementDatasMap: any = {};
+
+    /** @ts-ignore **/
+    declare _children: Sprite3D[];
+    /** @ts-ignore **/
+    declare _scene: Scene3D;
+
     /**
      * @en The 2D scene to which the Scene3D belongs, used when the scene is loaded by the IDE editor.
      * @zh Scene3D所属的2D场景，使用IDE编辑的场景载入后具有此属性。
@@ -706,7 +661,6 @@ export class Scene3D extends Sprite {
     }
 
     /**
-     * @override
      * @en The scene timer.
      * @zh 场景时钟。
      */
@@ -772,32 +726,19 @@ export class Scene3D extends Sprite {
     constructor() {
         super();
 
-        this._is3D = true;
+        this._nodeType = 1;
         this._componentDriver = new ComponentDriver();
         this._timer = ILaya.timer;
         this._sceneModuleData = Laya3DRender.Render3DModuleDataFactory.createSceneModuleData();
         if (LayaEnv.isConch && (window as any).conchConfig.getGraphicsAPI() != 2) {
             this._nativeObj = new (window as any).conchSubmitScene3D(this.renderSubmit.bind(this));
         }
-        if (Laya3D.enablePhysics)
-            this._physicsManager = Laya3D.PhysicsCreateUtil.createPhysicsManger(Scene3D.physicsSettings);
+        if (ILaya.Laya3D.enablePhysics)
+            this._physicsManager = ILaya.Laya3D.PhysicsCreateUtil.createPhysicsManger(Scene3D.physicsSettings);
 
         this._shaderValues = LayaGL.renderDeviceFactory.createShaderData(null);
         this._shaderValues.addDefines(Shader3D._configDefineValues);
-        if (Config3D._uniformBlock) {
-            //SceneUniformBlock
-            this._sceneUniformObj = UniformBufferObject.getBuffer(UniformBufferObject.UBONAME_SCENE, 0);
-            this._sceneUniformData = Scene3D.createSceneUniformBlock();
-            if (!this._sceneUniformObj) {
-                this._sceneUniformObj = UniformBufferObject.create(UniformBufferObject.UBONAME_SCENE, BufferUsage.Dynamic, this._sceneUniformData.getbyteLength(), true);
-            }
-            this._shaderValues._addCheckUBO(UniformBufferObject.UBONAME_SCENE, this._sceneUniformObj, this._sceneUniformData);
-            this._shaderValues.setUniformBuffer(Scene3D.SCENEUNIFORMBLOCK, this._sceneUniformObj);
-            //ShadowUniformBlock
-            //Scene3D._shadowCasterPass
-            this._shaderValues._addCheckUBO(UniformBufferObject.UBONAME_SHADOW, Scene3D._shadowCasterPass._castDepthBufferOBJ, Scene3D._shadowCasterPass._castDepthBufferData);
-            this._shaderValues.setUniformBuffer(Shader3D.propertyNameToID(UniformBufferObject.UBONAME_SHADOW), Scene3D._shadowCasterPass._castDepthBufferOBJ);
-        }
+
         this._fogParams = new Vector4(300, 1000, 0.01, 0);
         this.enableFog = false;
         this.fogStart = 300;
@@ -821,8 +762,7 @@ export class Scene3D extends Sprite {
         this.ambientColor = new Color(0.212, 0.227, 0.259);
 
         Scene3D.componentManagerMap.forEach((val, key) => {
-            let cla: any = val;
-            this.componentElementMap.set(key, new cla());
+            this.componentElementMap.set(key, new val());
         });
     }
 
@@ -842,11 +782,31 @@ export class Scene3D extends Sprite {
         });
     }
 
+    /** @internal */
+    _setStructParent(value: Sprite): void {
+        let struct = this._struct;
+
+        if (struct.parent) {
+            struct.parent.removeChild(struct);
+            struct.parent = null;
+        }
+
+        if (value && value._struct) {
+            if (value.is3D) {//兼容代码
+                value._struct.addChild(struct, value._struct.children.length);
+            } else {
+                //奇怪的类型检测
+                let index = value._children.indexOf(this as unknown as Sprite);
+                value._struct.addChild(struct, index);
+            }
+        }
+    }
+
     /**
      * @internal
      */
     _update(): void {
-        var delta: number = this.timer._delta / 1000;
+        var delta: number = this.timer.delta / 1000;
         this._time += delta;
         this._shaderValues.setNumber(Scene3D.TIME, this._time);
         //Physics
@@ -856,12 +816,19 @@ export class Scene3D extends Sprite {
             steps = Math.min(steps, Scene3D.physicsSettings.maxSubSteps);
             if (steps > 0) {
                 let physicsManager = this._physicsManager;
-                if (Laya3D.enablePhysics && Stat.enablePhysicsUpdate) {
+                if (ILaya.Laya3D.enablePhysics && Stat.enablePhysicsUpdate) {
                     physicsManager.update(steps * Scene3D.physicsSettings.fixedTimeStep);
                 }
                 this._physicsStepTime -= steps * Scene3D.physicsSettings.fixedTimeStep;
             }
         }
+
+        this._componentDriver.callStart();
+        this._componentDriver.callUpdate();
+
+        this._componentDriver.callLateUpdate();
+        this._componentDriver.callDestroy();
+
         if (this._volumeManager.needreCaculateAllRenderObjects())
             this._volumeManager.reCaculateAllRenderObjects(this._sceneRenderManager.list);
         else
@@ -870,12 +837,6 @@ export class Scene3D extends Sprite {
         this.componentElementMap.forEach((value) => {
             value.update(delta);
         });
-        this._componentDriver.callStart();
-        this._componentDriver.callUpdate();
-
-        this._componentDriver.callLateUpdate();
-        this._componentDriver.callDestroy();
-
         //this._sceneRenderManager.updateMotionObjects();
         this._sceneRenderManager.renderUpdate();
         this.skyRenderer.renderUpdate(RenderContext3D._instance);
@@ -917,30 +878,17 @@ export class Scene3D extends Sprite {
         this._group = value;
     }
 
-    /**
-     * @internal
-     * @inheritDoc
-     * @override
-     */
     protected _onActive(): void {
         super._onActive();
         ILaya.stage._scene3Ds.push(this);
     }
 
-    /**
-     * @internal
-     * @inheritDoc
-     * @override
-     */
     protected _onInActive(): void {
         super._onInActive();
         var scenes: any[] = ILaya.stage._scene3Ds;
         scenes.splice(scenes.indexOf(this), 1);
     }
 
-    /**
-     * @internal
-     */
     private _prepareSceneToRender(): void {
         var shaderValues: ShaderData = this._shaderValues;
         var multiLighting: boolean = Config3D._multiLighting && Stat.enableMulLight;
@@ -965,7 +913,7 @@ export class Scene3D extends Sprite {
                     intCor.y = Color.gammaToLinearSpace(dirLight.color.g);
                     intCor.z = Color.gammaToLinearSpace(dirLight.color.b);
                     Vector3.scale(intCor, dirLight._intensity, intCor);
-                    (dirLight.owner as Sprite3D).transform.worldMatrix.getForward(dir);
+                    dirLight.owner.transform.worldMatrix.getForward(dir);
                     Vector3.normalize(dir, dir);//矩阵有缩放时需要归一化
                     ligPix[off] = intCor.x;
                     ligPix[off + 1] = intCor.y;
@@ -978,7 +926,7 @@ export class Scene3D extends Sprite {
                     // 	this._setShaderValue(Scene3D.SUNLIGHTDIRCOLOR, intCor);
                     // 	this._setShaderValue(Scene3D.SUNLIGHTDIRECTION, dir);
                     // }
-                    if (i == 0) {
+                    if (i === 0) {
                         this._sunColor = dirLight.color;
                         this._sundir = dir;
                     }
@@ -998,7 +946,7 @@ export class Scene3D extends Sprite {
                 this._pointLights.normalLightOrdering(mainPointLightIndex);
                 for (var i: number = 0; i < poiCount; i++, curCount++) {
                     var poiLight: PointLightCom = poiElements[i];
-                    var pos: Vector3 = (poiLight.owner as Sprite3D).transform.position;
+                    var pos: Vector3 = poiLight.owner.transform.position;
                     var intCor: Vector3 = poiLight._intensityColor;
                     var off: number = floatWidth * curCount;
                     intCor.x = Color.gammaToLinearSpace(poiLight.color.r);
@@ -1030,14 +978,14 @@ export class Scene3D extends Sprite {
                 for (var i: number = 0; i < spoCount; i++, curCount++) {
                     var spoLight: SpotLightCom = spoElements[i];
                     var dir: Vector3 = spoLight.direction;
-                    var pos: Vector3 = (spoLight.owner as Sprite3D).transform.position;
+                    var pos: Vector3 = spoLight.owner.transform.position;
                     var intCor: Vector3 = spoLight._intensityColor;
                     var off: number = floatWidth * curCount;
                     intCor.x = Color.gammaToLinearSpace(spoLight.color.r);
                     intCor.y = Color.gammaToLinearSpace(spoLight.color.g);
                     intCor.z = Color.gammaToLinearSpace(spoLight.color.b);
                     Vector3.scale(intCor, spoLight._intensity, intCor);
-                    (spoLight.owner as Sprite3D).transform.worldMatrix.getForward(dir);
+                    spoLight.owner.transform.worldMatrix.getForward(dir);
                     Vector3.normalize(dir, dir);
                     ligPix[off] = intCor.x;
                     ligPix[off + 1] = intCor.y;
@@ -1075,12 +1023,12 @@ export class Scene3D extends Sprite {
                 dirLight._intensityColor.z = Color.gammaToLinearSpace(dirLight.color.b);
                 Vector3.scale(dirLight._intensityColor, dirLight._intensity, dirLight._intensityColor);
 
-                (dirLight.owner as Sprite3D).transform.worldMatrix.getForward(dirLight.direction);
+                dirLight.owner.transform.worldMatrix.getForward(dirLight.direction);
                 Vector3.normalize(dirLight.direction, dirLight.direction);
                 shaderValues.setVector3(Scene3D.LIGHTDIRCOLOR, dirLight._intensityColor);
                 shaderValues.setVector3(Scene3D.LIGHTDIRECTION, dirLight.direction);
                 shaderValues.setInt(Scene3D.LIGHTMODE, dirLight._lightmapBakedType);
-                if (i == 0) {
+                if (i === 0) {
                     this._sunColor = dirLight.color;
                     this._sundir = dirLight.direction;
                 }
@@ -1099,7 +1047,7 @@ export class Scene3D extends Sprite {
                 poiLight._intensityColor.z = Color.gammaToLinearSpace(poiLight.color.b);
                 Vector3.scale(poiLight._intensityColor, poiLight._intensity, poiLight._intensityColor);
                 shaderValues.setVector3(Scene3D.POINTLIGHTCOLOR, poiLight._intensityColor);
-                shaderValues.setVector3(Scene3D.POINTLIGHTPOS, (poiLight.owner as Sprite3D).transform.position);
+                shaderValues.setVector3(Scene3D.POINTLIGHTPOS, poiLight.owner.transform.position);
                 shaderValues.setNumber(Scene3D.POINTLIGHTRANGE, poiLight.range);
                 shaderValues.setInt(Scene3D.POINTLIGHTMODE, poiLight._lightmapBakedType);
                 shaderValues.addDefine(Scene3DShaderDeclaration.SHADERDEFINE_POINTLIGHT);
@@ -1115,8 +1063,8 @@ export class Scene3D extends Sprite {
                 spotLight._intensityColor.z = Color.gammaToLinearSpace(spotLight.color.b);
                 Vector3.scale(spotLight._intensityColor, spotLight._intensity, spotLight._intensityColor);
                 shaderValues.setVector3(Scene3D.SPOTLIGHTCOLOR, spotLight._intensityColor);
-                shaderValues.setVector3(Scene3D.SPOTLIGHTPOS, (spotLight.owner as Sprite3D).transform.position);
-                (spotLight.owner as Sprite3D).transform.worldMatrix.getForward(spotLight.direction);
+                shaderValues.setVector3(Scene3D.SPOTLIGHTPOS, spotLight.owner.transform.position);
+                spotLight.owner.transform.worldMatrix.getForward(spotLight.direction);
                 Vector3.normalize(spotLight.direction, spotLight.direction);
                 shaderValues.setVector3(Scene3D.SPOTLIGHTDIRECTION, spotLight.direction);
                 shaderValues.setNumber(Scene3D.SPOTLIGHTRANGE, spotLight.range);
@@ -1192,6 +1140,7 @@ export class Scene3D extends Sprite {
      */
     _addRenderObject(render: BaseRender): void {
         this._sceneRenderManager.addRenderObject(render);
+        render._inRenderList = true;
         render._addReflectionProbeUpdate();
     }
 
@@ -1199,12 +1148,14 @@ export class Scene3D extends Sprite {
      * @internal
      */
     _removeRenderObject(render: BaseRender): void {
+        render._inRenderList = false;
         this._sceneRenderManager.removeRenderObject(render);
     }
 
+    _setBelongScene(scene: Node): void {
+
+    }
     /**
-     * @inheritDoc
-     * @override
      * @en Destroys the scene.
      * @param destroyChild Whether to destroy the child node.
      * @zh 销毁场景。
@@ -1214,7 +1165,6 @@ export class Scene3D extends Sprite {
         if (this._destroyed)
             return;
         super.destroy(destroyChild);
-        this._nativeObj = null;
         this._skyRenderer.destroy();
         this._skyRenderer = null;
         this._directionLights = null;
@@ -1223,11 +1173,6 @@ export class Scene3D extends Sprite {
         this._alternateLights = null;
         (RenderContext3D._instance.scene == this) && (RenderContext3D._instance.scene = null);
         this._shaderValues.destroy();
-        // todo
-        if (this._sceneUniformData) {
-            this._sceneUniformData.destroy();
-            this._sceneUniformData = null;
-        }
         this._shaderValues = null;
         this.sceneRenderableManager.destroy();
         this._sceneRenderManager = null
@@ -1261,20 +1206,6 @@ export class Scene3D extends Sprite {
     }
 
     /**
-     * @inheritDoc
-     * @override
-     * @internal
-     */
-    render(ctx: Context): void {
-        return;//3d的render由外面直接调rendersubmit
-        if (this._children.length > 0) {
-            //temp
-            ctx.drawLeftData();
-            this.renderSubmit();
-        }
-    }
-
-    /**
      * @en The rendering entry.
      * @zh 渲染入口
      */
@@ -1286,6 +1217,7 @@ export class Scene3D extends Sprite {
         this._prepareSceneToRender();
         var i: number, n: number, n1: number;
         Scene3D._updateMark++;
+
         for (i = 0, n = this._cameraPool.length, n1 = n - 1; i < n; i++) {
             var camera: Camera = (<Camera>this._cameraPool[i]);
             if (camera.enableRender && camera.activeInHierarchy) {
@@ -1300,7 +1232,7 @@ export class Scene3D extends Sprite {
                 camera.render(this);
 
                 if (!camera._offScreenRenderTexture) {
-                    this.blitMainCanvans(camera._internalRenderTexture, camera.normalizedViewport, camera);
+                    this.blitMainCanvas(camera._internalRenderTexture, camera.normalizedViewport, camera);
                 }
 
                 // if (!camera._cacheDepth) {
@@ -1310,7 +1242,7 @@ export class Scene3D extends Sprite {
                 camera._aftRenderMainPass();
             }
         }
-        Context.set2DRenderConfig();//还原2D配置
+        // Context.set2DRenderConfig();//还原2D配置
         RenderTexture.clearPool();
     }
 
@@ -1321,7 +1253,7 @@ export class Scene3D extends Sprite {
      * @param camera
      * @returns
      */
-    blitMainCanvans(source: BaseTexture, normalizeViewPort: Viewport, camera: Camera) {
+    blitMainCanvas(source: BaseTexture, normalizeViewPort: Viewport, camera: Camera) {
         if (!source)
             return;
         Scene3D.mainCavansViewPort.x = RenderContext3D.clientWidth * normalizeViewPort.x | 0;
@@ -1336,13 +1268,6 @@ export class Scene3D extends Sprite {
         cmd.recover();
         RenderTexture2D._clear = false;
         BlitFrameBufferCMD.shaderdata.removeDefine(BaseCamera.SHADERDEFINE_FXAA);
-    }
-
-    /**
-     * @internal
-     */
-    reUse(context: Context, pos: number): number {
-        return 0;
     }
 
     /**
@@ -1393,14 +1318,14 @@ export class Scene3D extends Sprite {
                 maps[i].lightmapColor = lightMap;
             }
         } else {
-            throw new Error("Scene3D: value value can't be null.");
+            throw new Error("lightmap can't be null.");
         }
     }
 
     /**
      * @deprecated
      * 获取光照贴图浅拷贝列表。
-     * @return 获取光照贴图浅拷贝列表。
+     * @returns 获取光照贴图浅拷贝列表。
      */
     getlightmaps(): Texture2D[] {
         var lightmapColors: Texture2D[] = new Array(this._lightmaps.length);

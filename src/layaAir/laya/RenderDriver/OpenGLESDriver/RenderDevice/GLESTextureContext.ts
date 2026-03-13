@@ -6,7 +6,6 @@ import { TextureCompareMode } from "../../../RenderEngine/RenderEnum/TextureComp
 import { TextureDimension } from "../../../RenderEngine/RenderEnum/TextureDimension";
 import { TextureFormat } from "../../../RenderEngine/RenderEnum/TextureFormat";
 import { ITextureContext } from "../../DriverDesign/RenderDevice/ITextureContext";
-import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
 import { GLESInternalRT } from "./GLESInternalRT";
 import { GLESInternalTex } from "./GLESInternalTex";
 
@@ -30,7 +29,12 @@ export class GLESTextureContext implements ITextureContext {
             throw "native cant draw HTMLCanvasElement";
             return;
         }
-        this._native.setTextureImageData(texture._nativeObj, (source as any)._nativeObj.conchImgId, premultiplyAlpha, invertY);
+        if ((source as any).conchImgId !== undefined) {//VideoDecoder
+            this._native.setTextureImageData(texture._nativeObj, (source as any).conchImgId, premultiplyAlpha, invertY);
+        }
+        else {
+             this._native.setTextureImageData(texture._nativeObj, (source as any)._nativeObj.conchImgId, premultiplyAlpha, invertY);
+        }
     }
 
     setTexturePixelsData(texture: GLESInternalTex, source: ArrayBufferView, premultiplyAlpha: boolean, invertY: boolean) {
@@ -124,7 +128,7 @@ export class GLESTextureContext implements ITextureContext {
         this._native.unbindRenderTarget(renderTarget._nativeObj);
     }
 
-    createRenderTargetInternal(width: number, height: number, colorFormat: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number): GLESInternalRT {
+    createRenderTargetInternal(width: number, height: number, colorFormat: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number, storage: boolean): GLESInternalRT {
         return new GLESInternalRT(this._native.createRenderTargetInternal(width, height, colorFormat, depthStencilFormat ? depthStencilFormat : RenderTargetFormat.None, generateMipmap, sRGB, multiSamples));
     }
 
@@ -159,6 +163,8 @@ export class GLESTextureContext implements ITextureContext {
     }
 
     updateVideoTexture(texture: GLESInternalTex, video: HTMLVideoElement, premultiplyAlpha: boolean, invertY: boolean): void {
-        this._native.updateVideoTexture(texture._nativeObj, (video as any)._nativeObj.conchImgId, premultiplyAlpha, invertY);
+        if (texture && video) {
+            this._native.updateVideoTexture(texture._nativeObj, (video as any)._nativeObj.conchImgId, premultiplyAlpha, invertY);
+        }
     }
 }

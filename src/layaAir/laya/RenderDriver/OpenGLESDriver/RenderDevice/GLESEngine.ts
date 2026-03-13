@@ -1,15 +1,12 @@
-import { BufferTargetType, BufferUsage } from "../../../RenderEngine/RenderEnum/BufferTargetType";
+import { Config } from "../../../../Config";
 import { RenderCapable } from "../../../RenderEngine/RenderEnum/RenderCapable";
 import { RenderParams } from "../../../RenderEngine/RenderEnum/RenderParams";
-import { GPUEngineStatisticsInfo } from "../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { NotImplementedError } from "../../../utils/Error";
 import { IRenderEngine } from "../../DriverDesign/RenderDevice/IRenderEngine";
-import { IRenderEngineFactory } from "../../DriverDesign/RenderDevice/IRenderEngineFactory";
 import { ITextureContext } from "../../DriverDesign/RenderDevice/ITextureContext";
 import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
 import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { RTShaderDefine } from "../../RenderModuleData/RuntimeModuleData/RTShaderDefine";
-import { GLBuffer } from "../../WebGLDriver/RenderDevice/WebGLEngine/GLBuffer";
 import { WebGLConfig } from "../../WebGLDriver/RenderDevice/WebGLEngine/WebGLConfig";
 import { GLESTextureContext } from "./GLESTextureContext";
 
@@ -30,26 +27,32 @@ export enum GLESMode {
 export class GLESEngine implements IRenderEngine {
   _context: any;
   _isShaderDebugMode: boolean;
-  _renderOBJCreateContext: IRenderEngineFactory;
   _nativeObj: any;
   private _GLTextureContext: GLESTextureContext;
   constructor(config: WebGLConfig, webglMode: GLESMode = GLESMode.Auto) {
     this._nativeObj = new (window as any).conchGLESEngine(config, webglMode);
-  }
-  endFrame(): void {
 
   }
+  public get _framePassCount(): number {
+    return this._nativeObj._framePassCount;
+  }
+  public set _framePassCount(value: number) {
+    this._nativeObj._framePassCount = value;
+  }
+
+  endFrame(): void {
+    this._nativeObj.startFrame();
+  }
+
+  startFrame(): void {
+    this._nativeObj.endFrame();
+  }
+
   _remapZ: boolean = true;
   _screenInvertY: boolean = false;
   _lodTextureSample: boolean = true;
   _breakTextureSample: boolean = true;
 
-  public get _enableStatistics(): boolean {
-    return this._nativeObj.enableStatistics;
-  }
-  public set _enableStatistics(value: boolean) {
-    this._nativeObj.enableStatistics = value;
-  }
 
   resizeOffScreen(width: number, height: number): void {
     this._nativeObj.resizeOffScreen(width, height);
@@ -68,9 +71,13 @@ export class GLESEngine implements IRenderEngine {
   addTexGammaDefine(key: number, value: RTShaderDefine): void {
     this._nativeObj.addTexGammaDefine(key, value);
   }
-  initRenderEngine(canvas: any): void {
-    this._nativeObj.initRenderEngine();
+  initRenderEngine(canvas: HTMLCanvasElement): void {
+    this._nativeObj.initRenderEngine((canvas as any)._nativeObj);
     this._GLTextureContext = new GLESTextureContext(this._nativeObj.getTextureContext());
+    Config._uniformBlock = Config.enableUniformBufferObject && this.getCapable(RenderCapable.UnifromBufferObject);
+    Config.matUseUBO = Config.matUseUBO && this.getCapable(RenderCapable.UnifromBufferObject);
+    this._nativeObj.enableUniformBufferObject = Config._uniformBlock;
+    this._nativeObj.matUseUBO = Config.matUseUBO;
   }
   copySubFrameBuffertoTex(texture: InternalTexture, level: number, xoffset: number, yoffset: number, x: number, y: number, width: number, height: number): void {
     throw new NotImplementedError();
@@ -90,15 +97,7 @@ export class GLESEngine implements IRenderEngine {
   getTextureContext(): ITextureContext {
     return this._GLTextureContext;
   }
-  getCreateRenderOBJContext(): IRenderEngineFactory {
-    throw new NotImplementedError();
-  }
-  clearStatisticsInfo(): void {
-    this._nativeObj.clearStatisticsInfo();
-  }
-  getStatisticsInfo(info: GPUEngineStatisticsInfo): number {
-    return this._nativeObj.getStatisticsInfo(info);
-  }
+
   viewport(x: number, y: number, width: number, height: number): void {
     this._nativeObj.viewport(x, y, width, height);
   }

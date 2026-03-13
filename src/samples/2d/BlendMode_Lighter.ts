@@ -1,16 +1,21 @@
+/**
+description
+ 图像混合模式演示，展示具有lighter模式的凤凰动画和动态背景
+ */
 import { Laya } from "Laya";
 import { Animation } from "laya/display/Animation";
 import { Stage } from "laya/display/Stage";
 import { Handler } from "laya/utils/Handler";
-import { Tween } from "laya/utils/Tween";
+import { Tween } from "laya/tween/Tween";
 import { Main } from "./../Main";
+import { BlendMode } from "laya/webgl/canvas/BlendMode";
 
 export class BlendMode_Lighter {
 	// 一只凤凰的分辨率是550 * 400
 	private phoenixWidth: number = 750;
 	private phoenixHeight: number = 550;
 
-	private bgColorTweener: Tween = new Tween();
+	private bgColorTweener: Tween = Tween.create();
 	private gradientInterval: number = 2000;
 	private bgColorChannels: any = { 'r': 99, 'g': 0, 'b': 0xFF };
 
@@ -68,11 +73,11 @@ export class BlendMode_Lighter {
 		animation.loadImages(frames);
 		this.Main.box2D.addChild(animation);
 
-		var clips: any[] = animation.frames.concat();
+		var clips: any[] = frames.concat();
 		// 反转帧
 		clips = clips.reverse();
 		// 添加到已有帧末尾
-		animation.frames = animation.frames.concat(clips);
+		animation.images = frames.concat(clips);
 
 		animation.play();
 
@@ -85,7 +90,7 @@ export class BlendMode_Lighter {
 	private evalBgColor(): void {
 		var color: number = Math.random() * 0xFFFFFF;
 		var channels: any[] = this.getColorChannals(color);
-		this.bgColorTweener.to(this.bgColorChannels, { "r": channels[0], "g": channels[1], "b": channels[2] }, this.gradientInterval, null, Handler.create(this, this.onTweenComplete));
+		Tween.to(this.bgColorChannels, { "r": channels[0], "g": channels[1], "b": channels[2] }, this.gradientInterval, null, Handler.create(this, this.onTweenComplete));
 	}
 
 	private getColorChannals(color: number): any[] {

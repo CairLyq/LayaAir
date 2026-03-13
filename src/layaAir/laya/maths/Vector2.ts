@@ -24,7 +24,8 @@ export class Vector2 implements IClone {
      * @en Temporary Vector2 for calculations.
      * @zh 用于计算的临时 Vector2。
      */
-    static TempVector2 = new Vector2();
+    static readonly TEMP = new Vector2();
+
     /**
      * @en X-axis coordinate.
      * @zh X 轴坐标。
@@ -57,9 +58,10 @@ export class Vector2 implements IClone {
      * @param x 要设置的 X 值。
      * @param y 要设置的 Y 值。
      */
-    setValue(x: number, y: number): void {
+    setValue(x: number, y: number): Vector2 {
         this.x = x;
         this.y = y;
+        return this;
     }
 
     /**
@@ -115,14 +117,14 @@ export class Vector2 implements IClone {
     }
 
     /**
-     * @en Writes the vector to a Float32Array.
-     * @param array The target Float32Array.
+     * @en Writes the vector to a array.
+     * @param array The target array.
      * @param offset The offset in the array. Default is 0.
-     * @zh 将向量写入 Float32Array 数组。
-     * @param array 目标 Float32Array 数组。
+     * @zh 将向量写入数组。
+     * @param array 目标数组。
      * @param offset 数组偏移。默认值为 0。
      */
-    writeTo(array: Float32Array, offset: number = 0): void {
+    writeTo(array: { [n: number]: number }, offset: number = 0): void {
         array[offset + 0] = this.x;
         array[offset + 1] = this.y;
     }
@@ -133,9 +135,10 @@ export class Vector2 implements IClone {
      * @zh 将向量克隆到另一个对象。
      * @param destObject 克隆的目标对象。
      */
-    cloneTo(destObject: Vector2): void {
+    cloneTo(destObject: Vector2): Vector2 {
         destObject.x = this.x;
         destObject.y = this.y;
+        return destObject;
     }
 
     /**
@@ -184,12 +187,24 @@ export class Vector2 implements IClone {
     }
 
     /**
+     * 计算两个二维向量的距离
+     * @param a 
+     * @param b 
+     * @returns 
+     */
+    static distance(a: Vector2, b: Vector2) {
+        let x = a.x - b.x;
+        let y = a.y - b.y;
+        return Math.sqrt(x * x + y * y);
+    }
+
+    /**
      * @en Creates a clone of this Vector2.
      * @returns Cloned copy of Vector2.
      * @zh 创建此Vector2的克隆。
      * @returns 克隆副本。
      */
-    clone(): any {
+    clone() {
         var destVector2: Vector2 = new Vector2();
         this.cloneTo(destVector2);
         return destVector2;

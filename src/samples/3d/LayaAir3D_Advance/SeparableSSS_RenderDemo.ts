@@ -1,9 +1,12 @@
+/**
+description
+ 实现次表面散射渲染效果的3D角色渲染演示程序
+ */
 import { Laya } from "Laya";
 import { Camera, CameraEventFlags } from "laya/d3/core/Camera";
 import { BlinnPhongMaterial } from "laya/d3/core/material/BlinnPhongMaterial";
 import { PBRStandardMaterial } from "laya/d3/core/material/PBRStandardMaterial";
 import { UnlitMaterial } from "laya/d3/core/material/UnlitMaterial";
-import { MeshSprite3D } from "laya/d3/core/MeshSprite3D";
 import { CommandBuffer } from "laya/d3/core/render/command/CommandBuffer";
 import { Scene3D } from "laya/d3/core/scene/Scene3D";
 import { Mesh } from "laya/d3/resource/models/Mesh";
@@ -29,14 +32,15 @@ import { DepthTextureMode, RenderTexture } from "laya/resource/RenderTexture";
 import { Scene } from "laya/display/Scene";
 import { MeshFilter } from "laya/d3/core/MeshFilter";
 import { Viewport } from "laya/maths/Viewport";
+import { Sprite3D } from "laya/d3/core/Sprite3D";
 
 export class SeparableSSS_RenderDemo {
     scene: Scene3D;
     mainCamera: Camera;
-    blinnphongCharacter: MeshSprite3D;
-    SSSSSCharacter: MeshSprite3D;
+    blinnphongCharacter: Sprite3D;
+    SSSSSCharacter: Sprite3D;
     characterBlinnphongMaterial: BlinnPhongMaterial;
-    pbrCharacter: MeshSprite3D;
+    pbrCharacter: Sprite3D;
     pbrMaterial: PBRStandardMaterial;
     //testPlane
     planeMat: UnlitMaterial;
@@ -96,7 +100,7 @@ export class SeparableSSS_RenderDemo {
             this.sssssBlitMaterail.cameraFiledOfView = this.mainCamera.fieldOfView;
 
             //增加节点
-            this.SSSSSCharacter = <MeshSprite3D>this.blinnphongCharacter.clone();
+            this.SSSSSCharacter = <Sprite3D>this.blinnphongCharacter.clone();
             this.SSSSSCharacter.getComponent(MeshRenderer).sharedMaterial = this.sssssRenderMaterial;
             this.scene.addChild(this.SSSSSCharacter);
             this.scene.addChild(this.blinnphongCharacter);
@@ -148,6 +152,7 @@ export class SeparableSSS_RenderDemo {
 
         buf.setGlobalTexture(Shader3D.propertyNameToID("sssssDiffuseTexture"), diffuseRenderTexture);
         this.sssssRenderMaterial.shaderData.setTexture(Shader3D.propertyNameToID("sssssSpecularTexture"), specRrenderTexture);
+        this.sssssRenderMaterial.shaderData.setTexture(Shader3D.propertyNameToID("sssssDiffuseTexture"), diffuseRenderTexture);
         diffuseRenderTexture.filterMode = FilterMode.Point;
         specRrenderTexture.filterMode = FilterMode.Point;
 
@@ -159,9 +164,7 @@ export class SeparableSSS_RenderDemo {
     curStateIndex: number = 0;
     //按钮
     private loadUI(): void {
-
         Laya.loader.load(["res/threeDimen/ui/button.png"], Handler.create(this, function (): void {
-
             this.changeActionButton = Laya.stage.addChild(new Button("res/threeDimen/ui/button.png", "次表面散射模式"));
             this.changeActionButton.size(160, 40);
             this.changeActionButton.labelBold = true;

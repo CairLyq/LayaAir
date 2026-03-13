@@ -164,11 +164,11 @@ export class Bounds implements IClone {
 
     /**
      * @en Constructor method.
-     * @param	min  The minimum point of the bounding box.
-     * @param	max  The maximum point of the bounding box.
+     * @param min  The minimum point of the bounding box.
+     * @param max  The maximum point of the bounding box.
      * @zh 构造方法。
-     * @param	min  min 最小坐标
-     * @param	max  max 最大坐标。
+     * @param min  min 最小坐标
+     * @param max  max 最大坐标。
      */
     constructor(min?: Vector3, max?: Vector3) {
         this._imp = Laya3DRender.Render3DModuleDataFactory.createBounds(min, max);
@@ -322,7 +322,7 @@ export class Bounds implements IClone {
      * @zh 创建这个边界的克隆。
      * @return 一个新的 `Bounds` 实例，是当前边界的克隆。
      */
-    clone(): any {
+    clone() {
         var dest: Bounds = new Bounds(new Vector3(), new Vector3());
         this.cloneTo(dest);
         return dest;

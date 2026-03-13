@@ -1,7 +1,6 @@
-import { LayaEnv } from "../../../../../LayaEnv";
-import { GPUEngineStatisticsInfo } from "../../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { ShaderVariable } from "../../../../RenderEngine/RenderShader/ShaderVariable";
-import { UniformBufferObject } from "../../../../RenderEngine/UniformBufferObject";
+import { LayaGL } from "../../../../layagl/LayaGL";
+import { StatElement } from "../../../../layagl/StatisticsContext";
 import { Matrix3x3 } from "../../../../maths/Matrix3x3";
 import { Matrix4x4 } from "../../../../maths/Matrix4x4";
 import { Vector2 } from "../../../../maths/Vector2";
@@ -10,12 +9,10 @@ import { Vector4 } from "../../../../maths/Vector4";
 import { BaseTexture } from "../../../../resource/BaseTexture";
 import { Texture2D } from "../../../../resource/Texture2D";
 import { TextureCube } from "../../../../resource/TextureCube";
-import { InternalTexture } from "../../../DriverDesign/RenderDevice/InternalTexture";
 import { ShaderDataType } from "../../../DriverDesign/RenderDevice/ShaderData";
 import { WebGLEngine } from "../WebGLEngine";
+import { WebGLUniformBufferBase } from "../WebGLUniformBufferBase";
 import { GLObject } from "./GLObject";
-
-
 
 export class GLShaderInstance extends GLObject {
 
@@ -43,7 +40,7 @@ export class GLShaderInstance extends GLObject {
     // todo 没用到
     private _uniformObjectMap: { [key: string]: ShaderVariable };
     /**@internal */
-    _complete: boolean = true;
+    _complete: boolean;
 
     constructor(engine: WebGLEngine, vs: string, ps: string, attributeMap: { [name: string]: [number, ShaderDataType] }) {
         super(engine);
@@ -55,44 +52,56 @@ export class GLShaderInstance extends GLObject {
     }
 
     private _create(): void {
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.C_ShaderCompile, 1);
+        WebGLEngine._lastShaderError = null;
         let preTime = performance.now();
         const gl: WebGLRenderingContext = this._gl;
 
         if (WebGLEngine.instance.lost) {
-            console.log("lost webgl context");
+            //console.log("lost webgl context");
             return;
         }
 
-        this._program = gl.createProgram();
+        let prog = this._program = gl.createProgram();
+        let compileErr: string;
+
         this._vshader = this._createShader(gl, this._vs, gl.VERTEX_SHADER);
+        if (!gl.getShaderParameter(this._vshader, gl.COMPILE_STATUS))
+            compileErr = gl.getShaderInfoLog(this._vshader);
+
         this._pshader = this._createShader(gl, this._ps, gl.FRAGMENT_SHADER);
-        gl.attachShader(this._program, this._vshader);
-        gl.attachShader(this._program, this._pshader);
+        if (!gl.getShaderParameter(this._pshader, gl.COMPILE_STATUS)) {
+            if (compileErr) compileErr += "\n";
+            compileErr += gl.getShaderInfoLog(this._pshader);
+        }
+
+        gl.attachShader(prog, this._vshader);
+        gl.attachShader(prog, this._pshader);
+
+        if (compileErr) {
+            WebGLEngine._lastShaderError = compileErr;
+            return;
+        }
 
         for (var k in this._attributeMap)//根据声明调整location,便于VAO使用
-            gl.bindAttribLocation(this._program, this._attributeMap[k][0], k);
-        gl.linkProgram(this._program);
-        const bo = gl.getProgramParameter(this._program, gl.LINK_STATUS);
+            gl.bindAttribLocation(prog, this._attributeMap[k][0], k);
+        gl.linkProgram(prog);
 
-        if (!bo) {
-            var info = gl.getProgramInfoLog(this._program);
-            console.error(new Error('Could not compile WebGL program. \n\n' + info));
-            this._complete = false;
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+            WebGLEngine._lastShaderError = gl.getProgramInfoLog(prog);
             return;
         }
 
         //Uniform
         //Unifrom Objcet
-        const nUniformNum: number = gl.getProgramParameter(this._program, gl.ACTIVE_UNIFORMS);
+        const nUniformNum: number = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS);
 
         this.useProgram();
         this._curActTexIndex = 0;
         let one: ShaderVariable, i: number;
         for (i = 0; i < nUniformNum; i++) {
-            var uniformData: WebGLActiveInfo = gl.getActiveUniform(this._program, i);
+            var uniformData: WebGLActiveInfo = gl.getActiveUniform(prog, i);
             var uniName: string = uniformData.name;
-            let location: WebGLUniformLocation = gl.getUniformLocation(this._program, uniName);
+            let location: WebGLUniformLocation = gl.getUniformLocation(prog, uniName);
             if (!location && location != 0)
                 continue;
             one = new ShaderVariable();
@@ -110,44 +119,34 @@ export class GLShaderInstance extends GLObject {
             one.dataOffset = this._engine.propertyNameToID(uniName);
         }
         if (this._engine.isWebGL2) {
+            const gl2 = (gl as WebGL2RenderingContext);
             this._uniformObjectMap = {};
-            var nUniformBlock: number = gl.getProgramParameter(this._program, (gl as WebGL2RenderingContext).ACTIVE_UNIFORM_BLOCKS);
+            var nUniformBlock: number = gl.getProgramParameter(prog, (gl as WebGL2RenderingContext).ACTIVE_UNIFORM_BLOCKS);
             for (i = 0; i < nUniformBlock; i++) {
-                let gl2 = (gl as WebGL2RenderingContext);
                 var uniformBlockName: string = gl2.getActiveUniformBlockName(this._program, i);
                 one = new ShaderVariable();
                 one.name = uniformBlockName;
                 one.isArray = false;
                 one.type = (gl as WebGL2RenderingContext).UNIFORM_BUFFER;
                 one.dataOffset = this._engine.propertyNameToID(uniformBlockName);
-                let location = one.location = gl2.getUniformBlockIndex(this._program, uniformBlockName);
-                gl2.uniformBlockBinding(this._program, location, this._engine.getUBOPointer(uniformBlockName));
+                let location = one.location = gl2.getUniformBlockIndex(prog, uniformBlockName);
+                let bindingPoint = i;
+                gl2.uniformBlockBinding(this._program, location, bindingPoint);
                 this._uniformObjectMap[one.name] = one;
                 this._uniformMap.push(one);
                 this._addShaderUnifiormFun(one);
             }
         }
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.T_ShaderCompile, (performance.now() - preTime) | 0);
-    }
-
-    private _legalUBObyteLength(bytelength: number): number {
-        return Math.ceil(bytelength / 16) * 16;
+        this._complete = true;
     }
 
     /**
     * @internal
     */
-    private _createShader(gl: WebGLRenderingContext, str: string, type: number): any {
-        var shader: WebGLShader = gl.createShader(type);
+    private _createShader(gl: WebGLRenderingContext, str: string, type: number): WebGLShader {
+        let shader: WebGLShader = gl.createShader(type);
         gl.shaderSource(shader, str);
         gl.compileShader(shader);
-        if (this._engine._isShaderDebugMode && !gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-            if (!LayaEnv.isPlaying) {
-                console.warn(gl.getShaderInfoLog(shader));
-            } else {
-                console.error(gl.getShaderInfoLog(shader));
-            }
-        }
         return shader;
     }
 
@@ -188,7 +187,7 @@ export class GLShaderInstance extends GLObject {
                 one.fun = this._uniformMatrix2fv;
                 break;
             case gl.FLOAT_MAT3:
-                one.fun = this._uniformMatrix3fv;
+                one.fun = isArray ? this._uniformMatrix3fv : this._uniformMatrix3f;
                 break;
             case gl.FLOAT_MAT4:
                 one.fun = isArray ? this._uniformMatrix4fv : this._uniformMatrix4f;
@@ -218,7 +217,7 @@ export class GLShaderInstance extends GLObject {
                 one.fun = this._uniform_UniformBuffer;
                 break;
             default:
-                throw new Error("compile shader err!");
+                WebGLEngine._lastShaderError = `unknown uniform type (${one.type})`;
         }
     }
 
@@ -243,7 +242,7 @@ export class GLShaderInstance extends GLObject {
         this._gl.useProgram(this._program);
         this._engine._glUseProgram = this;
         //不知道准不准
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.C_SetRenderPassCount, 1);
+       LayaGL.statAgent.recordCTData(StatElement.CT_ShaderChange, 1);
         return true;
     }
 
@@ -361,11 +360,16 @@ export class GLShaderInstance extends GLObject {
         return 1;
     }
 
+    /** @internal */
+    _uniformMatrix3f(one: any, value: Matrix3x3): number {
+        this._gl.uniformMatrix3fv(one.location, false, value.elements);
+        return 1;
+    }
+
     /**
      * @internal
      */
-    _uniformMatrix3fv(one: any, m: Matrix3x3): number {
-        let value = m.elements;
+    _uniformMatrix3fv(one: any, value: Float32Array): number {
         this._gl.uniformMatrix3fv(one.location, false, value);
         return 1;
     }
@@ -501,12 +505,12 @@ export class GLShaderInstance extends GLObject {
         return 0;
     }
 
-    /**
-     * @internal
-     * @returns 
-     */
-    _uniform_UniformBuffer(one: any, value: UniformBufferObject) {
-        value._bindUniformBufferBase();
+    _uniform_UniformBuffer(one: ShaderVariable, value: WebGLUniformBufferBase) {
+        //let gl = <WebGL2RenderingContext>this._gl;
+        // if (value.needUpload) {
+        //     value.upload();
+        // }
+        value.bind(one.location);
         return 1;
     }
 

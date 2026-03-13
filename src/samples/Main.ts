@@ -15,19 +15,16 @@ import { LengencyRenderEngine3DFactory } from "laya/RenderDriver/DriverDesign/3D
 import { GLESRender2DProcess } from "laya/RenderDriver/OpenGLESDriver/2DRenderPass/GLESRender2DProcess";
 import { GLES3DRenderPassFactory } from "laya/RenderDriver/OpenGLESDriver/3DRenderPass/GLES3DRenderPassFactory";
 import { GLESRenderDeviceFactory } from "laya/RenderDriver/OpenGLESDriver/RenderDevice/GLESRenderDeviceFactory";
-import { GLESRenderEngineFactory } from "laya/RenderDriver/OpenGLESDriver/RenderDevice/GLESRenderEngineFactory";
 import { RT3DRenderModuleFactory } from "laya/RenderDriver/RenderModuleData/RuntimeModuleData/3D/RT3DRenderModuleFactory";
 import { RTUintRenderModuleDataFactory } from "laya/RenderDriver/RenderModuleData/RuntimeModuleData/RTUintRenderModuleDataFactory";
 import { Web3DRenderModuleFactory } from "laya/RenderDriver/RenderModuleData/WebModuleData/3D/Web3DRenderModuleFactory";
 import { WebUnitRenderModuleDataFactory } from "laya/RenderDriver/RenderModuleData/WebModuleData/WebUnitRenderModuleDataFactory";
-import { WebGLRender2DProcess } from "laya/RenderDriver/WebGLDriver/2DRenderPass/WebGLRender2DProcess";
-import { WebGL3DRenderPassFactory } from "laya/RenderDriver/WebGLDriver/3DRenderPass/WebGL3DRenderPassFactory";
-import { WebGLRenderDeviceFactory } from "laya/RenderDriver/WebGLDriver/RenderDevice/WebGLRenderDeviceFactory";
-import { WebGLRenderEngineFactory } from "laya/RenderDriver/WebGLDriver/RenderDevice/WebGLRenderEngineFactory";
 import { Laya3DRender } from "laya/d3/RenderObjs/Laya3DRender";
 import { LayaGL } from "laya/layagl/LayaGL";
+import { RTStatisContext } from "laya/RenderDriver/RenderModuleData/RuntimeModuleData/RTStatisticContext";
 
 export class Main {
+    static useWebGPU: boolean = false;
     private static _box3D: Sprite;
     public static get box3D(): Sprite {
         return Main._box3D || Laya.stage;
@@ -56,60 +53,60 @@ export class Main {
      * @param singleDemo  单个Demo入口
      */
     constructor(is3D: boolean = true, isReadNetWorkRes: boolean = false, singleDemo?: any) {
+        this.startTest(is3D,isReadNetWorkRes,singleDemo);
+    }
+    async startTest(is3D: boolean = true, isReadNetWorkRes: boolean = false, singleDemo?: any){
         this._singleDemo = singleDemo;
         if (!LayaEnv.isConch || (LayaEnv.isConch && (window as any).conchConfig.getGraphicsAPI() == 2)) {
             LayaGL.unitRenderModuleDataFactory = new WebUnitRenderModuleDataFactory();
-            LayaGL.renderDeviceFactory = new WebGLRenderDeviceFactory();
             Laya3DRender.renderOBJCreate = new LengencyRenderEngine3DFactory();
             Laya3DRender.Render3DModuleDataFactory = new Web3DRenderModuleFactory();
-            Laya3DRender.Render3DPassFactory = new WebGL3DRenderPassFactory();
-            LayaGL.renderOBJCreate = new WebGLRenderEngineFactory();
-            LayaGL.render2DRenderPassFactory = new WebGLRender2DProcess()
         } else {
             LayaGL.unitRenderModuleDataFactory = new RTUintRenderModuleDataFactory();
             LayaGL.renderDeviceFactory = new GLESRenderDeviceFactory();
             Laya3DRender.renderOBJCreate = new LengencyRenderEngine3DFactory();
             Laya3DRender.Render3DModuleDataFactory = new RT3DRenderModuleFactory();
             Laya3DRender.Render3DPassFactory = new GLES3DRenderPassFactory();
-            LayaGL.renderOBJCreate = new GLESRenderEngineFactory();
-            LayaGL.render2DRenderPassFactory = new GLESRender2DProcess()
+            LayaGL.render2DRenderPassFactory = new GLESRender2DProcess();
+            LayaGL.statAgent = new RTStatisContext();
+
         }
-        Laya.init(this._is3D ? 0 : 1280, this._is3D ? 0 : 720).then(() => {
-            if (!this._is3D) {
-                Laya.stage.scaleMode = Stage.SCALE_FIXED_AUTO;
-            } else {
-                Laya.stage.scaleMode = Stage.SCALE_FULL;
-                Laya.stage.screenMode = Stage.SCREEN_NONE;
-            }//false为2D true为3D
-            this._is3D = is3D;
-            if (!this._is3D) {
-                Laya.init(1280, 720);
-                Laya.stage.scaleMode = Stage.SCALE_FIXED_AUTO;
-            } else {
-                Laya.init(0, 0);
-                Laya.stage.scaleMode = Stage.SCALE_FULL;
-                Laya.stage.screenMode = Stage.SCREEN_NONE;
-            }
-            Laya.stage.bgColor = "#ffffff";
-            Stat.show();
 
-            //初始化socket连接
-            if (Main.isOpenSocket)
-                Client.init();
+        await Laya.init(this._is3D ? 0 : 1280, this._is3D ? 0 : 720)
+        if (!this._is3D) {
+            Laya.stage.scaleMode = Stage.SCALE_FIXED_AUTO;
+        } else {
+            Laya.stage.scaleMode = Stage.SCALE_FULL;
+            Laya.stage.screenMode = Stage.SCREEN_NONE;
+        }//false为2D true为3D
+        this._is3D = is3D;
+        if (!this._is3D) {
+            Laya.init(1280, 720);
+            Laya.stage.scaleMode = Stage.SCALE_FIXED_AUTO;
+        } else {
+            Laya.init(0, 0);
+            Laya.stage.scaleMode = Stage.SCALE_FULL;
+            Laya.stage.screenMode = Stage.SCREEN_NONE;
+        }
+        Laya.stage.bgColor = "#ffffff";
+        //Stat.show();
 
-            //这里改成true就会从外部加载资源
-            this._isReadNetWorkRes = isReadNetWorkRes;
-            if (this._isReadNetWorkRes) {
-                URL.rootPath = URL.basePath = "https://layaair.layabox.com/3.x/api/EngineDemoResource/";/*"http://10.10.20.55:8000/";*///"https://star.layabox.com/Laya1.0.0/";//"http://10.10.20.55:8000/";"https://layaair.ldc.layabox.com/demo2/h5/";
-            } else {
-                URL.basePath += "sample-resource/";
-            }
-            // 加载fileConfig.json配置内容
-            Laya.loader.loadPackage("", null, null).then(() => {
-                //加载引擎需要的资源
-                Laya.loader.load([{ url: "res/atlas/comp.json", type: Loader.ATLAS }], Handler.create(this, this.onLoaded));
-            });
-        })
+        //初始化socket连接
+        if (Main.isOpenSocket)
+            Client.init();
+
+        //这里改成true就会从外部加载资源
+        this._isReadNetWorkRes = isReadNetWorkRes;
+        if (this._isReadNetWorkRes) {
+            URL.rootPath = URL.basePath = "https://layaair.layabox.com/3.x/api/EngineDemoResource/";/*"http://10.10.20.55:8000/";*///"https://star.layabox.com/Laya1.0.0/";//"http://10.10.20.55:8000/";"https://layaair.ldc.layabox.com/demo2/h5/";
+        } else {
+            URL.basePath += "sample-resource/";
+        }
+        // 加载fileConfig.json配置内容
+        await Laya.loader.loadPackage("", null, null)
+        //加载引擎需要的资源
+        await Laya.loader.load([{ url: "res/atlas/comp.json", type: Loader.ATLAS }]);
+        this.onLoaded();
     }
 
     private onLoaded(): void {
@@ -144,6 +141,5 @@ export class Main {
         Main._indexView.bottom = (window as any).viewtop || 50;
         Main._indexView.mouseEnabled = Main._indexView.mouseThrough = true;
         Main._indexView.switchFunc(0, 0);//切换到指定case
-
     }
 }

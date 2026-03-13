@@ -1,16 +1,21 @@
-import { Context } from "../../renders/Context"
+import { Matrix } from "../../maths/Matrix";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "RotateCmd";
 
 /**
  * @en Rotate command
  * @zh 旋转命令
+ * @blueprintIgnore
  */
-export class RotateCmd {
+export class RotateCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the RotateCmd
      * @zh 旋转命令的标识符
      */
-    static ID: string = "Rotate";
+    static readonly ID: string = className;
 
     /**
      * @en Rotation angle in radians.
@@ -41,7 +46,7 @@ export class RotateCmd {
      * @returns 旋转命令实例
      */
     static create(angle: number, pivotX: number, pivotY: number): RotateCmd {
-        var cmd: RotateCmd = Pool.getItemByClass("RotateCmd", RotateCmd);
+        var cmd: RotateCmd = Pool.getItemByClass(className, RotateCmd);
         cmd.angle = angle;
         cmd.pivotX = pivotX;
         cmd.pivotY = pivotY;
@@ -53,22 +58,32 @@ export class RotateCmd {
      * @zh 回收到对象池
      */
     recover(): void {
-
-        Pool.recover("RotateCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the rotate command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行旋转命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(context: Context, gx: number, gy: number): void {
-        context._rotate(this.angle, this.pivotX + gx, this.pivotY + gy);
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
+        runner._rotate(this.angle, this.pivotX + gx, this.pivotY + gy);
+    }
+
+    /**
+     * @ignore
+     */
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        tempMatrix.identity();
+        tempMatrix.translate(-this.pivotX, -this.pivotY);
+        tempMatrix.rotate(this.angle);
+        tempMatrix.translate(this.pivotX, this.pivotY);
+        assembler.concatMatrix(tempMatrix);
     }
 
     /**
@@ -81,3 +96,4 @@ export class RotateCmd {
 
 }
 
+const tempMatrix = new Matrix();

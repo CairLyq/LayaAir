@@ -18,6 +18,7 @@ interface ITreeDataSource {
 /**
  * @en The `Tree` UI component allows users to view hierarchical data arranged in an expandable tree format.
  * @zh `Tree` UI组件使用户可以查看排列为可扩展树的层次结构数据。
+ * @blueprintInheritable
  */
 export class Tree extends Box {
     protected _list: List;
@@ -26,20 +27,6 @@ export class Tree extends Box {
     protected _spaceLeft: number = 10;
     protected _spaceBottom: number = 0;
     protected _keepStatus: boolean = true;
-    protected _allowMultiExpand: boolean = true;
-
-    /**
-     * @en Whether to enable multiple projects to expand. 
-     * When disabled, expanding one project will collapse other items.
-     * @zh 是否启用多个项目展开，禁用时，展开一个项目会收起其他项
-     */
-    get allowMultiExpand() {
-        return this._allowMultiExpand
-    }
-
-    set allowMultiExpand(value: boolean) {
-        this._allowMultiExpand = value;
-    }
 
     /**
      * @en Determines whether to maintain the previous open state after the data source changes. The default value is true.
@@ -239,6 +226,7 @@ export class Tree extends Box {
         this._list.top = 0;
         this._list.bottom = 0;
         this._list._skinBaseUrl = this._skinBaseUrl;
+        this._list.scrollType = 2;
         this.addChild(this._list);
         this._list.renderHandler = Handler.create(this, this.renderItem, null, false);
         this._list.repeatX = 1;
@@ -308,7 +296,7 @@ export class Tree extends Box {
         var item: ITreeDataSource = cell.dataSource;
         if (item) {
             cell.left = item.x;
-            var arrow = cell.getChildByName("arrow") as Clip;
+            let arrow: Clip = cell.getChild("arrow");
             if (arrow) {
                 if (item.hasChild) {
                     arrow.visible = true;
@@ -320,7 +308,7 @@ export class Tree extends Box {
                     arrow.visible = false;
                 }
             }
-            var folder = cell.getChildByName("folder") as Clip;
+            let folder: Clip = cell.getChild("folder");
             if (folder) {
                 if (folder.clipY == 2) {
                     folder.index = item.isDirectory ? 0 : 1;
@@ -336,13 +324,6 @@ export class Tree extends Box {
         var arrow = e.currentTarget;
         var index = arrow.__cellIndex;
         this._list.array[index].isOpen = !this._list.array[index].isOpen;
-        if (this.allowMultiExpand === false) {
-            this._list.array.forEach((element, _index) => {
-                if (index != _index) {
-                    element.isOpen = false;
-                }
-            });
-        }
         this.event(Event.OPEN);
         this._list.array = this.getArray();
     }
@@ -492,4 +473,9 @@ export class Tree extends Box {
         this._source = null;
         this._renderHandler = null;
     }
+
+    /** @internal @blueprintEvent */
+    Tree_bpEvent: {
+        [Event.CHANGE]: () => void;
+    };
 }

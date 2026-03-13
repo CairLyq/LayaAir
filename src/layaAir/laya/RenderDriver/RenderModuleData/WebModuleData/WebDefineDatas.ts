@@ -1,3 +1,6 @@
+import { LayaGL } from "../../../layagl/LayaGL";
+import { Vector2 } from "../../../maths/Vector2";
+import { Stat } from "../../../utils/Stat";
 import { IDefineDatas } from "../Design/IDefineDatas";
 import { ShaderDefine } from "../Design/ShaderDefine";
 
@@ -7,168 +10,227 @@ import { ShaderDefine } from "../Design/ShaderDefine";
  */
 export class WebDefineDatas implements IDefineDatas {
 
-	/**
-	 * @internal
-	 */
-	_mask: Array<number> = [];
+    private _changeFlags: Set<Vector2> = new Set();
 
-	/**
-	 * @internal
-	 */
-	_length: number = 0;
+    /**
+     * @internal
+     */
+    _mask: Array<number> = [];
 
-	/**
-	 * 创建一个 <code>DefineDatas</code> 实例。
-	 */
-	constructor() {
-
-	}
-
-	/**
-	 * @internal
-	 */
-	_intersectionDefineDatas(define: WebDefineDatas): void {
-		var unionMask: Array<number> = define._mask;
-		var mask: Array<number> = this._mask;
-		for (var i: number = this._length - 1; i >= 0; i--) {
-			var value: number = mask[i] & unionMask[i];
-			if (value == 0 && i == this._length - 1)
-				this._length--;
-			else
-				mask[i] = value;
-		}
-	}
-
-	/**
-	 * 添加宏定义值。
-	 * @param define 宏定义值。
-	 */
-	add(define: ShaderDefine): void {
-		var index: number = define._index;
-		var size: number = index + 1;
-		var mask: Array<number> = this._mask;
-		var maskStart: number = this._length;//must from this._length because this._length maybe less than mask.length and have dirty data should clear.
-		if (maskStart < size) {
-			(mask.length < size) && (mask.length = size);//mask.length maybe small than size,maybe not.
-			for (; maskStart < index; maskStart++)
-				mask[maskStart] = 0;
-			mask[index] = define._value;
-			this._length = size;
-		}
-		else {
-			mask[index] |= define._value;
-		}
-	}
-
-	/**
-	 * 移除宏定义。
-	 * @param define 宏定义。
-	 */
-	remove(define: ShaderDefine): void {
-		var index: number = define._index;
-		var mask: Array<number> = this._mask;
-		var endIndex: number = this._length - 1;
-		if (index > endIndex)//不重置Length,避免经常扩充
-			return;
-		var newValue = mask[index] & ~define._value;
-		if (index == endIndex && newValue === 0)
-			this._length--;
-		else
-			mask[index] = newValue;
-	}
-
-	/**
-	 * 添加宏定义集合。
-	 * @param define 宏定义集合。
-	 */
-	addDefineDatas(define: WebDefineDatas): void {
-		var addMask: Array<number> = define._mask;
-		var size: number = define._length;
-		var mask: Array<number> = this._mask;
-		var maskStart: number = this._length;
-		if (maskStart < size) {
-			mask.length = size;
-			for (var i: number = 0; i < maskStart; i++)
-				mask[i] |= addMask[i];
-			for (; i < size; i++)
-				mask[i] = addMask[i];
-			this._length = size;
-		} else {
-			for (var i: number = 0; i < size; i++) {
-				mask[i] |= addMask[i];
-			}
-		}
-	}
+    /**
+     * @internal
+     */
+    _length: number = 0;
 
 
+    /**
+     * 创建一个 <code>DefineDatas</code> 实例。
+     */
+    constructor() {
+    }
 
-	/**
-	 * 移除宏定义集合。
-	 * @param define 宏定义集合。
-	 */
-	removeDefineDatas(define: WebDefineDatas): void {
-		var removeMask: Array<number> = define._mask;
-		var mask: Array<number> = this._mask;
-		var endIndex: number = this._length - 1;
-		var i = Math.min(define._length, endIndex);
-		for (; i >= 0; i--) {
-			var newValue = mask[i] & ~removeMask[i];
-			if (i == endIndex && newValue === 0) {
-				endIndex--;
-				this._length--;
-			}
-			else {
-				mask[i] = newValue;
-			}
-		}
-	}
+    /**
+     * @internal
+     */
+    _intersectionDefineDatas(define: WebDefineDatas): void {
+        var unionMask: Array<number> = define._mask;
+        var mask: Array<number> = this._mask;
+        for (var i: number = this._length - 1; i >= 0; i--) {
+            var value: number = mask[i] & unionMask[i];
+            if (value === 0 && i === this._length - 1)
+                this._length--;
+            else
+                mask[i] = value;
+        }
+    }
+
+    /**
+     * 添加宏定义值。
+     * @param define 宏定义值。
+     */
+    add(define: ShaderDefine): boolean {
+        let changed = false;
+        var index: number = define._index;
+        var size: number = index + 1;
+        var mask: Array<number> = this._mask;
+        var maskStart: number = this._length;//must from this._length because this._length maybe less than mask.length and have dirty data should clear.
+        if (maskStart < size) {
+            (mask.length < size) && (mask.length = size);//mask.length maybe small than size,maybe not.
+            for (; maskStart < index; maskStart++)
+                mask[maskStart] = 0;
+            mask[index] = define._value;
+            this._length = size;
+            changed = true;
+        }
+        else {
+            let last = mask[index];
+            mask[index] |= define._value;
+            changed = last != mask[index];
+        }
+        if (changed) {
+            this._notifyChangeFlag();
+        }
+        return changed;
+    }
+
+    /**
+     * 移除宏定义。
+     * @param define 宏定义。
+     */
+    remove(define: ShaderDefine): boolean {
+        var index: number = define._index;
+        var mask: Array<number> = this._mask;
+        var endIndex: number = this._length - 1;
+        if (index > endIndex)//不重置Length,避免经常扩充
+            return false;
+        let lastValue = mask[index];
+        var newValue = mask[index] & ~define._value;
+        if (index == endIndex && newValue === 0)
+            this._length--;
+        else
+            mask[index] = newValue;
+
+        let changed = lastValue != newValue;
+        if (changed) {
+            this._notifyChangeFlag();
+        }
+        return changed;
+    }
+
+    /**
+     * 添加宏定义集合。
+     * @param define 宏定义集合。
+     */
+    addDefineDatas(define: WebDefineDatas): void {
+        var addMask: Array<number> = define._mask;
+        var size: number = define._length;
+        var mask: Array<number> = this._mask;
+        var maskStart: number = this._length;
+        if (maskStart < size) {
+            mask.length = size;
+            for (var i: number = 0; i < maskStart; i++)
+                mask[i] |= addMask[i];
+            for (; i < size; i++)
+                mask[i] = addMask[i];
+            this._length = size;
+        } else {
+            for (var i: number = 0; i < size; i++) {
+                mask[i] |= addMask[i];
+            }
+        }
+
+        this._notifyChangeFlag();
+    }
 
 
-	/**
-	 * 是否有宏定义。
-	 * @param define 宏定义。
-	 */
-	has(define: ShaderDefine): boolean {
-		var index: number = define._index;
-		if (index >= this._length)
-			return false;
-		return (this._mask[index] & define._value) !== 0;
-	}
 
-	/**
-	 * 清空宏定义。
-	 */
-	clear(): void {
-		this._length = 0;
-	}
+    /**
+     * 移除宏定义集合。
+     * @param define 宏定义集合。
+     */
+    removeDefineDatas(define: WebDefineDatas): void {
+        var removeMask: Array<number> = define._mask;
+        var mask: Array<number> = this._mask;
+        var endIndex: number = this._length - 1;
+        var i = Math.min(define._length, endIndex);
+        for (; i >= 0; i--) {
+            var newValue = mask[i] & ~removeMask[i];
+            if (i == endIndex && newValue === 0) {
+                endIndex--;
+                this._length--;
+            }
+            else {
+                mask[i] = newValue;
+            }
+        }
+        this._notifyChangeFlag();
+    }
 
-	/**
-	 * 克隆。
-	 * @param	destObject 克隆源。
-	 */
-	cloneTo(destObject: WebDefineDatas): void {
-		var destMask: Array<number> = destObject._mask;
-		var mask: Array<number> = this._mask;
-		var count: number = this._length;
-		destMask.length = count;
-		for (var i: number = 0; i < count; i++)
-			destMask[i] = mask[i];
-		destObject._length = count;
-	}
 
-	/**
-	 * 克隆。
-	 * @return	 克隆副本。
-	 */
-	clone(): any {
-		var dest: WebDefineDatas = new WebDefineDatas();
-		this.cloneTo(dest);
-		return dest;
-	}
+    /**
+     * 是否有宏定义。
+     * @param define 宏定义。
+     */
+    has(define: ShaderDefine): boolean {
+        var index: number = define._index;
+        if (index >= this._length)
+            return false;
+        return (this._mask[index] & define._value) !== 0;
+    }
 
-	destroy() {
-		delete this._mask;
-	}
+
+
+    private _notifyChangeFlag() {
+        if (this._changeFlags.size > 0) {
+            this._changeFlags.forEach(value => {
+                value.setValue(Stat.loopCount, LayaGL.renderEngine._framePassCount)
+            });
+        }
+    }
+
+    addChangeFlagInfo(flag: Vector2) {
+        if (!this._changeFlags.has(flag)) {
+            flag.setValue(Stat.loopCount, LayaGL.renderEngine._framePassCount);
+            this._changeFlags.add(flag);
+        }
+    }
+
+    removeChangeFlagInfo(flag: Vector2) {
+        if (this._changeFlags.has(flag)) {
+            flag.setValue(Stat.loopCount, LayaGL.renderEngine._framePassCount);
+            this._changeFlags.delete(flag);
+        }
+    }
+
+    /**
+     * 清空宏定义。
+     */
+    clear(): void {
+        this._length = 0;
+        this._notifyChangeFlag();
+    }
+
+    /**
+     * 克隆。
+     * @param destObject 克隆源。
+     */
+    cloneTo(destObject: WebDefineDatas): void {
+        var destMask: Array<number> = destObject._mask;
+        var mask: Array<number> = this._mask;
+        var count: number = this._length;
+        destMask.length = count;
+        for (var i: number = 0; i < count; i++)
+            destMask[i] = mask[i];
+        destObject._length = count;
+
+        destObject._notifyChangeFlag();
+    }
+
+    /**
+     * 克隆。
+     * @return	 克隆副本。
+     */
+    clone() {
+        var dest: WebDefineDatas = new WebDefineDatas();
+        this.cloneTo(dest);
+        return dest;
+    }
+
+    destroy() {
+        delete this._mask;
+    }
+
+
+    isEual(other: WebDefineDatas) {
+        var count = this._length;
+        if (count != other._length) return false;
+        let mask = this._mask;
+        let otherMask = other._mask;
+        for (var i = 0; i < count; i++)
+            if (mask[i] != otherMask[i])
+                return false;
+        return true;
+    }
 }
 
 

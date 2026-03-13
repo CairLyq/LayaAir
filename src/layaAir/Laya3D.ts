@@ -1,6 +1,5 @@
 import { Config3D } from "./Config3D";
-import { ILaya3D } from "./ILaya3D";
-import { PostProcess } from "./laya/d3/component/PostProcess";
+import { ILaya } from "./ILaya";
 import { BlinnPhongMaterial } from "./laya/d3/core/material/BlinnPhongMaterial";
 import { PBRMaterial } from "./laya/d3/core/material/PBRMaterial";
 import { PBRStandardMaterial } from "./laya/d3/core/material/PBRStandardMaterial";
@@ -9,58 +8,38 @@ import { SkyProceduralMaterial } from "./laya/d3/core/material/SkyProceduralMate
 import { UnlitMaterial } from "./laya/d3/core/material/UnlitMaterial";
 import { MeshRenderer } from "./laya/d3/core/MeshRenderer";
 import { MeshSprite3D } from "./laya/d3/core/MeshSprite3D";
-import { ShuriKenParticle3D } from "./laya/d3/core/particleShuriKen/ShuriKenParticle3D";
-import { ShurikenParticleMaterial } from "./laya/d3/core/particleShuriKen/ShurikenParticleMaterial";
 import { PixelLineVertex } from "./laya/d3/core/pixelLine/PixelLineVertex";
 import { Command } from "./laya/d3/core/render/command/Command";
 import { RenderContext3D } from "./laya/d3/core/render/RenderContext3D";
-import { ScreenQuad } from "./laya/d3/core/render/ScreenQuad";
 import { RenderableSprite3D } from "./laya/d3/core/RenderableSprite3D";
 import { Scene3D } from "./laya/d3/core/scene/Scene3D";
-import { SkinnedMeshSprite3D } from "./laya/d3/core/SkinnedMeshSprite3D";
 import { Sprite3D } from "./laya/d3/core/Sprite3D";
-import { TrailMaterial } from "./laya/d3/core/trail/TrailMaterial";
-import { VertexTrail } from "./laya/d3/core/trail/VertexTrail";
 import { SubMeshInstanceBatch } from "./laya/d3/graphics/SubMeshInstanceBatch";
-import { VertexPositionTerrain } from "./laya/d3/graphics/Vertex/VertexPositionTerrain";
-import { VertexPositionTexture0 } from "./laya/d3/graphics/Vertex/VertexPositionTexture0";
-import { VertexShurikenParticleBillboard } from "./laya/d3/graphics/Vertex/VertexShurikenParticleBillboard";
-import { VertexShurikenParticleMesh } from "./laya/d3/graphics/Vertex/VertexShurikenParticleMesh";
-import { Mesh } from "./laya/d3/resource/models/Mesh";
+import { VertexPositionTexture } from "./laya/d3/graphics/Vertex/VertexPositionTexture";
 import { PrimitiveMesh } from "./laya/d3/resource/models/PrimitiveMesh";
 import { SkyBox } from "./laya/d3/resource/models/SkyBox";
 import { SkyDome } from "./laya/d3/resource/models/SkyDome";
-import { TextureCube } from "./laya/resource/TextureCube";
 import { ShaderInit3D } from "./laya/d3/shader/ShaderInit3D";
-import { Texture2D } from "./laya/resource/Texture2D";
-import { WebGL } from "./laya/webgl/WebGL";
 import { ShadowUtils } from "./laya/d3/core/light/ShadowUtils";
 import { ShadowCasterPass } from "./laya/d3/shadowMap/ShadowCasterPass";
 import { SimpleSkinnedMeshSprite3D } from "./laya/d3/core/SimpleSkinnedMeshSprite3D";
-import { HalfFloatUtils } from "./laya/utils/HalfFloatUtils";
 import { Camera } from "./laya/d3/core/Camera";
 import { BaseCamera } from "./laya/d3/core/BaseCamera";
-import { ShuriKenParticle3DShaderDeclaration } from "./laya/d3/core/particleShuriKen/ShuriKenParticle3DShaderDeclaration";
 import { BaseRender } from "./laya/d3/core/render/BaseRender";
-import { TrailFilter } from "./laya/d3/core/trail/TrailFilter";
 import { DepthPass } from "./laya/d3/depthMap/DepthPass";
 import { RenderCapable } from "./laya/RenderEngine/RenderEnum/RenderCapable";
 import { BlitFrameBufferCMD } from "./laya/d3/core/render/command/BlitFrameBufferCMD";
 import { SkyRenderer } from "./laya/d3/resource/models/SkyRenderer";
 import { SkyPanoramicMaterial } from "./laya/d3/core/material/SkyPanoramicMaterial";
-import { BloomEffect } from "./laya/d3/core/render/PostEffect/BloomEffect";
-import { ScalableAO } from "./laya/d3/core/render/PostEffect/ScalableAO";
-import { GaussianDoF } from "./laya/d3/core/render/PostEffect/GaussianDoF";
-import { VertexMesh } from "./laya/RenderEngine/RenderShader/VertexMesh";
-import { ColorGradEffect } from "./laya/d3/core/render/PostEffect/ColorGradEffect";
-import { LensFlareEffect } from "./laya/d3/core/render/PostEffect/LensFlares/LensFlareEffect";
 import { IPhysicsCreateUtil } from "./laya/Physics3D/interface/IPhysicsCreateUtil";
 import { LayaGL } from "./laya/layagl/LayaGL";
 import { Laya } from "./Laya";
 import { PixelLineMaterial } from "./laya/d3/core/pixelLine/PixelLineMaterial";
-import { Texture2DArray } from "./laya/resource/Texture2DArray";
 import { PlayerConfig } from "./Config";
 import { Physics3DStatInfo } from "./laya/Physics3D/interface/Physics3DStatInfo";
+import { PostProcess } from "./laya/d3/core/render/postProcessBase/PostProcess";
+import { ScreenQuad } from "./laya/d3/core/render/command/geometry/ScreenQuad";
+import { SkinnedMeshRenderer } from "./laya/d3/core/SkinnedMeshRenderer";
 
 /**
  * @en Laya3D class is used to initialize 3D settings.
@@ -96,7 +75,7 @@ export class Laya3D {
      * @returns {boolean} True if physics is enabled, false otherwise.
      * @returns {boolean} 如果启用了物理则返回true，否则返回false。
      */
-    static get enablePhysics(): any {
+    static get enablePhysics(): boolean {
         return Laya3D._enablePhysics;
     }
 
@@ -104,7 +83,6 @@ export class Laya3D {
      *@internal
      */
     static _changeWebGLSize(width: number, height: number): void {
-        WebGL.onStageResize(width, height);
         RenderContext3D.clientWidth = width;
         RenderContext3D.clientHeight = height;
     }
@@ -114,8 +92,6 @@ export class Laya3D {
      */
     static __init__() {
         Config3D._multiLighting = Config3D.enableMultiLight && LayaGL.renderEngine.getCapable(RenderCapable.TextureFormat_R32G32B32A32);
-        Config3D._uniformBlock = Config3D.enableUniformBufferObject && LayaGL.renderEngine.getCapable(RenderCapable.UnifromBufferObject);
-
         if (Config3D.maxLightCount > 2048) {
             Config3D.maxLightCount = 2048;
             console.warn("Config3D: maxLightCount must less equal 2048.");
@@ -132,36 +108,23 @@ export class Laya3D {
             console.warn("Config3D: if the area light(PointLight、SpotLight) count is large than " + maxAreaLightCountWithZ + ",maybe the far away culster will ingonre some light.");
         Config3D._maxAreaLightCountPerClusterAverage = Math.min(maxAreaLightCountWithZ, Config3D.maxLightCount);
 
-        ILaya3D.Scene3D = Scene3D;
-        ILaya3D.Laya3D = Laya3D;
-        VertexShurikenParticleBillboard.__init__();
-        VertexShurikenParticleMesh.__init__();
-        VertexPositionTexture0.__init__();
-        VertexTrail.__init__();
-        VertexPositionTerrain.__init__();
+        ILaya.Scene3D = Scene3D;
+        ILaya.Laya3D = Laya3D;
+
+        VertexPositionTexture.__init__();
         PixelLineVertex.__init__();
         SubMeshInstanceBatch.__init__();
         ShaderInit3D.__init__();
-        ShuriKenParticle3DShaderDeclaration.__init__();
         PBRMaterial.__init__();
         PBRStandardMaterial.__init__();
         SkyPanoramicMaterial.__init__();
-        BloomEffect.init();
-        ScalableAO.init();
-        GaussianDoF.init();
-        ColorGradEffect.init();
-        LensFlareEffect.init();
-
-        Mesh.__init__();
         PrimitiveMesh.__init__();
         Sprite3D.__init__();
         RenderableSprite3D.__init__();
         MeshSprite3D.__init__();
+        SkinnedMeshRenderer.__init__();
         DepthPass.__init__();
-        SkinnedMeshSprite3D.__init__();
         SimpleSkinnedMeshSprite3D.__init__();
-        TrailFilter.__init__();
-        ShuriKenParticle3D.__init__();
         PostProcess.__init__();
         Scene3D.__init__();
         ShadowCasterPass.__init__();
@@ -175,8 +138,6 @@ export class Laya3D {
         BlinnPhongMaterial.__initDefine__();
         SkyProceduralMaterial.__initDefine__();
         UnlitMaterial.__initDefine__();
-        TrailMaterial.__initDefine__();
-        ShurikenParticleMaterial.__initDefine__();
         SkyBoxMaterial.__initDefine__();
         Command.__init__();
         BlitFrameBufferCMD.__init__();
@@ -188,13 +149,10 @@ export class Laya3D {
         pixelLineMaterial.lock = true;
         pixelLineMaterial.enableVertexColor = true;
         PixelLineMaterial.defaultMaterial = pixelLineMaterial;
-        TrailMaterial.defaultMaterial = new TrailMaterial();
-        TrailMaterial.defaultMaterial.lock = true;
-      
         SkyBox.__init__();
         SkyDome.__init__();
         ScreenQuad.__init__();
-       
+
     }
 
     /**

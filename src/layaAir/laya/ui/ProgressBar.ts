@@ -6,12 +6,14 @@ import { HideFlags } from "../Const"
 import { URL } from "../net/URL"
 import { Utils } from "../utils/Utils"
 import { AssetDb } from "../resource/AssetDb"
+import { TransformKind } from "../display/SpriteConst"
 
 /**
  * @en The `ProgressBar` component displays the loading progress of content.
  * change event is dispatched when the value changes.
  * @zh `ProgressBar` 组件用于显示内容的加载进度。
  * change事件用于值发生改变后调度。
+ * @blueprintInheritable
  */
 export class ProgressBar extends UIComponent {
     protected _bg: Image;
@@ -144,7 +146,7 @@ export class ProgressBar extends UIComponent {
             return Promise.resolve();
         }
     }
-    
+
     protected _skinLoaded(): void {
         if (this._destroyed)
             return;
@@ -184,14 +186,13 @@ export class ProgressBar extends UIComponent {
     }
 
     /**
-     * @en Sets the width of the component.
-     * @param value The width value to set.
-     * @zh 设置组件的宽度。
-     * @param value 要设置的宽度值。
+     * @ignore
      */
-    set_width(value: number): void {
-        super.set_width(value);
-        this.callLater(this.changeValue);
+    protected _transChanged(kind: TransformKind): void {
+        super._transChanged(kind);
+
+        if ((kind & TransformKind.Width) != 0)
+            this.callLater(this.changeValue);
     }
 
     /**
@@ -222,4 +223,9 @@ export class ProgressBar extends UIComponent {
         this.changeHandler = null;
     }
 
+    /** @internal @blueprintEvent */
+    ProgressBar_bpEvent: {
+        [Event.CHANGE]: () => void;
+        [Event.LOADED]: () => void;
+    };
 }

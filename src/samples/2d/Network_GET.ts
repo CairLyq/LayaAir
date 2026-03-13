@@ -1,3 +1,7 @@
+/**
+description
+ 使用Laya框架发起GET网络请求并显示响应结果
+ */
 import { Laya } from "Laya";
 import { Stage } from "laya/display/Stage";
 import { Text } from "laya/display/Text";
@@ -32,7 +36,7 @@ export class Network_GET {
 		this.hr.once(Event.PROGRESS, this, this.onHttpRequestProgress);
 		this.hr.once(Event.COMPLETE, this, this.onHttpRequestComplete);
 		this.hr.once(Event.ERROR, this, this.onHttpRequestError);
-		this.hr.send('http://xkxz.zhonghao.huo.inner.layabox.com/api/getData?name=myname&psword=xxx', null, 'get', 'text');
+		this.hr.send('https://httpbin.org/get', null, 'get', 'text');
 	}
 
 	private showLogger(): void {

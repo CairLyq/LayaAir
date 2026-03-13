@@ -1,3 +1,7 @@
+/**
+description
+ 三维场景中实现体积光散射效果的自定义后期处理
+ */
 import { Laya } from "Laya";
 import { Camera } from "laya/d3/core/Camera";
 import { Scene3D } from "laya/d3/core/scene/Scene3D";
@@ -7,12 +11,9 @@ import { Vector3 } from "laya/maths/Vector3";
 import { Handler } from "laya/utils/Handler";
 import { Stat } from "laya/utils/Stat";
 import { CameraMoveScript } from "../common/CameraMoveScript";
-import { URL } from "laya/net/URL";
-import { PostProcess } from "laya/d3/component/PostProcess";
 import { GodRay } from "./VolumeticLightScattering/GodRays";
-import { Vector4 } from "laya/maths/Vector4";
 import { Loader } from "laya/net/Loader";
-import { Vector2 } from "laya/maths/Vector2";
+import { PostProcess } from "laya/d3/core/render/postProcessBase/PostProcess";
 
 export class CustomPostProcess_VolumeticLIghtScattering {
     constructor() {

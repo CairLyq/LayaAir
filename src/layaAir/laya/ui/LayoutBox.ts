@@ -1,19 +1,32 @@
 import { Box } from "./Box";
-import { Node } from "../display/Node"
 import { Event } from "../events/Event"
+import { Sprite } from "../display/Sprite";
 
 /**
- * @en LayoutBox is a layout container class.
  * @zh LayoutBox 是一个布局容器类。
+ * @en LayoutBox is a layout container class.
  */
 export class LayoutBox extends Box {
     protected _space: number = 0;
     protected _align: string = "none";
     protected _itemChanged: boolean = false;
-
+    /** 
+     * @zh 自适应模式 - 无
+     * @en AUTO_SIZE_NONE - No adaptive mode.
+     */
+    static readonly AUTO_SIZE_NONE: string = "none";
+    /** 
+     * @zh 自适应模式 - 宽高适配 
+     * @en AUTO_SIZE_BOTH - Both width and height are adaptive.
+     */
+    static readonly AUTO_SIZE_BOTH: string = "both";
+    /** 排序和布局时是否跳过隐藏（不可见）的子节点。 */
+    protected _skipHidden: boolean = false;
+    /** 自适应模式, 默认值为 AUTO_SIZE_NONE。*/
+    protected _autoSizeMode: string = LayoutBox.AUTO_SIZE_NONE;
     /**
-     * @en The space between child objects.
      * @zh 子对象的间隔。
+     * @en The space between child objects.
      */
     get space(): number {
         return this._space;
@@ -25,17 +38,31 @@ export class LayoutBox extends Box {
     }
 
     /**
-     * @en The alignment of child objects.
      * @zh 子对象对齐方式。
+     * @en The alignment of child objects.
      */
     get align(): string {
         return this._align;
     }
-
     set align(value: string) {
         this._align = value;
         this._setItemChanged();
     }
+
+    /**
+     * @zh 排序和布局时是否跳过隐藏（不可见）的子节点。
+     * @en Whether to skip hidden (invisible) items during sorting and layout.
+     */
+    get skipHidden(): boolean {
+        return this._skipHidden;
+    }
+    set skipHidden(value: boolean) {
+        if (this._skipHidden !== value) {
+            this._skipHidden = value;
+            this._setItemChanged(); // 自动刷新布局
+        }
+    }
+
 
     protected _setItemChanged(): void {
         if (!this._itemChanged) {
@@ -45,75 +72,49 @@ export class LayoutBox extends Box {
     }
 
     /**
-     * @en Change the layout of child objects.
      * @zh 改变子对象的布局。
+     * @en Change the layout of child objects.
      */
     protected changeItems(): void {
         this._itemChanged = false;
     }
 
-
-    /**
-     * @en Sort the item list. Default sorting rules can be changed by overriding.
-     * @param items The item list.
-     * @zh 排序项目列表。可通过重写改变默认排序规则。
-     * @param items  项目列表。
+    /** 
+     * @zh 计算包含间距的总大小（宽或高）
+     * @param totalChildSize 子项总大小（宽或高）
+     * @param count 子项数量
+     * @returns 包含间距的总大小（宽或高）
+     * @en Calculate the total size with spacing.
+     * @param totalChildSize The total size of child items.
+     * @param count The number of child items.
+     * @returns The total size with spacing.
      */
-    protected sortItem(items: any[]): void {
-        if (items) items.sort(function (a: any, b: any): number { return a.y - b.y; });
+    protected _calcSizeWithSpace(totalChildSize: number, count: number): number {
+        return count > 0 ? totalChildSize + (count - 1) * this._space : 0;
     }
 
     private onResize(e: Event): void {
         this._setItemChanged();
     }
 
-    /** 
-     * @en Adds a child object.
-     * @param child The child object to add.
-     * @returns The added child object.
-     * @zh 添加子节点对象。
-     * @param child 要添加的子节点对象。
-     * @returns 添加的子节点对象。
-    */
-    addChild<T extends Node>(child: T): T {
-        child.on(Event.RESIZE, this, this.onResize);
-        this._setItemChanged();
-        return super.addChild(child);
-    }
+    /**
+     * @ignore
+     */
+    protected _childChanged(child?: Sprite): void {
+        super._childChanged(child);
 
-    /** 
-     * @en Adds a child object at a specified index position.
-     * @param child The child object to add.
-     * @param index The index position to add the child object.
-     * @returns The added child object.
-     * @zh 在指定的索引位置添加子节点对象。
-     * @param child 要添加的子节点对象。
-     * @param index 用于添加子节点对象的索引位置。
-     * @returns 添加的子节点对象。
-    */
-    addChildAt(child: Node, index: number): Node {
-        child.on(Event.RESIZE, this, this.onResize);
-        this._setItemChanged();
-        return super.addChildAt(child, index);
+        if (child) {
+            if (child.parent == this)
+                child.on(Event.RESIZE, this, this.onResize);
+            else
+                child.off(Event.RESIZE, this, this.onResize);
+            this._setItemChanged();
+        }
     }
 
     /**
-     * @en Removes a child object at a specified index position.
-     * @param index The index position of the child object.
-     * @returns The removed child object.
-     * @zh 删除指定索引位置的子节点对象。
-     * @param index 子节点对象的索引位置。
-     * @returns 删除的子节点对象。
-    */
-    removeChildAt(index: number): Node {
-        this.getChildAt(index).off(Event.RESIZE, this, this.onResize);
-        this._setItemChanged();
-        return super.removeChildAt(index);
-    }
-
-    /**
+     * @zh 刷新布局
      * @en Refresh
-     * @zh 刷新
      */
     refresh(): void {
         this._setItemChanged();

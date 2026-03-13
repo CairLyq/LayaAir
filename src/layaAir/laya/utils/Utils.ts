@@ -1,5 +1,5 @@
-import { LayaEnv } from "../../LayaEnv";
 import { LayaGL } from "../layagl/LayaGL";
+import { Color } from "../maths/Color";
 import { RenderTargetFormat } from "../RenderEngine/RenderEnum/RenderTargetFormat";
 import { RenderTexture } from "../resource/RenderTexture";
 import { RenderTexture2D } from "../resource/RenderTexture2D";
@@ -12,6 +12,7 @@ const _pi2: number = Math.PI / 180;
 /**
  * @en Utils is a utility class.
  * @zh Utils 是工具类。
+ * @blueprintable
  */
 export class Utils {
 
@@ -20,8 +21,9 @@ export class Utils {
      * @param angle The angle value.
      * @returns The radian value.
      * @zh 将角度转换为弧度。
-     * @param	angle 角度值。
-     * @return	返回弧度值。
+     * @param angle 角度值。
+     * @return 返回弧度值。
+     * @blueprintPure
      */
     static toRadian(angle: number): number {
         return angle * _pi2;
@@ -32,78 +34,43 @@ export class Utils {
      * @param radian The radian value.
      * @returns The angle value in degrees.
      * @zh 将弧度转换为角度。
-     * @param	radian 弧度值。
-     * @return	返回角度值。
+     * @param radian 弧度值。
+     * @return 返回角度值。
+     * @blueprintPure
      */
     static toAngle(radian: number): number {
         return radian * _pi;
     }
 
     /**
-     * @en Converts an unsigned integer color value to a string representation.
-     * @param color The color value.
-     * @returns A string representation of the color value.
-     * @zh 将 uint 类型的颜色值转换为字符串型颜色值。
-     * @param color 颜色值。
-     * @return 字符串型颜色值。
+     * @deprecated Please use Color.hexToString instead.
      */
     static toHexColor(color: number): string {
-        if (color < 0 || isNaN(color)) return null;
-        var str: string = color.toString(16);
-        while (str.length < 6) str = "0" + str;
-        return "#" + str;
+        return Color.hexToString(color);
     }
 
     /**
-     * @en Converts a string color value to a number color.
-     * @param value The string color value.
-     * @returns The color value as a number.
-     * @zh 将字符串型颜色值转换为数字型颜色值。
-     * @param value 字符串颜色值
-     * @returns 作为数字的颜色值
+     * @deprecated Please use Color.stringToHex instead.
      */
     static fromStringColor(value: string): number {
-        if (!value)
-            return 0;
-
-        if (value.indexOf("rgba(") >= 0 || value.indexOf("rgb(") >= 0) {
-            let p1 = value.indexOf("(");
-            let p2 = value.indexOf(")");
-            if (p1 == -1 || p2 == -1)
-                return 0;
-
-            value = value.substring(p1 + 1, p2);
-            let arr: any[] = value.split(",");
-            let len = arr.length;
-            for (let i = 0; i < len; i++) {
-                arr[i] = parseFloat(arr[i]);
-                if (isNaN(arr[i]))
-                    arr[i] = 0;
-            }
-            if (arr.length == 4)
-                return (arr[0] << 24) + (arr[1] << 16) + (arr[2] << 8) + Math.round(arr[3] * 255);
-            else
-                return (arr[0] << 16) + (arr[1] << 8) + arr[2];
-        } else {
-            value.charAt(0) === '#' && (value = value.substring(1));
-            let len = value.length;
-            if (len === 3 || len === 4) {
-                let temp: string = "";
-                for (let i = 0; i < len; i++) {
-                    temp += (value[i] + value[i]);
-                }
-                value = temp;
-            }
-            return parseInt(value, 16);
-        }
+        return Color.stringToHex(value);
     }
 
     /**
-     * @en Gets a globally unique ID.
-     * @zh 获取一个全局唯一ID。
+     * @en Assigns a global unique ID for the given target-method pair.
+     * @param method The method, it can be a function or a function name.
+     * @param target The target. It's optional. 
+     * @returns A unique ID for the given target-method pair. 
+     * @zh 为一个target-method对分配一个全局唯一ID。
+     * @param method 方法，可以是一个函数或者函数名。
+     * @param target 目标对象，可选。
+     * @return 分配到的唯一ID。
+     * @blueprintIgnore
      */
-    static getGID(): number {
-        return _gid++;
+    static getGID(target: Object | null, method?: Function | string): string {
+        let cid: number = target ? ((target as any)[objUidKey] || ((target as any)[objUidKey] = _gid++)) : 0;
+        let mid: number | string = method ? (typeof (method) === "string" ? method : ((method as any)[objUidKey] || ((method as any)[objUidKey] = _gid++))) : 0;
+        return cid + "_" + mid;
     }
 
     /**
@@ -113,9 +80,9 @@ export class Utils {
      * @param array The new values to be copied into the source array.
      * @returns The copied source array.
      * @zh 清空 source 数组，并复制 array 数组的值。
-     * @param	source 需要赋值的数组。
-     * @param	array 新的数组值。
-     * @return 	复制后的数据 source 。
+     * @param source 需要赋值的数组。
+     * @param array 新的数组值。
+     * @return 复制后的数据 source 。
      */
     static copyArray(source: any[], array: any[]): any[] {
         source || (source = []);
@@ -129,33 +96,15 @@ export class Utils {
     }
 
     /**
-     * @private
-     * @en Batch translates point coordinates by the specified offsets.
-     * @param points The list of point coordinates.
-     * @param x The offset to translate along the x-axis.
-     * @param y The offset to translate along the y-axis.
-     * @zh 批量移动点坐标，按照指定的偏移量。
-     * @param points 坐标列表。
-     * @param x x轴偏移量。
-     * @param y y轴偏移量。
-     */
-    static transPointList(points: any[], x: number, y: number): void {
-        var i: number, len: number = points.length;
-        for (i = 0; i < len; i += 2) {
-            points[i] += x;
-            points[i + 1] += y;
-        }
-    }
-
-    /**
      * @en Parses a string and returns an integer. Unlike the native JavaScript parseInt, if the string is empty or not a number, this method returns 0 instead of NaN.
      * @param str The string to be parsed.
      * @param radix The radix for parsing the number (between 2 and 36). Defaults to 0, which means decimal. The other values range from 2 to 36. If it starts with "0xX" or "0X", it will be based on 16. If the parameter is not within the above range, this method returns 0.
      * @returns The parsed number.
      * @zh 解析字符串并返回一个整数。与 JavaScript 原生的 parseInt 不同，如果字符串为空或非数字，这里返回 0 而不是 NaN。
-     * @param	str		要被解析的字符串。
-     * @param	radix	表示要解析的数字的基数。默认值为0，表示10进制，其他值介于 2 ~ 36 之间。如果它以 “0x” 或 “0X” 开头，将以 16 为基数。如果该参数不在上述范围内，则此方法返回 0。
-     * @return	返回解析后的数字。
+     * @param str 要被解析的字符串。
+     * @param radix 表示要解析的数字的基数。默认值为0，表示10进制，其他值介于 2 ~ 36 之间。如果它以 “0x” 或 “0X” 开头，将以 16 为基数。如果该参数不在上述范围内，则此方法返回 0。
+     * @return 返回解析后的数字。
+     * @blueprintIgnore
      */
     static parseInt(str: string, radix: number = 0): number {
         var result: any = parseInt(str, radix);
@@ -165,21 +114,45 @@ export class Utils {
 
     /**
      * @en Gets the base name of the file from the specified path, including the extension.
+     * @param path The file path.
+     * @returns The base name of the file, including the extension.
      * @zh 从指定路径中获取文件名（包含扩展名）。
+     * @param path 文件路径。
+     * @returns 返回文件名（包含扩展名）。
+     * @blueprintPure
      */
-    static getBaseName(path: string): string {
+    static getBaseName(path: string): string;
+    /**
+     * @en Gets the base name of the file from the specified path, optionally excluding the extension.
+     * @param path The file path.
+     * @param withoutExtension Whether to exclude the file extension. Default is false.
+     * @returns The base name of the file, optionally excluding the extension.
+     * @zh 从指定路径中获取文件名（可选地不包含扩展名）。
+     * @param path 文件路径。
+     * @param withoutExtension 是否排除文件扩展名。默认值为 false。
+     * @returns 返回文件名（可选地不包含扩展名）。 
+     * @blueprintPure
+     */
+    static getBaseName(path: string, withoutExtension: boolean): string;
+    static getBaseName(path: string, withoutExtension?: boolean): string {
         let i = path.lastIndexOf("/");
         if (i != -1)
             path = path.substring(i + 1);
         i = path.indexOf("?");
         if (i != -1)
             path = path.substring(0, i);
+        if (withoutExtension) {
+            i = path.lastIndexOf(".");
+            if (i != -1)
+                path = path.substring(0, i);
+        }
         return path;
     }
 
     /**
      * @en Gets the file extension from the specified path and converts it to lowercase. For example, "1. abc" will return abc.
      * @zh 从指定路径获取文件扩展名，并转换为小写字母。例如"1.abc"将返回abc。
+     * @blueprintPure
      */
     static getFileExtension(path: string): string {
         let i = path.lastIndexOf(".");
@@ -233,9 +206,13 @@ export class Utils {
     }
 
     /**
-     * 
+     * @en Checks if the given string is a valid UUID format.
+     * @param str The string to check.
+     * @returns True if the string is in UUID format, false otherwise.
+     * @zh 判断一个字符串是否是有效的UUID格式。
      * @param str 判断一个字符串是否UUID格式
-     * @returns 
+     * @returns true表示是UUID格式，false表示不是UUID格式
+     * @blueprintPure
      */
     static isUUID(str: string): boolean {
         //uuid xxxxxxxx-xxxx-...
@@ -266,11 +243,9 @@ export class Utils {
                 pixelArray = new Float32Array(pixelCount);
                 break;
             default:
-                throw "this function is not surpprt " + rendertexture.format.toString() + "format Material";
+                throw new Error("uint8ArrayToArrayBuffer is not supported for " + rendertexture.format.toString() + "format");
         }
-        LayaGL.textureContext.readRenderTargetPixelData(rendertexture._renderTarget, 0, 0, rendertexture.width, rendertexture.height, pixelArray);
-        //tranceTo
-        //throw " rt get Data";
+        LayaGL.textureContext.readRenderTargetPixelData(rendertexture._renderTarget, 0, 0, width, height, pixelArray);
         if (colorFormat === RenderTargetFormat.R16G16B16A16) {
             const ori = pixelArray;
             const trans = new Uint8Array(pixelCount);
@@ -289,7 +264,7 @@ export class Utils {
         imgdata.data.set(new Uint8ClampedArray(pixels));
         ctx2d.putImageData(imgdata, 0, 0);
         const base64String = canvas.toDataURL();
-        canvas.remove();
+        Browser.removeElement(canvas);
         return base64String;
     }
 
@@ -317,7 +292,7 @@ export class Utils {
                 pixelArray = new Float32Array(pixelCount);
                 break;
             default:
-                throw "this function is not surpprt " + rendertexture.format.toString() + "format Material";
+                throw "this function is not supported " + rendertexture.format.toString() + "format Material";
         }
         return rendertexture.getDataAsync(0, 0, width, height, pixelArray).then(() => {
             //tranceTo
@@ -332,15 +307,6 @@ export class Utils {
             }
 
             const pixels = pixelArray;
-            // if (LayaEnv.isConch) {
-            //TODO:
-            //var base64img=__JS__("conchToBase64('image/png',1,pixels,canvasWidth,canvasHeight)");
-            //var l = base64img.split(",");
-            //if (isBase64)
-            //	return base64img;
-            //return base.utils.DBUtils.decodeArrayBuffer(l[1]);
-            // }
-            // else {
             const canvas = Browser.createElement("canvas");
             canvas.height = height;
             canvas.width = width;
@@ -349,12 +315,384 @@ export class Utils {
             imgdata.data.set(new Uint8ClampedArray(pixels));
             ctx2d.putImageData(imgdata, 0, 0);
             const base64String = canvas.toDataURL();
-            canvas.remove();
+            Browser.removeElement(canvas);
             // }
             return Promise.resolve(base64String);
         });
     }
 
+    /**
+     * @en Parses a template string and returns a new string by replacing the placeholders with the specified values.
+     * @param template The template string. 
+     * @param vars The specified values. 
+     * @returns The new string.
+     * @zh 解析模板字符串，并返回一个新字符串，替换占位符为指定值。
+     * @param template 模板字符串。
+     * @param vars 指定值。
+     * @return 新字符串。 
+     * @blueprintIgnore
+     */
+    static parseTemplate(template: string, vars: Record<string, any>): string {
+        let pos1: number = 0, pos2: number, pos3: number;
+        let tag: string;
+        let value: string;
+        let result: string = "";
+        while ((pos2 = template.indexOf("{", pos1)) != -1) {
+            if (pos2 > 0 && template.charCodeAt(pos2 - 1) == 92)//\
+            {
+                result += template.substring(pos1, pos2 - 1);
+                result += "{";
+                pos1 = pos2 + 1;
+                continue;
+            }
 
+            result += template.substring(pos1, pos2);
+            pos1 = pos2;
+            pos2 = template.indexOf("}", pos1);
+            if (pos2 == -1)
+                break;
+
+            if (pos2 == pos1 + 1) {
+                result += template.substring(pos1, pos1 + 2);
+                pos1 = pos2 + 1;
+                continue;
+            }
+
+            tag = template.substring(pos1 + 1, pos2);
+            pos3 = tag.indexOf("=");
+            if (pos3 != -1) {
+                value = vars[tag.substring(0, pos3)];
+                if (value == null)
+                    result += tag.substring(pos3 + 1);
+                else
+                    result += value;
+            }
+            else {
+                value = vars[tag];
+                if (value != null)
+                    result += value;
+            }
+            pos1 = pos2 + 1;
+        }
+
+        if (pos1 < template.length)
+            result += template.substring(pos1);
+
+        return result;
+    }
+
+    /**
+     * @en Sleeps for the specified number of milliseconds.
+     * @param timeout The number of milliseconds to sleep.
+     * @zh 睡眠指定的毫秒数。
+     * @param timeout 睡眠的毫秒数。 
+     * @blueprintIgnore
+     */
+    static sleep(timeout: number): Promise<void> {
+        if (timeout < 1)
+            return Promise.resolve();
+        else
+            return new Promise<void>((resolve) => setTimeout(resolve, timeout));
+    }
+
+    /**
+     * @en Waits until the specified predicate function returns true or the timeout is reached.
+     * @param predicate The function to check the condition.
+     * @param timeout The maximum time to wait in milliseconds. If not specified,
+     * @zh 等待直到指定的谓词函数返回 true 或超时。
+     * @param predicate 检查条件的函数。 
+     * @param timeout 最大等待时间（毫秒）。如果未指定，则不设置超时。  
+     */
+    static until(predicate: () => boolean, timeout?: number): Promise<void> {
+        if (predicate())
+            return Promise.resolve();
+
+        return new Promise<void>((resolve) => {
+            let start = performance.now();
+            function timer() {
+                if (predicate())
+                    resolve();
+                else if (timeout != null && performance.now() - start > timeout)
+                    resolve();
+                else
+                    setTimeout(timer, 10);
+            }
+            setTimeout(timer, 10);
+        });
+    }
+
+    /**
+     * @en Runs a task function for each item in the datas array, allowing a specified number of parallel tasks.
+     * @param datas The array of data to process.
+     * @param numParallelTasks The maximum number of parallel tasks to run.
+     * @param taskFunc The function to run for each item in the datas array. It should return a value or a Promise.
+     * @param abortToken An optional token to signal task abortion. If the token's `aborted` property is true, the task will be aborted.
+     * @zh 运行任务函数处理 datas 数组中的每个项目，允许指定数量的并行任务。
+     * @param datas 要处理的数据数组。
+     * @param numParallelTasks 允许运行的最大并行任务数。
+     * @param taskFunc 要运行的函数，处理 datas 数组中的每个项目。它应该返回一个值或一个 Promise。
+     * @param abortToken 可选的令牌，用于发出任务中止信号。如果令牌的 `aborted` 属性为 true，则任务将被中止。
+     */
+    static runTasks<T, T2>(datas: Array<T2>, numParallelTasks: number, taskFunc: (data: T2, index: number) => T | Promise<T>, abortToken?: IAbortToken): Promise<T[]>;
+    /**
+     * @en Runs a task function for each item in the datas array, allowing a specified number of parallel tasks.
+     * @param datas The array of data to process.
+     * @param checkConcurrency It will be called with the number of tasks to determine if more tasks can be run.
+     * @param taskFunc The function to run for each item in the datas array. It should return a value or a Promise.
+     * @param abortToken An optional token to signal task abortion. If the token's `aborted` property is true, the task will be aborted.
+     * @zh 运行任务函数处理 datas 数组中的每个项目，允许指定数量的并行任务。
+     * @param datas 要处理的数据数组。
+     * @param checkConcurrency 它将被调用以确定是否可以运行更多任务。
+     * @param taskFunc 要运行的函数，处理 datas 数组中的每个项目。它应该返回一个值或一个 Promise。
+     * @param abortToken 可选的令牌，用于发出任务中止信号。如果令牌的 `aborted` 属性为 true，则任务将被中止。
+     */
+    static runTasks<T, T2>(datas: Array<T2>, checkConcurrency: (numTasks: number) => boolean, taskFunc: (data: T2, index: number) => T | Promise<T>, abortToken?: IAbortToken): Promise<T[]>;
+    static runTasks<T, T2>(datas: Array<T2>, numParallelTasks: number | ((numTasks: number) => boolean), taskFunc: (data: T2, index: number) => T | Promise<T>, abortToken?: IAbortToken): Promise<T[]> {
+        let limitFunc: (numTasks: number) => boolean;
+        if (typeof (numParallelTasks) !== "number") {
+            limitFunc = numParallelTasks;
+            numParallelTasks = 0;
+        }
+
+        let total = datas.length;
+        if (numParallelTasks >= total) {
+            return Promise.all(datas.map((value, index) => {
+                if (abortToken && abortToken.aborted)
+                    return Promise.reject("aborted");
+                else
+                    return taskFunc(value, index);
+            }));
+        }
+
+        const results: T[] = new Array(total);
+        const executing: Promise<void>[] = [];
+        let i = 0;
+
+        // 递归处理任务队列
+        function processNext(): Promise<void> {
+            if (i >= total || (abortToken?.aborted)) {
+                return Promise.resolve();
+            }
+
+            const j = i++;
+            const item = datas[j];
+
+            // 创建任务 Promise
+            const p = Promise.resolve().then(() => {
+                if (abortToken?.aborted) {
+                    return Promise.reject("aborted");
+                }
+                return taskFunc(item, j);
+            }).then((result) => {
+                results[j] = result;
+                executing.splice(executing.indexOf(p), 1);
+            });
+
+            executing.push(p);
+
+            // 判断是否需要等待
+            if (limitFunc ? limitFunc(executing.length) : executing.length >= <number>numParallelTasks) {
+                return Promise.race(executing).then(processNext);
+            } else {
+                return processNext();
+            }
+        }
+
+        // 启动初始并发任务
+        const initialPromises: Promise<void>[] = [];
+        const initialCount = Math.min(numParallelTasks, total);
+
+        for (let i = 0; i < initialCount; i++) {
+            initialPromises.push(processNext());
+        }
+
+        return Promise.all(initialPromises)
+            .then(() => {
+                if (executing.length > 0)
+                    return Promise.all(executing);
+                else
+                    return null;
+            }).then(() => results);
+    }
+
+    /**
+     * @en Runs a task function for each item in the datas array, allowing a specified number of parallel tasks.
+     * @param datas The array of data to process.
+     * @param numParallelTasks The maximum number of parallel tasks to run. 
+     * @param taskFunc The function to run for each item in the datas array. It should return a value or a Promise.
+     * @param abortToken An optional token to signal task
+     * @zh 运行任务函数处理 datas 数组中的每个项目，允许指定数量的并行任务。
+     * @param datas 要处理的数据数组。 
+     * @param numParallelTasks 允许运行的最大并行任务数。
+     * @param taskFunc 要运行的函数，处理 datas 数组中的每个项目。它应该返回一个值或一个 Promise。 
+     * @param abortToken 可选的令牌，用于发出任务中止信号。如果令牌的 `aborted` 属性为 true，则任务将被中止。 
+     */
+    static runAllTasks<T, T2>(datas: Array<T2>, numParallelTasks: number, taskFunc: (data: T2, index: number) => T | Promise<T>, abortToken?: IAbortToken): Promise<PromiseSettledResult<T>[]>;
+    /**
+     * @en Runs a task function for each item in the datas array, allowing a specified number of parallel tasks.
+     * @param datas The array of data to process.
+     * @param checkConcurrency it will be called with the number of tasks to determine if more tasks can be run.
+     * @param taskFunc The function to run for each item in the datas array. It should return a value or a Promise.
+     * @param abortToken An optional token to signal task
+     * @zh 运行任务函数处理 datas 数组中的每个项目，允许指定数量的并行任务。
+     * @param datas 要处理的数据数组。 
+     * @param checkConcurrency 它将被调用以确定是否可以运行更多任务。 
+     * @param taskFunc 要运行的函数，处理 datas 数组中的每个项目。它应该返回一个值或一个 Promise。 
+     * @param abortToken 可选的令牌，用于发出任务中止信号。如果令牌的 `aborted` 属性为 true，则任务将被中止。 
+     */
+    static runAllTasks<T, T2>(datas: Array<T2>, checkConcurrency: (numTasks: number) => boolean, taskFunc: (data: T2, index: number) => T | Promise<T>, abortToken?: IAbortToken): Promise<PromiseSettledResult<T>[]>;
+    static runAllTasks<T, T2>(datas: Array<T2>, numParallelTasks: number | ((numTasks: number) => boolean), taskFunc: (data: T2, index: number) => T | Promise<T>, abortToken?: IAbortToken): Promise<PromiseSettledResult<T>[]> {
+        let limitFunc: (numTasks: number) => boolean;
+        if (typeof (numParallelTasks) !== "number") {
+            limitFunc = numParallelTasks;
+            numParallelTasks = 0;
+        }
+
+        let total = datas.length;
+        if (numParallelTasks >= total) {
+            return Promise.allSettled(datas.map((value, index) => Promise.resolve().then(() => {
+                if (abortToken && abortToken.aborted)
+                    return Promise.reject("aborted");
+                else
+                    return taskFunc(value, index);
+            })));
+        }
+
+        const results: PromiseSettledResult<T>[] = new Array(total);
+        const executing: Promise<any>[] = [];
+        let i = 0;
+
+        // 递归处理任务队列
+        function processNext(): Promise<void> {
+            if (i >= total || (abortToken?.aborted)) {
+                return Promise.resolve();
+            }
+
+            const j = i++;
+            const item = datas[j];
+
+            // 创建任务 Promise
+            const p = Promise.resolve().then(() => {
+                if (abortToken && abortToken.aborted)
+                    return Promise.reject("aborted");
+                else
+                    return taskFunc(item, j);
+            }).then((result) => {
+                results[j] = { status: "fulfilled", value: result };
+                executing.splice(executing.indexOf(p), 1);
+            }).catch((reason) => {
+                results[j] = { status: "rejected", reason };
+                executing.splice(executing.indexOf(p), 1);
+            });
+
+            executing.push(p);
+
+            // 判断是否需要等待
+            if (limitFunc ? limitFunc(executing.length) : executing.length >= <number>numParallelTasks) {
+                return Promise.race(executing).then(processNext);
+            } else {
+                return processNext();
+            }
+        }
+
+        // 启动初始并发任务
+        const initialPromises: Promise<void>[] = [];
+        const initialCount = Math.min(numParallelTasks, total);
+
+        for (let i = 0; i < initialCount; i++) {
+            initialPromises.push(processNext());
+        }
+
+        return Promise.allSettled(initialPromises)
+            .then(() => {
+                if (executing.length > 0)
+                    return Promise.allSettled(executing);
+                else
+                    return null;
+            }).then(() => results);
+    }
+
+    /**
+     * @en Compares two version strings.
+     * @param ver1 The first version string.
+     * @param ver2 The second version string.
+     * @returns 1 if ver1 > ver2, -1 if ver1 < ver2, 0 if they are equal.
+     * @zh 比较两个版本字符串。
+     * @param ver1 第一个版本字符串。
+     * @param ver2 第二个版本字符串。
+     * @returns 如果 ver1 > ver2 返回 1，如果 ver1 < ver2 返回 -1，如果相等返回 0。
+     * @blueprintPure
+     */
+    static compareVersion(ver1: string, ver2: string) {
+        let v1 = ver1.split('.')
+        let v2 = ver2.split('.')
+        const len = Math.max(v1.length, v2.length)
+
+        while (v1.length < len) {
+            v1.push('0')
+        }
+        while (v2.length < len) {
+            v2.push('0')
+        }
+
+        for (let i = 0; i < len; i++) {
+            const num1 = parseInt(v1[i])
+            const num2 = parseInt(v2[i])
+
+            if (num1 > num2) {
+                return 1
+            } else if (num1 < num2) {
+                return -1
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @en Determines whether a point is inside a polygon.
+     * @param x The x-coordinate of the point.
+     * @param y The y-coordinate of the point.
+     * @param areaPoints An array of points representing the polygon, where each pair of numbers represents the x and y coordinates of a vertex.
+     * @returns True if the point is inside the polygon, false otherwise.
+     * @zh 坐标是否在多边形内
+     * @param x 点的 x 坐标。
+     * @param y 点的 y 坐标。
+     * @param areaPoints 一个数组，表示多边形的点，每对数字表示一个顶点的 x 和 y 坐标。
+     * @returns 如果点在多边形内返回 true，否则返回 false。
+     */
+    static testPointInPolygon(x: number, y: number, areaPoints: number[]): boolean {
+        // 交点个数
+        var nCross: number = 0;
+        var p1x: number, p1y: number, p2x: number, p2y: number;
+        var len: number;
+        len = areaPoints.length;
+        for (var i: number = 0; i < len; i += 2) {
+            p1x = areaPoints[i];
+            p1y = areaPoints[i + 1];
+            p2x = areaPoints[(i + 2) % len];
+            p2y = areaPoints[(i + 3) % len];
+            //var p1:Point = areaPoints[i];
+            //var p2:Point = areaPoints[(i + 1) % areaPoints.length]; // 最后一个点与第一个点连线
+            if (p1y == p2y) continue;
+            if (y < Math.min(p1y, p2y)) continue;
+            if (y >= Math.max(p1y, p2y)) continue;
+            // 求交点的x坐标
+            var tx: number = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x;
+            // 只统计p1p2与p向右射线的交点
+            if (tx > x) nCross++;
+        }
+        // 交点为偶数，点在多边形之外
+        return (nCross % 2 == 1);
+    }
 }
 
+export interface IAbortToken {
+    /**
+     * @en Indicates whether the task has been aborted.
+     * @zh 指示任务是否已被中止。
+     */
+    aborted: boolean;
+}
+
+const objUidKey = Symbol();

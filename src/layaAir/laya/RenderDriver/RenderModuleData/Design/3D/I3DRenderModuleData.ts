@@ -13,6 +13,7 @@ import { InternalTexture } from "../../../DriverDesign/RenderDevice/InternalText
 import { ShaderData } from "../../../DriverDesign/RenderDevice/ShaderData";
 import { Sprite3D } from "../../../../d3/core/Sprite3D";
 import { Mesh } from "../../../../d3/resource/models/Mesh";
+import { Vector2 } from "../../../../maths/Vector2";
 export enum BaseRenderType {
     BaseRender = 0,
     MeshRender = 1,
@@ -24,7 +25,19 @@ export enum BaseRenderType {
     SimpleSkinRender = 8,
     SkinnedMeshRender = 9,
 }
-//3D Render Node
+
+export enum ENodeCustomData {
+    custom_0,
+    custom_1,
+    custom_2
+}
+
+
+/**
+ * 3D Render Node
+ * @ignore
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface IBaseRenderNode {
     renderNodeType: number;//Flag
     transform: Transform3D;
@@ -40,52 +53,44 @@ export interface IBaseRenderNode {
     boundsChange: boolean;
     staticMask: number;
     shaderData: ShaderData;
+    additionShaderData: Map<string, ShaderData>;
     lightmapIndex: number;
     lightmap: ILightMapData;
     probeReflection: IReflectionProbeData;
-    probeReflectionUpdateMark: number;
     reflectionMode: number;
     volumetricGI: IVolumetricGIData;
     lightProbUpdateMark: number;
     irradientMode: IrradianceMode;
-
+    ismoved: Vector2;
     set_renderUpdatePreCall(call: any, fun: any): void;
     set_caculateBoundingBox(call: any, fun: any): void;
-
-
     /**
-     * @internal
      * @param value 
      */
     setRenderelements(value: IRenderElement3D[]): void;
-
     /**
      * @internal
      * @param value 
      */
     setLightmapScaleOffset(value: Vector4): void;
-
     /**
      * @internal
      * @param value 
      */
     setCommonUniformMap(value: string[]): void;
 
-    // /**
-    //  * @internal
-    //  * @param index 
-    //  * @param mat 
-    //  */
-    // setOneMaterial(index: number, mat: Material): void;
-
+    /**
+     * 设置基于RenderNode的渲染数据
+     * @param dataSlot 
+     * @param data 
+     */
+    setNodeCustomData(dataSlot: ENodeCustomData, data: number): void;
     /**
      * @override
      * @internal
      */
     destroy(): void;
-
     _applyLightProb(): void;
-
     _applyReflection(): void;
 }
 
@@ -93,7 +98,7 @@ export interface IMeshRenderNode extends IBaseRenderNode {
 
 }
 
-export interface ISkinRenderNode extends IBaseRenderNode {
+export interface ISkinRenderNode extends IMeshRenderNode {
     computeSkinnedData(): void;
     setRootBoneTransfom(value: Sprite3D): void;
     setOwnerTransform(value: Sprite3D): void;
@@ -179,6 +184,8 @@ export interface IReflectionProbeData {
     /**@internal */
     iblTexRGBD: boolean;
     /**@internal */
+    shaderData: ShaderData;
+    /**@internal */
     setProbePosition(value: Vector3): void;
     /**@internal */
     setAmbientColor(value: Color): void;
@@ -195,9 +202,11 @@ export interface IVolumetricGIData {
     bound: Bounds;
     intensity: number;
     updateMark: number;
+    shaderData: ShaderData;
     setProbeCounts(value: Vector3): void;
     setProbeStep(value: Vector3): void;
     setParams(value: Vector4): void;
+    destroy(): void;
 }
 
 //global data

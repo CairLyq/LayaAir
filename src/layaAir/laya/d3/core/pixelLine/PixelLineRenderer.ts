@@ -1,19 +1,18 @@
-import { Component } from "../../../components/Component";
+import { LayaGL } from "../../../layagl/LayaGL";
 import { Color } from "../../../maths/Color";
 import { Matrix4x4 } from "../../../maths/Matrix4x4";
 import { Vector3 } from "../../../maths/Vector3";
 import { IMeshRenderNode } from "../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
-
+import { ShaderFeatureType } from "../../../RenderEngine/RenderShader/Shader3D";
 import { Material } from "../../../resource/Material";
 import { OutOfRangeError } from "../../../utils/Error";
+import { Stat } from "../../../utils/Stat";
 import { Bounds } from "../../math/Bounds";
 import { Laya3DRender } from "../../RenderObjs/Laya3DRender";
-import { UnlitMaterial } from "../material/UnlitMaterial";
 import { MeshSprite3DShaderDeclaration } from "../MeshSprite3DShaderDeclaration";
 import { BaseRender } from "../render/BaseRender";
 import { RenderContext3D } from "../render/RenderContext3D";
 import { RenderElement } from "../render/RenderElement";
-import { Sprite3D } from "../Sprite3D";
 import { PixelLineData } from "./PixelLineData";
 import { PixelLineFilter } from "./PixelLineFilter";
 import { PixelLineMaterial } from "./PixelLineMaterial";
@@ -24,14 +23,13 @@ import { PixelLineMaterial } from "./PixelLineMaterial";
  * @zh PixelLineRenderer 类用于线渲染器。
  */
 export class PixelLineRenderer extends BaseRender {
-    /** @internal */
     protected _projectionViewWorldMatrix: Matrix4x4;
 
     /**@internal */
     _pixelLineFilter: PixelLineFilter;
-    /** @private 是否调用active */
+    /**  是否调用active */
     private _isRenderActive: Boolean = false;
-    /** @private 是否加入渲染队列*/
+    /**  是否加入渲染队列*/
     private _isInRenders: Boolean = false;
 
     private _needUpdatelines: boolean = false;
@@ -102,20 +100,13 @@ export class PixelLineRenderer extends BaseRender {
         return this._pixelLineFilter._lineCount;
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onAdded(): void {
         super._onAdded();
         this._changeRenderObjects(0, PixelLineMaterial.defaultMaterial);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onEnable(): void {
+        super._onEnable();
         this._isRenderActive = true;
         if (this._pixelLineFilter._lineCount != 0) {
             (this.owner.scene)._addRenderObject(this);
@@ -124,10 +115,6 @@ export class PixelLineRenderer extends BaseRender {
         this._setBelongScene(this.owner.scene);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDisable(): void {
         if (this._pixelLineFilter && this._pixelLineFilter._lineCount != 0 && this._isRenderActive) {
             this.owner.scene._removeRenderObject(this);
@@ -141,6 +128,20 @@ export class PixelLineRenderer extends BaseRender {
         return Laya3DRender.Render3DModuleDataFactory.createMeshRenderNode();
     }
 
+    protected _isMaterialVaild(value: Material): boolean {
+        return value.checkType(ShaderFeatureType.D3);
+    }
+
+    /**
+     * @internal
+     * BaseRender motion
+     */
+    protected _onWorldMatNeedChange(flag: number): void {
+        super._onWorldMatNeedChange(flag);
+        this._baseRenderNode.ismoved.setValue(Stat.loopCount, LayaGL.renderEngine._framePassCount);
+        this._baseRenderNode.ismoved = this._baseRenderNode.ismoved;
+    }
+
     /**
      * @en Update the render context.
      * @param context The render context.
@@ -152,7 +153,7 @@ export class PixelLineRenderer extends BaseRender {
             element._renderElementOBJ.isRender = element._geometry._prepareRender(context);
             element._geometry._updateRenderParams(context);
 
-            let material = this.sharedMaterial ?? UnlitMaterial.defaultMaterial;
+            let material = this.sharedMaterial ?? PixelLineMaterial.defaultMaterial;
             material = this.sharedMaterials[index] ?? material;
             element.material = material;
             element._renderElementOBJ.materialRenderQueue = material.renderQueue;
@@ -161,14 +162,13 @@ export class PixelLineRenderer extends BaseRender {
 
     /**
      * @internal
-     * @inheritDoc
      */
     _changeRenderObjects(index: number, material: Material): void {
         var renderObjects: RenderElement[] = this._renderElements;
         (material) || (material = PixelLineMaterial.defaultMaterial);
         var renderElement: RenderElement = renderObjects[index];
         (renderElement) || (renderElement = renderObjects[index] = new RenderElement());
-        renderElement.setTransform((this.owner as Sprite3D)._transform);
+        renderElement.setTransform(this.owner._transform);
         renderElement.setGeometry(this._pixelLineFilter);
         renderElement.render = this;
         renderElement.material = material;
@@ -370,10 +370,6 @@ export class PixelLineRenderer extends BaseRender {
         else
             throw new OutOfRangeError(index);
     }
-
-    /**
-     * @internal
-     */
     private _updateLineDatas() {
         let n = this.lineCount;
         this._lines = [];
@@ -397,21 +393,11 @@ export class PixelLineRenderer extends BaseRender {
         }
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDestroy() {
         this._pixelLineFilter.destroy();
         this._pixelLineFilter = null;
         super._onDestroy();
     }
-
-    /**
-     * @internal
-     * @override
-     * @param dest 
-     */
     _cloneTo(dest: PixelLineRenderer): void {
         super._cloneTo(dest);
         dest.maxLineCount = this.maxLineCount;

@@ -8,12 +8,14 @@ import { RenderClearFlag } from "../../RenderEngine/RenderEnum/RenderClearFlag";
 import { DepthTextureMode } from "../../resource/RenderTexture";
 import { IRenderContext3D, PipelineMode } from "../DriverDesign/3DRenderPass/I3DRenderPass";
 import { InternalRenderTarget } from "../DriverDesign/RenderDevice/InternalRenderTarget";
-import { ICameraNodeData } from "../RenderModuleData/Design/3D/I3DRenderModuleData";
 import { WebBaseRenderNode } from "../RenderModuleData/WebModuleData/3D/WebBaseRenderNode";
 import { RenderCullUtil } from "./RenderCullUtil";
 import { RenderPassUtil } from "./RenderPassUtil";
 import { RenderListQueue } from "./RenderListQueue";
 import { Viewport } from "../../maths/Viewport";
+import { Texture2D } from "../../resource/Texture2D";
+import { LayaGL } from "../../layagl/LayaGL";
+import { StatElement } from "../../layagl/StatisticsContext";
 
 /**
  * 前向渲染流程通用类
@@ -24,7 +26,7 @@ export class ForwardAddClusterRP {
     depthNormalPipelineMode: PipelineMode
     depthTarget: InternalRenderTarget;
     destTarget: InternalRenderTarget;
-    camera: ICameraNodeData;
+    camera: Camera;
     cameraCullInfo: CameraCullInfo;
     depthTextureMode: DepthTextureMode;
     depthNormalTarget: InternalRenderTarget;
@@ -119,14 +121,22 @@ export class ForwardAddClusterRP {
     render(context: IRenderContext3D, list: WebBaseRenderNode[], count: number): void {
         context.cameraUpdateMask++
         this._clearRenderList();
+
+        var time = performance.now();//T_CameraMainCull Stat
         RenderCullUtil.cullByCameraCullInfo(this.cameraCullInfo, list, count, this._opaqueList, this._transparent, context)
+        LayaGL.statAgent.recordTimeData(StatElement.T_CullMain, performance.now() - time);
+
+        time = performance.now();
         if ((this.depthTextureMode & DepthTextureMode.Depth) != 0)
             this._renderDepthPass(context);
         if ((this.depthTextureMode & DepthTextureMode.DepthNormals) != 0)
             this._renderDepthNormalPass(context);
-        this._cacheViewPortAndScissor();
-        this._mainPass(context);
+        LayaGL.statAgent.recordTimeData(StatElement.T_DepthPass, performance.now() - time);
 
+        this._cacheViewPortAndScissor();
+        time = performance.now();
+        this._mainPass(context);
+        LayaGL.statAgent.recordTimeData(StatElement.T_3DMainPass, performance.now() - time);
         this._opaqueList._batch.recoverData();
     }
 
@@ -150,25 +160,30 @@ export class ForwardAddClusterRP {
      * 渲染深度流程
      * @param context 
      */
-    protected _renderDepthPass(context: IRenderContext3D,): void {
+    protected _renderDepthPass(context: IRenderContext3D): void {
         context.pipelineMode = this.depthPipelineMode;
+
         const viewport = this._viewPort;
         const shadervalue = context.sceneData;
         shadervalue.addDefine(DepthPass.DEPTHPASS);
         shadervalue.setVector(DepthPass.DEFINE_SHADOW_BIAS, Vector4.ZERO);
-        Viewport._tempViewport.set(viewport.x, viewport.y, viewport.width, viewport.height);
-        Vector4.tempVec4.setValue(viewport.x, viewport.y, viewport.width, viewport.height);
-        context.setViewPort(Viewport._tempViewport);
-        context.setScissor(Vector4.tempVec4);
+        Viewport.TEMP.set(viewport.x, viewport.y, viewport.width, viewport.height);
+        Vector4.TEMP.setValue(viewport.x, viewport.y, viewport.width, viewport.height);
+        context.setViewPort(Viewport.TEMP);
+        context.setScissor(Vector4.TEMP);
         context.setRenderTarget(this.depthTarget, RenderClearFlag.Depth);
         context.setClearData(RenderClearFlag.Depth, Color.BLACK, 1, 0);
         this._opaqueList.renderQueue(context);
+        LayaGL.statAgent.recordCTData(StatElement.CT_DepthCastDrawCall, this._opaqueList.elements.length);
         //渲染完后传入使用的参数
-        const far = this.camera.farplane;
-        const near = this.camera.nearplane;
+        const far = this.camera.farPlane;
+        const near = this.camera.nearPlane;
         this._zBufferParams.setValue(1.0 - far / near, far / near, (near - far) / (near * far), 1 / near);
         context.cameraData.setVector(DepthPass.DEFINE_SHADOW_BIAS, DepthPass.SHADOW_BIAS);
         context.cameraData.setVector(DepthPass.DEPTHZBUFFERPARAMS, this._zBufferParams);
+
+        Camera.depthPass._setupDepthModeShaderValue(DepthTextureMode.Depth, this.camera);
+
         shadervalue.removeDefine(DepthPass.DEPTHPASS);
     }
 
@@ -178,15 +193,20 @@ export class ForwardAddClusterRP {
      */
     protected _renderDepthNormalPass(context: IRenderContext3D): void {
         context.pipelineMode = this.depthNormalPipelineMode;
+
+        this.camera._shaderValues.setTexture(DepthPass.DEPTHNORMALSTEXTURE, Texture2D.blackTexture);
+
         //传入shader该传的值
         const viewport = this._viewPort;
-        Viewport._tempViewport.set(viewport.x, viewport.y, viewport.width, viewport.height);
-        Vector4.tempVec4.setValue(viewport.x, viewport.y, viewport.width, viewport.height);
-        context.setViewPort(Viewport._tempViewport);
-        context.setScissor(Vector4.tempVec4);
+        Viewport.TEMP.set(viewport.x, viewport.y, viewport.width, viewport.height);
+        Vector4.TEMP.setValue(viewport.x, viewport.y, viewport.width, viewport.height);
+        context.setViewPort(Viewport.TEMP);
+        context.setScissor(Vector4.TEMP);
         context.setClearData(RenderClearFlag.Color | RenderClearFlag.Depth, this._defaultNormalDepthColor, 1, 0);
         context.setRenderTarget(this.depthNormalTarget, RenderClearFlag.Color | RenderClearFlag.Depth);
         this._opaqueList.renderQueue(context);
+        LayaGL.statAgent.recordCTData(StatElement.CT_DepthCastDrawCall, this._opaqueList.elements.length);
+        Camera.depthPass._setupDepthModeShaderValue(DepthTextureMode.DepthNormals, this.camera);
     }
 
     /**
@@ -198,7 +218,11 @@ export class ForwardAddClusterRP {
         RenderPassUtil.renderCmd(this.beforeForwardCmds, context);
         RenderPassUtil.recoverRenderContext3D(context, this.destTarget);
         context.setClearData(this.clearFlag, this.clearColor, 1, 0);
-        this.enableOpaque && this._opaqueList.renderQueue(context);
+
+        var time = performance.now();//T_Render_OpaqueRender Stat
+        this._opaqueList.renderQueue(context);
+        LayaGL.statAgent.recordTimeData(StatElement.T_3DMainPass_Opaque, performance.now() - time);//Stat
+
         RenderPassUtil.renderCmd(this.beforeSkyboxCmds, context);
 
         if (this.skyRenderNode) {
@@ -210,7 +234,9 @@ export class ForwardAddClusterRP {
             this._opaqueTexturePass();
         RenderPassUtil.renderCmd(this.beforeTransparentCmds, context);
         RenderPassUtil.recoverRenderContext3D(context, this.destTarget);
+        time = performance.now()//T_Render_TransparentRender Stat
         this._transparent.renderQueue(context);
+        LayaGL.statAgent.recordTimeData(StatElement.T_3DMainPass_Trans, performance.now() - time);//Stat
     }
 
     /**

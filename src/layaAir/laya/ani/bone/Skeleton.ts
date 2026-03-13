@@ -26,104 +26,53 @@ import { ILaya } from "../../../ILaya";
 import { LayaEnv } from "../../../LayaEnv";
 
 /**
- * @en Animation start playback scheduling
- * @zh 动画开始播放调度
- * @eventType Event.PLAYED
- * */
-/*[Event(name = "played", type = "laya.events.Event.PLAYED", desc = "动画开始播放调度")]*/
-/**
- * @en Animation stop playback scheduling
- * @zh 动画停止播放调度
- * @eventType Event.STOPPED
- * */
-/*[Event(name = "stopped", type = "laya.events.Event.STOPPED", desc = "动画停止播放调度")]*/
-/**
- * @en Animation resume playback scheduling
- * @zh 动画暂停播放调度
- * @eventType Event.PAUSED
- * */
-/*[Event(name = "paused", type = "laya.events.Event.PAUSED", desc = "动画暂停播放调度")]*/
-/**
- * @en Custom events.
- * @zh 自定义事件。
- * @eventType Event.LABEL
- */
-/*[Event(name = "label", type = "laya.events.Event.LABEL", desc = "自定义事件")]*/
-/**
  * @en Skeleton animation consists of three parts: Template, AnimationPlayer, and Skeleton.
+ * - Event.PLAYED: Animation start playback scheduling
+ * - Event.STOPPED: Animation stop playback scheduling
+ * - Event.PAUSED: Animation resume playback scheduling
+ * - Event.LABEL: Custom events
  * @zh 骨骼动画由Templet，AnimationPlayer，Skeleton三部分组成。
+ * - Event.PLAYED: 动画开始播放调度
+ * - Event.STOPPED: 动画停止播放调度
+ * - Event.PAUSED: 动画暂停播放调度
+ * - Event.LABEL: 自定义事件
  */
 export class Skeleton extends Sprite {
-    /**@internal */
     protected _source: string;
-    /**@internal */
     protected _templet: Templet;//动画解析器
-    /** @internal */
     protected _player: AnimationPlayer;//播放器
-    /** @internal */
     protected _curOriginalData: Float32Array;//当前骨骼的偏移数据
-
-    /** @internal */
     private _boneMatrixArray: any[] = [];//当前骨骼动画的最终结果数据
-    /** @internal */
     private _lastTime: number = 0;//上次的帧时间
-    /** @internal */
     private _currAniIndex: number = -1;
-    /** @internal */
     private _pause: boolean = true;
-    /** @internal */
     protected _aniClipIndex: number = -1;
-    /** @internal */
     protected _clipIndex: number = -1;
-    /** @internal */
     private _skinIndex: number = 0;
-    /** @internal */
     private _skinName: string = "default";
-    /** @internal */
     private _aniMode: number = 0;//
-    /** @internal 当前动画自己的缓冲区*/
+    /** 当前动画自己的缓冲区*/
     private _graphicsCache: any[];
-    /** @internal */
     private _boneSlotDic: any;
-    /** @internal */
     private _bindBoneBoneSlotDic: any;
-    /** @internal */
     private _boneSlotArray: any[];
-    /** @internal */
     private _index: number = -1;
-    /** @internal */
     private _total: number = -1;
-    /** @internal */
     private _indexControl: boolean = false;
-    /** @internal */
     private _complete: Handler;
-    /** @internal */
     private _yReverseMatrix: Matrix;
-    /** @internal */
     private _ikArr: any[];
-    /** @internal */
     private _tfArr: any[];
-    /** @internal */
     private _pathDic: any;
-    /** @internal */
     private _rootBone: Bone;
-    /** @internal */
     protected _boneList: Bone[];
-    /** @internal */
     protected _aniSectionDic: any;		// section 是每段数据(transform,slot,ik,path)的长度，这个是一个section的数据，表示每个clip的section数据
-    /** @internal */
     private _eventIndex: number = 0;
-    /** @internal */
     private _drawOrderIndex: number = 0;
-    /** @internal */
     private _drawOrder: number[] = null;
-    /** @internal */
     private _lastAniClipIndex: number = -1;
-    /** @internal */
     private _lastUpdateAniClipIndex: number = -1;
-    /** @internal */
     private _playAudio: boolean = true;
-    /** @internal */
     private _soundChannelArr: any[] = [];
 
     private _animationName: string = "";
@@ -133,7 +82,7 @@ export class Skeleton extends Sprite {
      * @en Constructs method of Skeleton animation.
      * @param aniMode - Animation mode, 0 for no costume changes support, 1 or 2 for costume changes support.
      * @zh 骨骼动画的构造方法
-     * @param	aniMode	动画模式，0不支持换装，1、2支持换装
+     * @param aniMode	动画模式，0不支持换装，1、2支持换装
      */
     constructor(aniMode: number = 0) {
         super();
@@ -142,14 +91,12 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @private
      * @en The frame index.
      * @zh 帧索引。
      */
     get index(): number {
         return this._index;
     }
-    /** @private */
     set index(value: number) {
         if (this.player) {
             this._index = value;
@@ -284,7 +231,7 @@ export class Skeleton extends Sprite {
 
     /**
      * 初始化动画
-     * @param	templet		模板
+     * @param templet		模板
      */
     protected init(templet: Templet): void {
         if (this._templet) {
@@ -363,7 +310,17 @@ export class Skeleton extends Sprite {
      * @param path 要加载的动画文件路径。
      * @param complete 加载完成后的回调函数。
      */
-    load(path: string, complete?: Handler): void {
+    load(path: string, complete?: Handler): void;
+    /**
+     * @en Load and create an animation directly from a path.
+     * @param path The path of the animation file to load.
+     * @param complete The callback function when the loading is complete.
+     * @zh 通过路径直接加载并创建动画。
+     * @param path 要加载的动画文件路径。
+     * @param complete 加载完成后的回调函数。
+     */
+    load(path: string, complete?: () => void): void;
+    load(path: string, complete?: Handler | (() => void)): void {
         ILaya.loader.load(path).then((templet: Templet) => {
             if (templet == null) return;
 
@@ -373,12 +330,14 @@ export class Skeleton extends Sprite {
             this.init(templet);
             this.play(0, true);
 
-            complete && complete.runWith(this);
+            if (complete instanceof Handler)
+                complete.runWith(this);
+            else if (complete)
+                complete();
         });
     }
 
     /**
-     * @internal
      * 传递PLAY事件
      */
     private _onPlay(): void {
@@ -386,7 +345,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 传递STOP事件
      */
     private _onStop(): void {
@@ -407,7 +365,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 传递PAUSE事件
      */
     private _onPause(): void {
@@ -415,7 +372,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 创建骨骼的矩阵，保存每次计算的最终结果
      */
     private _parseSrcBoneMatrix(): void {
@@ -446,7 +402,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * @param startTime 
      * @param endTime 
      * @param startIndex 
@@ -467,8 +422,7 @@ export class Skeleton extends Sprite {
 
     /**
      * 更新动画
-     * @internal
-     * @param	autoKey true为正常更新，false为index手动更新
+     * @param autoKey true为正常更新，false为index手动更新
      */
     private _update(autoKey: boolean = true): void {
         if (autoKey && this._pause) return;
@@ -537,7 +491,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 清掉播放完成的音频
      * @param force 是否强制删掉所有的声音channel
      */
@@ -553,9 +506,8 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 创建grahics图像. 并且保存到cache中
-     * @param	_clipIndex 第几帧
+     * @param _clipIndex 第几帧
      */
     protected _createGraphics(_clipIndex: number = -1): GraphicsAni {
         if (_clipIndex == -1) _clipIndex = this._clipIndex;
@@ -581,6 +533,7 @@ export class Skeleton extends Sprite {
         //要用的graphics
         if (this._aniMode == 0 || this._aniMode == 1) {	// 有缓存的情况
             this.graphics = GraphicsAni.create();// new GraphicsAni();
+            this.graphics.needCache = true;
         } else { // 实时计算的情况。 每次都是新的数据，因此要把上一帧的清理一下
             if (this.graphics instanceof GraphicsAni) {
                 this.graphics.clear();
@@ -646,7 +599,7 @@ export class Skeleton extends Sprite {
                 let tPathConstraint = this._pathDic[tBoneData.name];
                 if (tPathConstraint) {
                     let tByte: Byte = new Byte(tBoneData.extenData);
-                    switch (tByte.getByte()) {
+                    switch (tByte.readByte()) {
                         case 1://position
                             tPathConstraint.position = origDt[tStartIndex++];
                             break;
@@ -835,11 +788,10 @@ export class Skeleton extends Sprite {
 
     /**
      * 设置deform数据
-     * @internal
-     * @param	tDeformAniData
-     * @param	tDeformDic
-     * @param	_boneSlotArray
-     * @param	curTime
+     * @param tDeformAniData
+     * @param tDeformDic
+     * @param _boneSlotArray
+     * @param curTime
      */
     private _setDeform(tDeformAniData: DeformAniData, tDeformDic: any, _boneSlotArray: any[], curTime: number): void {
         if (!tDeformAniData) return;
@@ -1016,7 +968,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 换装的时候，需要清一下缓冲区
      */
     private _clearCache(): void {
@@ -1025,10 +976,11 @@ export class Skeleton extends Sprite {
                 for (let j = 0, len = this._graphicsCache[i].length; j < len; j++) {
                     var gp: GraphicsAni = this._graphicsCache[i][j];
                     if (gp && gp != this.graphics) {
+                        gp.needCache = false;
                         GraphicsAni.recycle(gp);
                     }
                 }
-                this._graphicsCache[i].length = 0;
+                this._graphicsCache[i] = []; // TBMinigame set arry.length = 0 not work,use [] instead
             }
         }
     }
@@ -1084,7 +1036,7 @@ export class Skeleton extends Sprite {
                     this._templet.showSkinByIndex(this._boneSlotDic, this._skinIndex);
                 if (this._pause) {
                     this._pause = false;
-                    this._lastTime = ILaya.Browser.now();
+                    this._lastTime = performance.now();
                     this.timer.frameLoop(1, this, this._update, null, true);
                 }
                 this._update();
@@ -1163,17 +1115,16 @@ export class Skeleton extends Sprite {
                     }
                 }
             }
-            this._lastTime = ILaya.Browser.now();
+            this._lastTime = performance.now();
             this.timer.frameLoop(1, this, this._update, null, true);
         }
 
     }
 
     /**
-     * @internal
      * 得到缓冲数据
-     * @param	aniIndex
-     * @param	frameIndex
+     * @param aniIndex
+     * @param frameIndex
      * @return
      */
     private _getGrahicsDataWithCache(aniIndex: number, frameIndex: number): Graphics {
@@ -1181,19 +1132,15 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @internal
      * 保存缓冲grahpics
-     * @param	aniIndex
-     * @param	frameIndex
-     * @param	graphics
+     * @param aniIndex
+     * @param frameIndex
+     * @param graphics
      */
     private _setGrahicsDataWithCache(aniIndex: number, frameIndex: number, graphics: Graphics): void {
         this._graphicsCache[aniIndex][frameIndex] = graphics;
     }
 
-    /**
-     * @internal
-     */
     private reset() {
         this._templet._removeReference();
         this._templet = null;
@@ -1220,7 +1167,6 @@ export class Skeleton extends Sprite {
     }
 
     /**
-     * @override
      * @en Destroy the current animation node.
      * @param destroyChild Whether to destroy child nodes.
      * @zh 销毁当前动画节点。

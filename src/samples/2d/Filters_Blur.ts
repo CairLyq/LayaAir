@@ -1,10 +1,14 @@
+/**
+description
+ 展示使用模糊滤镜处理图像的效果
+ */
 import { Laya } from "Laya";
 import { Sprite } from "laya/display/Sprite";
 import { Stage } from "laya/display/Stage";
-import { BlurFilter } from "laya/filters/BlurFilter";
 import { Browser } from "laya/utils/Browser";
 import { Handler } from "laya/utils/Handler";
 import { Main } from "./../Main";
+import { BlurFilter } from "laya/filters/BlurFilter";
 
 export class Filters_Blur {
 	private apePath: string = "res/apes/monkey2.png";

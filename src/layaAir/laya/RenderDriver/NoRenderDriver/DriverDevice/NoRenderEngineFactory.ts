@@ -1,60 +1,43 @@
 import { Config } from "../../../../Config";
-import { Laya } from "../../../../Laya";
 import { DDSTextureInfo } from "../../../RenderEngine/DDSTextureInfo";
 import { HDRTextureInfo } from "../../../RenderEngine/HDRTextureInfo";
 import { KTXTextureInfo } from "../../../RenderEngine/KTXTextureInfo";
-import { BufferTargetType, BufferUsage } from "../../../RenderEngine/RenderEnum/BufferTargetType";
 import { FilterMode } from "../../../RenderEngine/RenderEnum/FilterMode";
 import { RenderCapable } from "../../../RenderEngine/RenderEnum/RenderCapable";
 import { RenderParams } from "../../../RenderEngine/RenderEnum/RenderParams";
-import { GPUEngineStatisticsInfo } from "../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { RenderTargetFormat } from "../../../RenderEngine/RenderEnum/RenderTargetFormat";
 import { TextureCompareMode } from "../../../RenderEngine/RenderEnum/TextureCompareMode";
 import { TextureDimension } from "../../../RenderEngine/RenderEnum/TextureDimension";
 import { TextureFormat } from "../../../RenderEngine/RenderEnum/TextureFormat";
 import { WrapMode } from "../../../RenderEngine/RenderEnum/WrapMode";
-import { UniformBufferObject } from "../../../RenderEngine/UniformBufferObject";
 import { LayaGL } from "../../../layagl/LayaGL";
 import { IRenderEngine } from "../../DriverDesign/RenderDevice/IRenderEngine";
-import { IRenderEngineFactory } from "../../DriverDesign/RenderDevice/IRenderEngineFactory";
 import { ITextureContext } from "../../DriverDesign/RenderDevice/ITextureContext";
 import { InternalRenderTarget } from "../../DriverDesign/RenderDevice/InternalRenderTarget";
 import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
 import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { ShaderDefine } from "../../RenderModuleData/Design/ShaderDefine";
-import { GLBuffer } from "../../WebGLDriver/RenderDevice/WebGLEngine/GLBuffer";
-
-export class NoRenderEngineFactory implements IRenderEngineFactory {
-    createUniformBufferObject(glPointer: number, name: string, bufferUsage: BufferUsage, byteLength: number, isSingle: boolean): UniformBufferObject {
-        return new UniformBufferObject(glPointer, name, bufferUsage, byteLength, isSingle);
-    }
-    createEngine(config: Config, canvas: any): Promise<void> {
-        LayaGL.renderEngine = new NoRenderEngine();
-        LayaGL.textureContext = LayaGL.renderEngine.getTextureContext();
-
-        return Promise.resolve();
-    }
-
-}
-
 
 export class NoRenderEngine implements IRenderEngine {
-    endFrame(): void {
-
-    }
+    _framePassCount: number = 0;
     _context: any;
     _isShaderDebugMode: boolean;
-    _renderOBJCreateContext: IRenderEngineFactory;
     _enableStatistics: boolean;
     _remapZ: boolean;
     _screenInvertY: boolean;
     _lodTextureSample: boolean;
     _breakTextureSample: boolean;
-    initRenderEngine(canvas: any): void {
+    initRenderEngine(canvas: HTMLCanvasElement): void {
     }
     copySubFrameBuffertoTex(texture: InternalTexture, level: number, xoffset: number, yoffset: number, x: number, y: number, width: number, height: number): void {
     }
     resizeOffScreen(width: number, height: number): void {
+    }
+    endFrame(): void {
+
+    }
+    startFrame(): void {
+
     }
 
     /**@internal */
@@ -112,15 +95,6 @@ export class NoRenderEngine implements IRenderEngine {
     getTextureContext(): ITextureContext {
         return new NoTextureContext();
     }
-    getCreateRenderOBJContext(): IRenderEngineFactory {
-        return new NoRenderEngineFactory();
-    }
-    clearStatisticsInfo(): void {
-
-    }
-    getStatisticsInfo(info: GPUEngineStatisticsInfo): number {
-        return 0
-    }
 }
 
 export class NoInternalTexture implements InternalTexture {
@@ -175,9 +149,9 @@ export class NoTextureContext implements ITextureContext {
         internalTex.isPotSize = true;
         return internalTex;
     }
-    setTextureImageData(texture: InternalTexture, source: HTMLImageElement | HTMLCanvasElement | ImageBitmap, premultiplyAlpha: boolean, invertY: boolean): void {
+    setTextureImageData(texture: InternalTexture, source: HTMLImageElement | HTMLCanvasElement | ImageBitmap | ImageData, premultiplyAlpha: boolean, invertY: boolean): void {
     }
-    setTextureSubImageData(texture: InternalTexture, source: HTMLImageElement | HTMLCanvasElement | ImageBitmap, x: number, y: number, premultiplyAlpha: boolean, invertY: boolean): void {
+    setTextureSubImageData(texture: InternalTexture, source: HTMLImageElement | HTMLCanvasElement | ImageBitmap | ImageData, x: number, y: number, premultiplyAlpha: boolean, invertY: boolean): void {
     }
     setTexturePixelsData(texture: InternalTexture, source: ArrayBufferView, premultiplyAlpha: boolean, invertY: boolean): void {
     }
@@ -204,7 +178,7 @@ export class NoTextureContext implements ITextureContext {
     setTextureCompareMode(texture: InternalTexture, compareMode: TextureCompareMode): TextureCompareMode {
         return TextureCompareMode.None;
     }
-    createRenderTargetInternal(width: number, height: number, format: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number): InternalRenderTarget {
+    createRenderTargetInternal(width: number, height: number, format: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number, storage: boolean): InternalRenderTarget {
         multiSamples = 1;
         let texture = this.createTextureInternal(TextureDimension.Tex2D, width, height, TextureFormat.R8G8B8A8, generateMipmap, sRGB, false);
         let renderTarget = new NoInternalRT();

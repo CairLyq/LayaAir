@@ -17,7 +17,6 @@ import { XML } from "../html/XML";
  */
 export class HttpRequest extends EventDispatcher {
     protected _http = new XMLHttpRequest();
-    private static _urlEncode: Function = encodeURI;
     protected _responseType: string;
     protected _data: any;
     protected _url: string;
@@ -38,14 +37,10 @@ export class HttpRequest extends EventDispatcher {
      */
     send(url: string, data: any = null,
         method: "get" | "post" | "head" = "get",
-        responseType: "text" | "json" | "xml" | "arraybuffer" = "text",
+        responseType: string = "text",
         headers?: string[]): void {
         this._responseType = responseType;
         this._data = null;
-
-        if (Browser.onVVMiniGame || Browser.onQGMiniGame || Browser.onQQMiniGame || Browser.onAlipayMiniGame || Browser.onBLMiniGame || Browser.onHWMiniGame || Browser.onTTMiniGame || Browser.onTBMiniGame) {
-            url = HttpRequest._urlEncode(url);
-        }
         this._url = url;
 
         let http = this._http;
@@ -74,22 +69,13 @@ export class HttpRequest extends EventDispatcher {
 
         let restype: XMLHttpRequestResponseType = responseType !== "arraybuffer" ? "text" : "arraybuffer";
         http.responseType = restype;
-        if ((http as any).dataType) {//for Ali
+        if ((http as any).dataType) { //for Ali
             (http as any).dataType = restype;
         }
-        http.onerror = (e: any) => {
-            this._onError(e);
-        }
-        http.onabort = (e: any) => {
-            this._onAbort(e);
-        }
-        http.onprogress = (e: any) => {
-            this._onProgress(e);
-        }
-        http.onload = (e: any) => {
-            this._onLoad(e);
-        }
-
+        http.onerror = e => this._onError(e);
+        http.onabort = e => this._onAbort(e);
+        http.onprogress = e => this._onProgress(e);
+        http.onload = e => this._onLoad(e);
         http.send(data);
     }
 
@@ -97,7 +83,7 @@ export class HttpRequest extends EventDispatcher {
      * @en The listening and processing function for requesting progress.
      * @param e The event object.
      * @zh 请求进度的侦听处理函数。
-     * @param	e 事件对象。
+     * @param e 事件对象。
      */
     protected _onProgress(e: any): void {
         if (e && e.lengthComputable) this.event(Event.PROGRESS, e.loaded / e.total);
@@ -107,7 +93,7 @@ export class HttpRequest extends EventDispatcher {
      * @en The listening and processing function for request interruption.
      * @param e The event object.
      * @zh 请求中断的侦听处理函数。
-     * @param	e 事件对象。
+     * @param e 事件对象。
      */
     protected _onAbort(e: any): void {
         this.error("Request was aborted by user");
@@ -117,7 +103,7 @@ export class HttpRequest extends EventDispatcher {
      * @en The listening and processing function for request errors.
      * @param e The event object.
      * @zh 请求出错侦的听处理函数。
-     * @param	e 事件对象。
+     * @param e 事件对象。
      */
     protected _onError(e: any): void {
         this.error("Request failed Status:" + this._http.status + " text:" + this._http.statusText);
@@ -127,7 +113,7 @@ export class HttpRequest extends EventDispatcher {
      * @en The listening and processing function for request completion.
      * @param e The event object.
      * @zh 请求消息返回的侦听处理函数。
-     * @param	e 事件对象。
+     * @param e 事件对象。
      */
     protected _onLoad(e: any): void {
         var http: any = this._http;
@@ -144,7 +130,7 @@ export class HttpRequest extends EventDispatcher {
      * @en Request error handling function.
      * @param message The error message.
      * @zh 请求错误的处理函数。
-     * @param	message 错误信息。
+     * @param message 错误信息。
      */
     protected error(message: string): void {
         this.clear();

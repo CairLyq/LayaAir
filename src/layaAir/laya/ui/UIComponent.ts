@@ -1,11 +1,12 @@
 import { Widget } from "../components/Widget";
 import { UIEvent } from "./UIEvent";
-import { UIUtils } from "./UIUtils";
-import { Node } from "../display/Node"
 import { Sprite } from "../display/Sprite"
 import { Event } from "../events/Event"
 import { ILaya } from "../../ILaya";
 import { SerializeUtil } from "../loaders/SerializeUtil";
+import { GrayscaleEffect2D } from "../display/effect2d/ColorEffect2D";
+import { TransformKind } from "../display/SpriteConst";
+import { LayaEnv } from "../../LayaEnv";
 
 /**
  * @en UIComponent is the base class of UI Component.
@@ -202,9 +203,24 @@ export class UIComponent extends Sprite {
     }
 
     set gray(value: boolean) {
+        value = !!value;
         if (value !== this._gray) {
             this._gray = value;
-            UIUtils.gray(this, value);
+            let postProcess = this.getPostProcess(value);
+            if (value) {
+                let effect = postProcess.getEffect(GrayscaleEffect2D);
+                if (!effect)
+                    effect = postProcess.addEffect(new GrayscaleEffect2D());
+            } else {
+                if (postProcess) {
+                    let effect = postProcess.getEffect(GrayscaleEffect2D);
+                    if (effect) {
+                        postProcess.removeEffect(effect);
+                        if (!LayaEnv.isPlaying && postProcess.effects.length === 0)
+                            this.postProcess = null;
+                    }
+                }
+            }
         }
     }
 
@@ -235,6 +251,7 @@ export class UIComponent extends Sprite {
      * 它将依次调用一系列初始化方法。继承该类的子类可以直接重写这些方法,实现自己的初始化逻辑。
      * 如果不需要这些初始化方法,可以将 `createChildren` 设置为 `false`,以跳过它们并减少不必要的开销。
      * @param createChildren 是否执行子对象初始化方法,默认为 true。
+     * @blueprintIgnore
      */
     constructor(createChildren = true) {
         super();
@@ -246,14 +263,13 @@ export class UIComponent extends Sprite {
     }
 
     /**
-     * @en Called when the layout should be refreshed.
-     * This method will call the `_sizeChanged` method later to perform the actual layout refresh.
-     * @zh 当需要刷新布局时调用。
-     * 这个方法会在稍后调用 `_sizeChanged` 方法来执行实际的布局刷新。
+     * @ignore
      */
-    protected _shouldRefreshLayout(): void {
-        super._shouldRefreshLayout();
-        this.callLater(this._sizeChanged);
+    protected _transChanged(kind: TransformKind): void {
+        super._transChanged(kind);
+
+        if ((kind & TransformKind.Layout) != 0)
+            this.callLater(this._sizeChanged);
     }
 
     /**
@@ -271,7 +287,7 @@ export class UIComponent extends Sprite {
     * @zh 子节点发生变化时的回调。
     * @param child 发生变化的子节点。
     */
-    protected _childChanged(child: Node = null): void {
+    protected _childChanged(child?: Sprite): void {
         this.callLater(this._sizeChanged);
         super._childChanged(child);
     }
@@ -320,7 +336,7 @@ export class UIComponent extends Sprite {
         var max: number = 0;
         this.commitMeasure();
         for (var i: number = this.numChildren - 1; i > -1; i--) {
-            var comp: Sprite = (<Sprite>this.getChildAt(i));
+            var comp: Sprite = this.getChildAt(i);
             if (comp._visible) {
                 max = Math.max(comp._x + comp.width * comp.scaleX, max);
             }
@@ -342,10 +358,10 @@ export class UIComponent extends Sprite {
      * @zh 显示对象的实际显示区域高度（以像素为单位）。
      */
     protected measureHeight(): number {
-        var max: number = 0;
+        let max: number = 0;
         this.commitMeasure();
-        for (var i: number = this.numChildren - 1; i > -1; i--) {
-            var comp: Sprite = (<Sprite>this.getChildAt(i));
+        for (let i: number = this.numChildren - 1; i > -1; i--) {
+            let comp: Sprite = this.getChildAt(i);
             if (comp._visible) {
                 max = Math.max(comp._y + comp.height * comp.scaleY, max);
             }
@@ -375,34 +391,6 @@ export class UIComponent extends Sprite {
      */
     private onMouseOut(e: Event): void {
         ILaya.stage.event(UIEvent.HIDE_TIP, this._toolTip);
-    }
-
-    /**
-     * @en The method to be invoked when the component is resized.
-     * It handles the logic for when the component's size changes.
-     * @zh 组件大小调整时调用的方法。
-     * 它处理组件大小发生变化时的逻辑。
-     */
-    protected onCompResize(): void {
-        this._sizeChanged();
-    }
-
-    /**
-     * @en Get the width of the object.
-     * @zh 获取对象的宽度。
-     */
-    get_width(): number {
-        if (this._isWidthSet) return this._width;
-        return this.measureWidth();
-    }
-
-    /**
-     * @en Get the height of the object.
-     * @zh 获取对象的高度。
-     */
-    get_height(): number {
-        if (this._isHeightSet) return this._height;
-        return this.measureHeight();
     }
 
     /**

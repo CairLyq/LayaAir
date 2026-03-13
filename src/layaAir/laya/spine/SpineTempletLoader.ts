@@ -7,8 +7,8 @@ import { Utils } from "../utils/Utils";
 import { SpineTemplet } from "./SpineTemplet";
 import { SpineTexture } from "./SpineTexture";
 
-const _premultipliedAlpha = true;
-
+const _premultipliedAlpha = false;
+const _srgb = true;
 /**
  * @en SpineTempletLoader class used for loading Spine skeleton data and atlas.
  * @zh SpineTempletLoader 类用于加载 Spine 骨骼数据和图集。
@@ -32,13 +32,13 @@ class SpineTempletLoader implements IResourceLoader {
                 return null;
 
             let templet = new SpineTemplet();
-            let version = SpineTemplet.RuntimeVersion;
-            if (version == "4.1") {
+           
+            if (SpineTemplet.VersionFirst >= 4 && SpineTemplet.VersionSecond >= 1) {
                 templet.needSlot = true;
             }
 
             // debugger
-            if (version.startsWith('4.'))
+            if (SpineTemplet.VersionFirst >= 4)
                 return this.parseAtlas4(res[0], res[1], task, templet);
             else
                 return this.parseAtlas3(res[0], res[1], task, templet);
@@ -56,7 +56,7 @@ class SpineTempletLoader implements IResourceLoader {
                 propertyParams: {
                     premultiplyAlpha: _premultipliedAlpha
                 },
-                constructParams:[0,0,TextureFormat.R8G8B8A8,false,false,true,_premultipliedAlpha]
+                constructParams: [0, 0, TextureFormat.R8G8B8A8, false, false, _srgb, _premultipliedAlpha]
             });
             return new SpineTexture(null);
         });
@@ -68,12 +68,11 @@ class SpineTempletLoader implements IResourceLoader {
             for (var i = 0; i < res.length; i++) {
                 let tex = res[i];
                 if (tex) tex._addReference();
-
                 let pages = atlas.pages;
                 // 默认长度 = 1
                 let page = pages[i];
+                premultipliedAlpha = page.pma || (tex && tex._premultiplyAlpha && premultipliedAlpha);
 
-                premultipliedAlpha = page.pma || (tex._premultiplyAlpha && premultipliedAlpha);
                 //@ts-ignore
                 page.texture.realTexture = tex;
                 page.texture.setFilters(page.minFilter, page.magFilter);
@@ -100,7 +99,7 @@ class SpineTempletLoader implements IResourceLoader {
                 }
             }
 
-            templet._parse(desc, atlas, textures , premultipliedAlpha);
+            templet._parse(desc, atlas, textures, premultipliedAlpha);
             return templet;
         });
     }
@@ -115,27 +114,25 @@ class SpineTempletLoader implements IResourceLoader {
                 propertyParams: {
                     premultiplyAlpha: _premultipliedAlpha
                 },
-                constructParams:[0,0,TextureFormat.R8G8B8A8,false,false,true,_premultipliedAlpha]
+                constructParams: [0, 0, TextureFormat.R8G8B8A8, false, false, _srgb, _premultipliedAlpha]
             }
         }),
             null, task.progress?.createCallback()).then((res: Array<Texture2D>) => {
                 let textures: Record<string, Texture2D> = {}
-                let premultipliedAlpha = true;
-
                 let pages = atlas.pages;
+                let premultipliedAlpha = true;
                 for (let i = 0, len = res.length; i < len; i++) {
                     let tex = res[i];
                     if (tex) tex._addReference();
-                    
                     let page = pages[i];
-                    textures[page.name] = tex;
 
                     premultipliedAlpha = page.pma || (tex._premultiplyAlpha && premultipliedAlpha);
+                    textures[page.name] = tex;
                     //@ts-ignore
                     page.setTexture(new SpineTexture(tex));
                 }
 
-                templet._parse(desc, atlas, textures , premultipliedAlpha);
+                templet._parse(desc, atlas, textures, premultipliedAlpha);
                 return templet;
             });
     }

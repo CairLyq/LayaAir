@@ -5,9 +5,6 @@ import { Quaternion } from "./Quaternion";
 import { IClone } from "../utils/IClone";
 
 const _DEFAULTELEMENTS = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-const _tempV30 = new Vector3();
-const _tempV31 = new Vector3();
-const _tempV32 = new Vector3();
 
 /**
  * @en The Matrix3x3 class is used to create a 3x3 matrix.
@@ -23,7 +20,8 @@ export class Matrix3x3 implements IClone {
      * @en Temporary variable
      * @zh 临时变量
      */
-    static Temp: Matrix3x3 = new Matrix3x3();
+    static readonly TEMP: Matrix3x3 = new Matrix3x3();
+
     /**
      * @en Create a rotation matrix from a quaternion.
      * @param rotation The rotation quaternion.
@@ -78,6 +76,24 @@ export class Matrix3x3 implements IClone {
         e[5] = 0;
         e[6] = trans.x;
         e[7] = trans.y;
+        e[8] = 1;
+    }
+
+    static createMatrixFromValue(pos: Vector2, rotate: number, scale: Vector2 = Vector2.ONE, out: Matrix3x3) {
+        var e: Float32Array = out.elements;
+
+        var s: number = Math.sin(rotate), c: number = Math.cos(rotate);
+
+        e[0] = c * scale.x;
+        e[1] = s * scale.x;
+        e[2] = 0;
+
+        e[3] = -s * scale.y;
+        e[4] = c * scale.y;
+        e[5] = 0;
+
+        e[6] = pos.x;
+        e[7] = pos.y;
         e[8] = 1;
     }
 
@@ -427,7 +443,7 @@ export class Matrix3x3 implements IClone {
      * @zh 克隆矩阵。
      * @returns 矩阵的克隆副本。
      */
-    clone(): any {
+    clone() {
         var dest: Matrix3x3 = new Matrix3x3(false);
         dest.elements = this.elements.slice();
         return dest;
@@ -499,3 +515,7 @@ export class Matrix3x3 implements IClone {
         m[6] = vz.x; m[7] = vz.y; m[8] = vz.z;
     }
 }
+
+const _tempV30 = new Vector3();
+const _tempV31 = new Vector3();
+const _tempV32 = new Vector3();

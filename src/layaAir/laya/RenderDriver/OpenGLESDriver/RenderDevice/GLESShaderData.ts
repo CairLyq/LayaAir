@@ -1,5 +1,3 @@
-import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
-import { UniformBufferObject } from "../../../RenderEngine/UniformBufferObject";
 import { Color } from "../../../maths/Color";
 import { Matrix3x3 } from "../../../maths/Matrix3x3";
 import { Matrix4x4 } from "../../../maths/Matrix4x4";
@@ -12,6 +10,7 @@ import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture
 import { ShaderData } from "../../DriverDesign/RenderDevice/ShaderData";
 import { RTDefineDatas } from "../../RenderModuleData/RuntimeModuleData/RTDefineDatas";
 import { RTShaderDefine } from "../../RenderModuleData/RuntimeModuleData/RTShaderDefine";
+import { GLESCommandUniformMap } from "./GLESCommandUniformMap";
 import { GLESInternalTex } from "./GLESInternalTex";
 
 export class GLESShaderData extends ShaderData {
@@ -23,42 +22,15 @@ export class GLESShaderData extends ShaderData {
     /**
      * @internal	
      */
-    constructor(ownerResource: Resource = null) {
+    constructor(ownerResource: Resource = null, createNativeObj: boolean = true) {
         super(ownerResource)
-        this._nativeObj = new (window as any).conchGLESShaderData((this._defineDatas as any)._nativeObj);
+        if (createNativeObj) {
+            this._nativeObj = new (window as any).conchGLESShaderData((this._defineDatas as any)._nativeObj);
+        } else {
+            this._nativeObj = null;
+        }
         this._textureData = {};
         this._bufferData = {};
-    }
-
-    // /**
-    //  * @internal
-    //  * 增加一个UBO Block
-    //  * @param key 
-    //  * @param ubo 
-    //  * @param uboData 
-    //  */
-    // _addCheckUBO(key: string, ubo: UniformBufferObject, uboData: UnifromBufferData) {
-    //     throw new NotImplementedError();//TODO
-    // }
-
-    _releaseUBOData() {
-        //throw new NotImplementedError();//TODO
-        //TODO GLES Temply dont surpport UBO
-    }
-
-    /**
-    * 
-    * @param index 
-    * @param value 
-    */
-    setUniformBuffer(index: number, value: UniformBufferObject) {
-        //TODO
-    }
-
-    getUniformBuffer(index: number): UniformBufferObject {
-        //throw new NotImplementedError();
-        //TODO
-        return null;
     }
 
     getDefineData(): RTDefineDatas {
@@ -72,33 +44,40 @@ export class GLESShaderData extends ShaderData {
         //TODO  想个方案
     }
 
+    clearData(): void {
+        this._nativeObj.clearData();
+    }
+
     /**
-     * 增加Shader宏定义。
+     * @ignore
      */
     addDefine(define: RTShaderDefine): void {
         this._defineDatas.add(define);
     }
 
+    /**
+     * @ignore
+     */
     addDefines(define: RTDefineDatas): void {
         this._defineDatas.addDefineDatas(define);
     }
 
     /**
-     * 移除Shader宏定义。
+     * @ignore
      */
     removeDefine(define: RTShaderDefine): void {
         this._defineDatas.remove(define);
     }
 
     /**
-     * 是否包含Shader宏定义。
+     * @ignore
      */
     hasDefine(define: RTShaderDefine): boolean {
         return this._defineDatas.has(define);
     }
 
     /**
-     * 清空宏定义。
+     * @ignore
      */
     clearDefine(): void {
         this._defineDatas.clear();
@@ -106,7 +85,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取布尔。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  布尔。
      */
     getBool(index: number): boolean {
@@ -115,8 +94,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置布尔。
-     * @param	index shader索引。
-     * @param	value 布尔。
+     * @param index shader索引。
+     * @param value 布尔。
      */
     setBool(index: number, value: boolean): void {
         this._nativeObj.setBool(index, value);
@@ -124,7 +103,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取整形。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  整形。
      */
     getInt(index: number): number {
@@ -133,8 +112,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置整型。
-     * @param	index shader索引。
-     * @param	value 整形。
+     * @param index shader索引。
+     * @param value 整形。
      */
     setInt(index: number, value: number): void {
         this._nativeObj.setInt(index, value);
@@ -142,7 +121,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取浮点。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return	浮点。
      */
     getNumber(index: number): number {
@@ -151,8 +130,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置浮点。
-     * @param	index shader索引。
-     * @param	value 浮点。
+     * @param index shader索引。
+     * @param value 浮点。
      */
     setNumber(index: number, value: number): void {
         this._nativeObj.setNumber(index, value);
@@ -160,7 +139,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取Vector2向量。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return Vector2向量。
      */
     getVector2(index: number): Vector2 {
@@ -178,7 +157,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置Vector2向量。
-     * @param	index shader索引。
+     * @param index shader索引。
+     * @param value Vector2向量。
      */
     setVector2(index: number, value: Vector2): void {
         this._nativeObj.setVector2(index, value);
@@ -186,7 +166,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取Vector3向量。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return Vector3向量。
      */
     getVector3(index: number): Vector3 {
@@ -205,8 +185,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置Vector3向量。
-     * @param	index shader索引。
-     * @param	value Vector3向量。
+     * @param index shader索引。
+     * @param value Vector3向量。
      */
     setVector3(index: number, value: Vector3): void {
         this._nativeObj.setVector3(index, value);
@@ -214,7 +194,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取颜色。
-     * @param 	index shader索引。
+     * @param index shader索引。
      * @return  向量。
      */
     getVector(index: number): Vector4 {
@@ -229,8 +209,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置向量。
-     * @param	index shader索引。
-     * @param	value 向量。
+     * @param index shader索引。
+     * @param value 向量。
      */
     setVector(index: number, value: Vector4): void {
         this._nativeObj.setVector(index, value);
@@ -269,7 +249,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取矩阵。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  矩阵。
      */
     getMatrix4x4(index: number): Matrix4x4 {
@@ -286,8 +266,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置矩阵。
-     * @param	index shader索引。
-     * @param	value  矩阵。
+     * @param index shader索引。
+     * @param value  矩阵。
      */
     setMatrix4x4(index: number, value: Matrix4x4): void {
         this._nativeObj.setMatrix4x4(index, value);
@@ -321,7 +301,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取Buffer。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return
      */
     getBuffer(index: number): Float32Array {
@@ -331,8 +311,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置Buffer。
-     * @param	index shader索引。
-     * @param	value  buffer数据。
+     * @param index shader索引。
+     * @param value  buffer数据。
      */
     setBuffer(index: number, value: Float32Array): void {
         this._bufferData[index] = value;
@@ -341,8 +321,8 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 设置纹理。
-     * @param	index shader索引。
-     * @param	value 纹理。
+     * @param index shader索引。
+     * @param value 纹理。
      */
     setTexture(index: number, value: BaseTexture): void {
         var lastValue: BaseTexture = this._textureData[index];
@@ -352,6 +332,9 @@ export class GLESShaderData extends ShaderData {
         this._textureData[index] = value;
         if (value && value._texture) {
             this._setInternalTexture(index, (value._texture as GLESInternalTex)._nativeObj);
+        }
+        else {
+            this._setInternalTexture(index, null);
         }
         lastValue && lastValue._removeReference();
         value && value._addReference();
@@ -364,7 +347,7 @@ export class GLESShaderData extends ShaderData {
 
     /**
      * 获取纹理。
-     * @param	index shader索引。
+     * @param index shader索引。
      * @return  纹理。
      */
     getTexture(index: number): BaseTexture {
@@ -391,13 +374,12 @@ export class GLESShaderData extends ShaderData {
      * 克隆。
      * @return	 克隆副本。
      */
-    clone(): any {
+    clone() {
         var dest: GLESShaderData = new GLESShaderData();
         this.cloneTo(dest);
         return dest;
     }
     destroy(): void {
         this._nativeObj.destroy();
-        this._nativeObj = null;
     }
 }

@@ -22,6 +22,15 @@ export class RTShaderPass implements IShaderPassData {
         this.renderState.setNull();
         this._pass = pass;
     }
+    name: string;
+    private _additionShaderData: string[];
+    public get additionShaderData(): string[] {
+        return this._additionShaderData;
+    }
+    public set additionShaderData(value: string[]) {
+        this._additionShaderData = value;
+        this._nativeObj.setAdditionShaderData(value);
+    }
     private _nodeCommonMap: string[];
 
     public get nodeCommonMap(): string[] {
@@ -31,6 +40,10 @@ export class RTShaderPass implements IShaderPassData {
     public set nodeCommonMap(value: string[]) {
         this._nativeObj.setCommonUniformMap(value);
     }
+
+    // todo
+    attributeLocations: Set<number>;
+
     /** @internal */
     static getGlobalCompileDefine(): RTDefineDatas {
         if (!RTShaderPass._globalCompileDefine) {

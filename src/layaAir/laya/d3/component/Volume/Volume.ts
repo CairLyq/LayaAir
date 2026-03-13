@@ -51,22 +51,24 @@ export class volumeIntersectInfo {
  * @zh 表示场景中的体积组件。
  */
 export class Volume extends Component {
-    /**@internal */
     protected _primitiveBounds: Bounds;
-    /** @internal @protected 包围盒 */
+    /**包围盒 */
     protected _bounds: Bounds;
-    /**@internal @protected cache number of around Volume */
+    /**@internal cache number of around Volume */
     protected _aroundVolumeCacheNum: number = 0;
-    /** @internal @protected around Volume */
+    /**around Volume */
     protected _aroundVolume: Volume[];
-    /** @internal @protected volume manager */
+    /**volume manager */
     protected _volumeManager: VolumeManager;
-    /** @internal @protected volume intersect Comonent */
+    /**volume intersect Comonent */
     protected _type: number;
-    /** @internal @protected 重要性 */
+    /**重要性 */
     protected _importance: number;
 
+    declare readonly owner: Sprite3D;
+
     /**
+     * @ignore
      * @en constractor of Volume 
      * @zh 体积组件的构造函数。
      */
@@ -126,7 +128,7 @@ export class Volume extends Component {
      * @zh 体积的探针位置。
      */
     get probePosition(): Vector3 {
-        return (this.owner as Sprite3D).transform.position;
+        return this.owner.transform.position;
     }
 
     /**
@@ -139,27 +141,16 @@ export class Volume extends Component {
 
     set importance(value: number) {
         this._importance = value;
-    }
-
-    /**
-     * @internal
-     * @inheritDoc
-     * @override
-     */
+    } 
     protected _onEnable(): void {
-        (this.owner as Sprite3D).transform.on(Event.TRANSFORM_CHANGED, this, this._VolumeChange);
-        this._volumeManager = ((this.owner as Sprite3D).scene as Scene3D)._volumeManager;
+        this.owner.transform.on(Event.TRANSFORM_CHANGED, this, this._VolumeChange);
+        this._volumeManager = this.owner.scene._volumeManager;
         this._volumeManager.add(this);
         this._reCaculateBoundBox();
     }
 
-    /**
-     * @internal
-     * @inheritDoc
-     * @override
-     */
     protected _onDisable(): void {
-        (this.owner as Sprite3D).transform.off(Event.TRANSFORM_CHANGED, this, this._VolumeChange);
+        this.owner.transform.off(Event.TRANSFORM_CHANGED, this, this._VolumeChange);
         this._volumeManager.remove(this);
     }
 
@@ -208,6 +199,6 @@ export class Volume extends Component {
      * @internal
      */
     _reCaculateBoundBox() {
-        this.owner && this._primitiveBounds._tranform((this.owner as Sprite3D).transform.worldMatrix, this._bounds);
+        this.owner && this._primitiveBounds._tranform(this.owner.transform.worldMatrix, this._bounds);
     }
 }

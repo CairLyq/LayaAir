@@ -5,10 +5,15 @@ import { Scene } from "../display/Scene";
 import { Sprite } from "../display/Sprite";
 import { Loader, ILoadURL } from "../net/Loader";
 import { URL } from "../net/URL";
+import { AssetDb } from "../resource/AssetDb";
 import { Prefab } from "../resource/HierarchyResource";
+import { GWidget } from "../ui2/GWidget";
 import { ClassUtils } from "../utils/ClassUtils";
 import { Utils } from "../utils/Utils";
-import { IDecodeObjOptions, SerializeUtil } from "./SerializeUtil";
+import { ObjDecoder } from "./ObjDecoder";
+import { SerializeUtil } from "./SerializeUtil";
+
+const excludeKeys = new Set(["x", "y", "width", "height", "controllers", "relations", "gears"]);
 
 export class HierarchyParser {
     public static parse(data: any, options?: Record<string, any>, errors?: Array<any>): Array<Node> {
@@ -18,12 +23,15 @@ export class HierarchyParser {
         let dataList: Array<any> = [];
         let allNodes: Array<Node> = [];
         let outNodes: Array<Node> = [];
+        let toDestroy: Array<string> = [];
         let scene: Scene;
 
         let inPrefab: boolean;
         let prefabNodeDict: Map<Node, Record<string, Node>>;
         let skinBaseUrl: string;
         let overrideData: Array<Array<any>>;
+        let hasRuntime: boolean;
+        let hasUI: boolean;
 
         if (options) {
             inPrefab = options.inPrefab;
@@ -50,7 +58,7 @@ export class HierarchyParser {
             }
         }
 
-        function createNode(nodeData: any, prefab: Node, runtime?: string): Node {
+        function createNode(nodeData: any, prefab: Node): Node {
             let node: Node;
             let pstr: string;
             if (pstr = nodeData._$override) { //prefab里的override节点
@@ -108,26 +116,25 @@ export class HierarchyParser {
                     }
                 }
                 else if (pstr = nodeData._$type) {
-                    let cls = ClassUtils.getClass(runtime || pstr);
+                    let cls = ClassUtils.getClass(pstr);
                     if (cls) {
                         try {
                             node = new cls();
-                            if (runtime != null && !(node instanceof Node)) {
-                                errors.push(new Error(`runtime class invalid - '${runtime}', must derive from Node`));
-                                node = null;
-                            }
                         }
                         catch (err: any) {
                             errors.push(err);
                         }
                     }
                     else {
-                        errors.push(new Error(`missing node type '${runtime || pstr}' (in ${nodeData.name || 'noname'})`));
+                        errors.push(new Error(`missing node type '${pstr}' (in ${nodeData.name || 'noname'})`));
                     }
                 }
 
-                if (node)
+                if (node) {
                     nodeMap[nodeData._$id] = node;
+                    if (node._nodeType === 2)
+                        hasUI = true;
+                }
             }
 
             return node;
@@ -173,10 +180,12 @@ export class HierarchyParser {
 
         let bakedOverrideData: Record<string, Array<any>>;
         function getNodeData(node: Node) {
-            (<Sprite>node).visible = false;
-
             let i = allNodes.indexOf(node);
             let nodeData = dataList[i];
+
+            node.removeSelf();
+            toDestroy.push(nodeData._$id);
+            allNodes[i] = null;
 
             if (!overrideData)
                 return nodeData;
@@ -190,13 +199,29 @@ export class HierarchyParser {
                 return nodeData;
         }
 
-        let runtime: string;
         if (data._$type || data._$prefab) {
-            runtime = data._$runtime;
-            if (runtime && runtime.startsWith("res://"))
-                runtime = runtime.substring(6);
-
-            let node = createNode(data, null, runtime);
+            let runtime = data._$runtime;
+            if (runtime) {
+                hasRuntime = true;
+                if (runtime.startsWith("res://"))
+                    runtime = runtime.substring(6);
+                runtime = ClassUtils.getClass(runtime);
+                if (!runtime)
+                    errors.push(new Error(`missing runtime class '${data._$runtime}'`));
+            }
+            if (options && options.runtime)
+                runtime = options.runtime;
+            let node: Node;
+            if (runtime) {
+                node = new runtime();
+                if (!(node instanceof Node)) {
+                    errors.push(new Error(`runtime class invalid - '${runtime}', must derive from Node`));
+                    node = null;
+                }
+                nodeMap[data._$id] = node;
+            }
+            else
+                node = createNode(data, null);
             if (node) {
                 if (data._$child)
                     createChildren(data, data._$prefab ? node : null);
@@ -213,12 +238,12 @@ export class HierarchyParser {
                 createChildren(data, null);
         }
 
-        let cnt = dataList.length;
+        let nodeCnt = dataList.length;
 
         //生成树
         let k = 0;
         let outNodeData: Array<any> = [];
-        for (let i = 0; i < cnt; i++) {
+        for (let i = 0; i < nodeCnt; i++) {
             let nodeData = dataList[i];
             let node = allNodes[i];
 
@@ -251,7 +276,7 @@ export class HierarchyParser {
                         for (let j = 0; j < num; j++) {
                             let n = outNodes[k - num + j];
                             if (n) {
-                                if (node === scene && n._is3D)
+                                if (node === scene && n.is3D)
                                     scene._scene3D = <any>n;
                                 else
                                     node.addChild(n);
@@ -272,7 +297,7 @@ export class HierarchyParser {
 
         //加载所有组件
         let compInitList: Array<any> = [];
-        for (let i = 0; i < cnt; i++) {
+        for (let i = 0; i < nodeCnt; i++) {
             let components = dataList[i]._$comp;
             if (!components)
                 continue;
@@ -315,18 +340,52 @@ export class HierarchyParser {
             }
         }
 
-        //设置节点属性
-        const decodeOptions: IDecodeObjOptions = { outErrors: errors, getNodeByRef, getNodeData };
-        for (let i = 0; i < cnt; i++) {
+        const decoder = new ObjDecoder();
+        decoder.errors = errors;
+        decoder.getNodeByRef = getNodeByRef;
+        decoder.getNodeData = getNodeData;
+
+        //第一轮
+        for (let i = 0; i < nodeCnt; i++) {
+            let nodeData = dataList[i];
+            let node = <Sprite>allNodes[i];
+            if (node && (node._nodeType === 2 || node === scene))
+                decoder.decodeObjBounds(nodeData, node);
+        }
+
+        if (hasUI) {
+            if (topNode._nodeType === 2) {
+                (<GWidget>topNode).sourceWidth = (<Sprite>topNode).width;
+                (<GWidget>topNode).sourceHeight = (<Sprite>topNode).height;
+            }
+
+            //第二轮(Relations)
+            for (let i = 0; i < nodeCnt; i++) {
+                let nodeData = dataList[i];
+                let node = allNodes[i];
+                if (node && node._nodeType === 2) {
+                    let v = nodeData["relations"];
+                    if (v != null) {
+                        if (nodeData._$prefab != null)
+                            (<GWidget>node)._addRelations(decoder.decodeObj(v));
+                        else
+                            (<GWidget>node).relations = decoder.decodeObj(v);
+                    }
+                }
+            }
+        }
+
+        //第三轮
+        for (let i = 0; i < nodeCnt; i++) {
             let nodeData = dataList[i];
             let node = allNodes[i];
             if (node) {
-                if (skinBaseUrl != null && (node instanceof Sprite))
-                    node._skinBaseUrl = skinBaseUrl;
+                if (skinBaseUrl != null && node._nodeType === 0)
+                    (<Sprite>node)._skinBaseUrl = skinBaseUrl;
 
-                SerializeUtil.decodeObj(nodeData, node, decodeOptions);
+                decoder.decodeObj(nodeData, node, (node._nodeType === 2 || node === scene) ? excludeKeys : null);
 
-                if (runtime && nodeData._$var && node.name) {
+                if (hasRuntime && nodeData._$var && node.name) {
                     try {
                         (<any>topNode)[node.name] = node;
                     }
@@ -338,9 +397,45 @@ export class HierarchyParser {
         }
 
         //设置组件属性
-        cnt = compInitList.length;
-        for (let i = 0; i < cnt; i += 2) {
-            SerializeUtil.decodeObj(compInitList[i], compInitList[i + 1], decodeOptions);
+        let compCnt = compInitList.length;
+        for (let i = 0; i < compCnt; i += 2) {
+            let compData = compInitList[i];
+            let comp = compInitList[i + 1];
+            decoder.decodeObj(compData, comp);
+        }
+
+        if (hasUI) {
+            //第四轮(Gears)
+            for (let i = 0; i < nodeCnt; i++) {
+                let nodeData = dataList[i];
+                let node = allNodes[i];
+                if (node && node._nodeType === 2) {
+                    let v = nodeData["gears"];
+                    if (v != null) {
+                        if (nodeData._$prefab != null)
+                            (<GWidget>node)._addGears(decoder.decodeObj(v));
+                        else
+                            (<GWidget>node).gears = decoder.decodeObj(v);
+                    }
+                }
+            }
+
+            if (topNode._nodeType === 2 && (!prefabNodeDict || !prefabNodeDict.has(topNode))) {
+                try {
+                    (<GWidget>topNode)._onConstruct(inPrefab);
+                }
+                catch (error: any) {
+                    errors.push(error);
+                }
+            }
+        }
+
+        for (let nodeId of toDestroy) {
+            let node = nodeMap[nodeId];
+            if (!node._destroyed)
+                node.destroy();
+
+            delete nodeMap[nodeId];
         }
 
         if (inPrefab && prefabNodeDict && topNode) //记录下nodeMap，上层创建prefab时使用
@@ -354,26 +449,29 @@ export class HierarchyParser {
 
     public static collectResourceLinks(data: any, basePath: string) {
         let test: Record<string, string[]> = {};
-        let innerUrls: (string | ILoadURL)[] = [];
+        let innerUrls: ILoadURL[] = [];
 
-        function addInnerUrl(url: string, type: string) {
+        function addInnerUrl(url: string, type: string, absolutePath?: boolean) {
             if (!url)
                 return "";
+
+            type = type || undefined;
+
+            if (Utils.isUUID(url))
+                url = "res://" + url;
+            else if (!absolutePath)
+                url = URL.join(basePath, url);
+
             let entry = test[url];
             if (entry === undefined) {
-                let url2: string;
-                if (Utils.isUUID(url))
-                    url2 = "res://" + url;
-                else
-                    url2 = URL.join(basePath, url);
-                innerUrls.push({ url: url2, type: type });
-                test[url] = entry = [url2, type];
+                innerUrls.push({ url, type });
+                test[url] = [type];
             }
-            else if (entry.indexOf(type, 1) == -1) {
+            else if (entry.indexOf(type) === -1) {
+                innerUrls.push({ url, type });
                 entry.push(type);
-                innerUrls.push({ url: entry[0], type: type });
             }
-            return entry[0];
+            return url;
         }
 
         let type: string;
@@ -387,7 +485,7 @@ export class HierarchyParser {
                 data._$prefab = addInnerUrl(data._$prefab, Loader.HIERARCHY);
             else if ((type = data._$type) != null) {
                 if (type.endsWith(".bp"))
-                    addInnerUrl(type, null);
+                    addInnerUrl(type, null, true);
                 else if (LayaEnv.isPreview && Utils.isUUID(type)) {
                     let cls = ClassUtils.getClass(type);
                     if (cls == null || cls._$loadable)
@@ -410,10 +508,20 @@ export class HierarchyParser {
                         if (typeof (item) === "object") {
                             checkData(item);
                         }
+                        else if (typeof (item) === "string" && item.startsWith("i18n:")) {
+                            let i = item.indexOf(":", 5);
+                            if (i != -1)
+                                addInnerUrl(AssetDb.inst.getI18nSettingsURL(item.substring(5, i)), null);
+                        }
                     }
                 }
                 else if (typeof (child) === "object") {
                     checkData(child);
+                }
+                else if (typeof (child) === "string" && child.startsWith("i18n:")) {
+                    let i = child.indexOf(":", 5);
+                    if (i != -1)
+                        addInnerUrl(AssetDb.inst.getI18nSettingsURL(child.substring(5, i)), null);
                 }
             }
         }
@@ -425,9 +533,9 @@ export class HierarchyParser {
             let pi = 0;
             for (let url of data._$preloads) {
                 if (types && types[pi])
-                    addInnerUrl(url, Loader.assetTypeToLoadType[types[pi]]);
+                    addInnerUrl(url, Loader.assetTypeToLoadType[types[pi]], true);
                 else
-                    innerUrls.push(url);
+                    addInnerUrl(url, null, true);
                 pi++;
             }
         }

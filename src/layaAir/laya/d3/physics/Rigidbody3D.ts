@@ -2,7 +2,6 @@ import { Vector3 } from "../../maths/Vector3";
 import { PhysicsColliderComponent, PhysicsForceMode } from "./PhysicsColliderComponent";
 import { Laya3D } from "../../../Laya3D";
 import { IDynamicCollider } from "../../Physics3D/interface/IDynamicCollider";
-import { Scene3D } from "../core/scene/Scene3D";
 import { Quaternion } from "../../maths/Quaternion";
 import { EColliderCapable } from "../../Physics3D/physicsEnum/EColliderCapable";
 import { EPhysicsCapable } from "../../Physics3D/physicsEnum/EPhycisCapable";
@@ -20,7 +19,7 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     /** @internal */
     private _mass = 1.0;
     /** @internal */
-    private _gravity = new Vector3(0, -9.8, 0);
+    private _gravity = new Vector3(0, -10, 0);
     /** @internal */
     private _angularDamping = 0.0;
     /** @internal */
@@ -43,13 +42,12 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     private _collisionDetectionMode: number = 0;
     /**@internal */
     private _allowSleep: boolean = true;
-
     /**
      * @override
      * @internal
      */
     protected _initCollider() {
-        this._physicsManager = ((<Scene3D>this.owner._scene))._physicsManager;
+        this._physicsManager = this.owner._scene._physicsManager;
         if (Laya3D.enablePhysics && this._physicsManager && Laya3D.PhysicsCreateUtil.getPhysicsCapable(EPhysicsCapable.Physics_DynamicCollider)) {
             this._collider = Laya3D.PhysicsCreateUtil.createDynamicCollider(this._physicsManager);
             this._collider.component = this;
@@ -59,8 +57,8 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     }
 
     /**
-     * @en The mass of the rigidbody. It affects the size of acceleration and momentum transfer during force application in collisions.
-     * @zh 刚体的质量。影响其受力时的加速度大小和在碰撞中的动量传递。
+     * @en The mass of the rigidbody.
+     * @zh 刚体的质量。
      */
     get mass(): number {
         return this._mass;
@@ -75,7 +73,7 @@ export class Rigidbody3D extends PhysicsColliderComponent {
 
     /**
      * @en Determines if the rigidbody is kinematic. If true, the rigidbody can only be moved by transform property, not by other force-related properties.
-     * @zh 设置刚体是否为运动学控制模式。如果为true仅可通过transform属性移动物体,而非其他力相关属性。
+     * @zh 确定刚体是否为运动物体。如果为true仅可通过transform属性移动物体,而非其他力相关属性。
      */
     get isKinematic(): boolean {
         return this._isKinematic;
@@ -89,8 +87,8 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     }
 
     /**
-     * @en The linear damping of the rigidbody. It simulates air resistance and other environmental factors to make the object slow down gradually.
-     * @zh 控制刚体线性运动的阻尼系数，模拟空气阻力等环境因素，使物体逐渐减速。
+     * @en The linear damping of the rigidbody.
+     * @zh 刚体的线阻力。
      */
     get linearDamping(): number {
         return this._linearDamping;
@@ -119,8 +117,8 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     }
 
     /**
-     * @en Sets the gravity vector applied to the rigidbody, allowing customization of direction and magnitude. 
-     * @zh 设置作用于刚体的重力向量，可自定义方向和大小。
+     * @en The gravity applied to the rigidbody.
+     * @zh 应用于刚体的重力。
      */
     get gravity(): Vector3 {
         return this._gravity;
@@ -173,7 +171,7 @@ export class Rigidbody3D extends PhysicsColliderComponent {
 
     /**
      * @en The angular motion scaling factor for each axis of the rigidbody. If the value of any axis is 0, it means that the angular motion is frozen on that axis.
-     * @zh 限制刚体在特定轴向的旋转运动，如果某一轴的值为0表示冻结在该轴的角度运动。
+     * @zh 刚体每个轴的角度运动缩放因子。如果某一轴的值为0表示冻结在该轴的角度运动。
      */
     get angularFactor(): Vector3 {
         return this._angularFactor;
@@ -207,6 +205,7 @@ export class Rigidbody3D extends PhysicsColliderComponent {
         }
     }
 
+
     /**
      * @en Set whether the rigidbody allows sleep.
      * @zh 设置刚体是否允许睡眠。
@@ -237,6 +236,7 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     get sleepThreshold(): number {
         return this._sleepThreshold;
     }
+
     set sleepThreshold(value: number) {
         this._sleepThreshold = value;
         if (this._collider && this.collider.getCapable(EColliderCapable.RigidBody_SleepThreshold)) {
@@ -279,8 +279,8 @@ export class Rigidbody3D extends PhysicsColliderComponent {
     }
 
     /**
-     * @en Sets whether the rigidbody is a trigger. Triggers can detect collisions but do not produce physical reactions.
-     * @zh 设置刚体是否作为触发器使用。触发器可以检测碰撞但不产生物理反应。
+     * @en If the rigidbody is a trigger.
+     * @zh 刚体是否为触发器。
      */
     public get trigger(): boolean {
         return this._trigger;
@@ -313,7 +313,6 @@ export class Rigidbody3D extends PhysicsColliderComponent {
 
     /**
      * @internal
-     * @protected
      */
     protected _onEnable(): void {
         super._onEnable();
@@ -334,7 +333,6 @@ export class Rigidbody3D extends PhysicsColliderComponent {
 
     /**
      * @internal
-     * @protected
      */
     protected _onDestroy() {
         super._onDestroy();

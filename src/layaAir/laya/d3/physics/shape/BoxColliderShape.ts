@@ -13,7 +13,6 @@ export class BoxColliderShape extends Physics3DColliderShape {
 
     /**@internal */
     _shape: IBoxColliderShape;
-    /**@internal */
     private _size: Vector3;
 
     /**
@@ -32,10 +31,6 @@ export class BoxColliderShape extends Physics3DColliderShape {
         this._shape.setSize(this._size);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _createShape() {
         if (Laya3D.PhysicsCreateUtil.getPhysicsCapable(EPhysicsCapable.Physics_BoxColliderShape))
             this._shape = Laya3D.PhysicsCreateUtil.createBoxColliderShape();
@@ -65,7 +60,7 @@ export class BoxColliderShape extends Physics3DColliderShape {
      * @en Clone a new BoxColliderShape object.
      * @zh 克隆一个新的 BoxColliderShape 对象。
      */
-    clone(): any {
+    clone() {
         var dest: BoxColliderShape = new BoxColliderShape(this._size.x, this._size.y, this._size.z);
         this.cloneTo(dest);
         return dest;
@@ -83,8 +78,7 @@ export class BoxColliderShape extends Physics3DColliderShape {
     }
 
     //-------------------deprecated-------------------
-    /**
-     * @deprecated
+    /** 
      * @en X-axis size.
      * @zh X轴尺寸。
      */
@@ -100,7 +94,6 @@ export class BoxColliderShape extends Physics3DColliderShape {
     }
 
     /**
-     * @deprecated
      * @en Y-axis size.
      * @zh Y轴尺寸。
      */
@@ -116,7 +109,6 @@ export class BoxColliderShape extends Physics3DColliderShape {
     }
 
     /**
-     * @deprecated
      * @en Z-axis size.
      * @zh Z轴尺寸。
      */

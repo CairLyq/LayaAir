@@ -1,42 +1,45 @@
 import { Rectangle } from "../../maths/Rectangle";
-import { Context } from "../../renders/Context"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "DrawRectCmd";
 
 /**
  * @en Draw a rectangle
  * @zh 绘制矩形
  */
-export class DrawRectCmd {
+export class DrawRectCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the DrawRectCmd
      * @zh 绘制矩形命令的标识符
      */
-    static ID: string = "DrawRect";
+    static readonly ID: string = className;
 
     /**
      * @en The X-axis position to start drawing.
      * @zh 开始绘制的 X 轴位置。
      */
-    x: number;
+    x: number = 0;
     /**
      * @en The Y-axis position to start drawing.
      * @zh 开始绘制的 Y 轴位置。
      */
-    y: number;
+    y: number = 0;
     /**
      * @en The width of the rectangle.
      * @zh 矩形宽度。
      */
-    width: number;
+    width: number = 1;
     /**
      * @en The height of the rectangle.
      * @zh 矩形高度。
      */
-    height: number;
+    height: number = 1;
     /**
      * @en The fill color  
-     * @zh 填充颜色 
+     * @zh 填充颜色.
      */
     fillColor: any;
     /**
@@ -54,7 +57,7 @@ export class DrawRectCmd {
      * @en Whether the position and size are percentages.
      * @zh 位置和大小是否是百分比。
      */
-    percent: boolean;
+    percent: boolean = true;
 
     /**
      * @en Create a DrawRectCmd instance
@@ -79,7 +82,7 @@ export class DrawRectCmd {
      * @returns DrawRectCmd实例
      */
     static create(x: number, y: number, width: number, height: number, fillColor: any, lineColor: any, lineWidth: number, percent?: boolean): DrawRectCmd {
-        var cmd: DrawRectCmd = Pool.getItemByClass("DrawRectCmd", DrawRectCmd);
+        var cmd: DrawRectCmd = Pool.getItemByClass(className, DrawRectCmd);
         cmd.x = x;
         cmd.y = y;
         cmd.width = width;
@@ -98,29 +101,29 @@ export class DrawRectCmd {
     recover(): void {
         this.fillColor = null;
         this.lineColor = null;
-        Pool.recover("DrawRectCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the drawing rectangle command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制矩形命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(context: Context, gx: number, gy: number): void {
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
         let offset = (this.lineWidth >= 1 && this.lineColor) ? this.lineWidth / 2 : 0;
         let lineOffset = this.lineColor ? this.lineWidth : 0;
-        if (this.percent && context.sprite) {
-            let w = context.sprite.width;
-            let h = context.sprite.height;
-            context.drawRect(this.x * w + offset + gx, this.y * h + offset + gy, this.width * w - lineOffset, this.height * h - lineOffset, this.fillColor, this.lineColor, this.lineWidth);
+        if (this.percent && runner.sprite) {
+            let w = runner.sprite.width;
+            let h = runner.sprite.height;
+            runner.drawRect(this.x * w + offset + gx, this.y * h + offset + gy, this.width * w - lineOffset, this.height * h - lineOffset, this.fillColor, this.lineColor, this.lineWidth);
         }
         else
-            context.drawRect(this.x + offset + gx, this.y + offset + gy, this.width - lineOffset, this.height - lineOffset, this.fillColor, this.lineColor, this.lineWidth);
+            runner.drawRect(this.x + offset + gx, this.y + offset + gy, this.width - lineOffset, this.height - lineOffset, this.fillColor, this.lineColor, this.lineWidth);
     }
 
     /**
@@ -132,17 +135,23 @@ export class DrawRectCmd {
     }
 
     /**
-     * @en Get the vertex data of the bounding box
-     * @param sp The sprite that draws the command
-     * @returns Array of vertex data
-     * @zh 获取包围盒的顶点数据
-     * @param sp 绘制命令的精灵对象
-     * @returns 顶点数据数组
+     * @ignore @blueprintIgnore
      */
-    getBoundPoints(sp?: { width: number, height?: number }): number[] {
-        return Rectangle._getBoundPointS(this.x, this.y, this.width, this.height, this.percent ? sp : null)
+    needsLayoutRepaint(): number {
+        return this.percent ? 1 : 0;
+    }
+
+    /**
+     * @ignore
+     */
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        let rect = Rectangle.TEMP.setTo(this.x, this.y, this.width, this.height);
+        if (this.percent) {
+            rect.scale(assembler.width, assembler.height);
+        }
+        rect.getBoundPoints(assembler.points);
     }
 }
 
-ClassUtils.regClass("DrawRectCmd", DrawRectCmd);
+ClassUtils.regClass(className, DrawRectCmd);
 

@@ -1,7 +1,6 @@
 import { Laya3D } from "../../../../Laya3D";
 import { ISpringJoint } from "../../../Physics3D/interface/Joint/ISpringJoint";
 import { EPhysicsCapable } from "../../../Physics3D/physicsEnum/EPhycisCapable";
-import { Scene3D } from "../../core/scene/Scene3D";
 import { ConstraintComponent } from "./ConstraintComponent";
 
 /**
@@ -26,7 +25,7 @@ export class SpringConstraint extends ConstraintComponent {
      * @internal
      */
     protected _initJoint(): void {
-        this._physicsManager = ((<Scene3D>this.owner._scene))._physicsManager;
+        this._physicsManager = this.owner._scene._physicsManager;
         if (Laya3D.enablePhysics && Laya3D.PhysicsCreateUtil.getPhysicsCapable(EPhysicsCapable.Physics_SpringJoint)) {
             this._joint = Laya3D.PhysicsCreateUtil.createSpringJoint(this._physicsManager);
         } else {
@@ -34,10 +33,6 @@ export class SpringConstraint extends ConstraintComponent {
         }
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onAdded(): void {
         super._onAdded();
     }
@@ -53,7 +48,6 @@ export class SpringConstraint extends ConstraintComponent {
         if (this._joint)
             this._joint.isEnable(false);
     }
-
 
     /**
      * @en the minimum distance at which a spring constraint begins to exert a separating force when the distance between objects reaches or falls below this value.

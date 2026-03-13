@@ -9,9 +9,6 @@ import { Quaternion } from "./Quaternion";
  * @zh `Vector3` 类用于创建三维向量。
  */
 export class Vector3 implements IClone {
-    /**@internal*/
-    static _tempVector3 = new Vector3();
-
     /**
      * @en Zero vector (0, 0, 0).
      * @zh 零向量 (0, 0, 0)。
@@ -57,6 +54,12 @@ export class Vector3 implements IClone {
      * @zh 上向量 (0, 1, 0)。
      */
     static readonly Up: Readonly<Vector3> = new Vector3(0, 1, 0);
+
+    /**
+     * @en Temporary vector.
+     * @zh 临时向量。
+     */
+    static readonly TEMP = new Vector3();
 
     /**
      * @en Calculates the squared distance between two three-dimensional vectors.
@@ -550,7 +553,7 @@ export class Vector3 implements IClone {
      * @param arr 目标数组。
      * @param offset 数组偏移。默认值为 0。
      */
-    writeTo(arr: Float32Array, offset: number = 0): void {
+    writeTo(arr: { [n: number]: number }, offset: number = 0): void {
         arr[offset + 0] = this.x;
         arr[offset + 1] = this.y;
         arr[offset + 2] = this.z;
@@ -677,10 +680,11 @@ export class Vector3 implements IClone {
      * @zh 将当前向量克隆到目标对象。
      * @param destObject 克隆的目标对象。
      */
-    cloneTo(destObject: Vector3): void {
+    cloneTo(destObject: Vector3): Vector3 {
         destObject.x = this.x;
         destObject.y = this.y;
         destObject.z = this.z;
+        return destObject;
     }
 
     /**
@@ -689,7 +693,7 @@ export class Vector3 implements IClone {
      * @zh 创建当前向量的克隆。
      * @returns 返回一个新的 Vector3 对象，其值与当前向量相同。
      */
-    clone(): any {
+    clone() {
         var destVector3: Vector3 = new Vector3();
         this.cloneTo(destVector3);
         return destVector3;

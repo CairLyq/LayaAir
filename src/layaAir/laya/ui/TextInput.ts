@@ -8,6 +8,8 @@ import { UIUtils } from "./UIUtils"
 import { ILaya } from "../../ILaya";
 import { HideFlags } from "../Const";
 import { URL } from "../net/URL";
+import { TransformKind } from "../display/SpriteConst";
+
 /**
  * @en The TextInput class is used to create an input text display object.
  * - Event.INPUT event: When the input text after dispatching.
@@ -19,6 +21,7 @@ import { URL } from "../net/URL";
  * - Event.ENTER事件：当输入框内敲回车键后调度。
  * - Event.FOCUS事件：当输入框获得焦点时调度。
  * - Event.BLUR事件：当输入框失去焦点时调度。
+ * @blueprintInheritable
  */
 export class TextInput extends Label {
     protected _skin: string;
@@ -169,7 +172,6 @@ export class TextInput extends Label {
      * - date
      * - time
      */
-
     get type(): string {
         return this._tf.type;
     }
@@ -220,23 +222,19 @@ export class TextInput extends Label {
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    _setWidth(value: number) {
-        super._setWidth(value);
-        this._graphics && (this._graphics.width = value);
-    }
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
 
-    /**
-     * @internal
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
-        this._graphics && (this._graphics.height = value);
-    }
-
-    protected preinitialize(): void {
-        this.mouseEnabled = true;
+        if ((kind & TransformKind.Size) != 0) {
+            if (this._graphics) {
+                if (this._isWidthSet)
+                    this._graphics.width = this._width;
+                if (this._isHeightSet)
+                    this._graphics.height = this._height;
+            }
+        }
     }
 
     protected createChildren(): void {
@@ -277,4 +275,13 @@ export class TextInput extends Label {
     setSelection(startIndex: number, endIndex: number): void {
         this._tf.setSelection(startIndex, endIndex);
     }
+
+    /** @internal @blueprintEvent */
+    TextInput_bpEvent: {
+        [Event.INPUT]: () => void;
+        [Event.ENTER]: () => void;
+        [Event.FOCUS]: () => void;
+        [Event.BLUR]: () => void;
+        [Event.CHANGE]: () => void;
+    };
 }

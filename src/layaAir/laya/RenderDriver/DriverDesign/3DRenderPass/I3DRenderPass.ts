@@ -9,11 +9,14 @@ import { ICameraNodeData, IBaseRenderNode, ISceneNodeData } from "../../RenderMo
 import { ShaderData } from "../RenderDevice/ShaderData";
 import { IRenderGeometryElement } from "../RenderDevice/IRenderGeometryElement";
 import { InternalRenderTarget } from "../RenderDevice/InternalRenderTarget";
-import { IRenderCMD } from "./IRendderCMD";
 import { RenderClearFlag } from "../../../RenderEngine/RenderEnum/RenderClearFlag";
-import { Matrix4x4 } from "../../../maths/Matrix4x4";
 import { Viewport } from "../../../maths/Viewport";
+import { IRenderCMD } from "../RenderDevice/IRenderCMD";
 import { ISceneRenderManager } from "./ISceneRenderManager";
+
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface IRender3DProcess {
     render3DManager: ISceneRenderManager;
     fowardRender(context: IRenderContext3D, camera: Camera): void;
@@ -21,6 +24,10 @@ export interface IRender3DProcess {
 }
 
 export declare type PipelineMode = "Forward" | "ShadowCaster" | "DepthNormal" | string;
+
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface IRenderContext3D {
     globalShaderData: ShaderData;
     sceneData: ShaderData;
@@ -39,28 +46,39 @@ export interface IRenderContext3D {
     drawRenderElementOne(node: IRenderElement3D): number;
     runOneCMD(cmd: IRenderCMD): void
     runCMDList(cmds: IRenderCMD[]): void;
+    clearRenderTarget(): void;
 }
 
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface IRenderElement3D {
     geometry: IRenderGeometryElement;
     materialShaderData: ShaderData;
     materialRenderQueue: number;
+    materialId: number;
     renderShaderData: ShaderData;
     transform: Transform3D;
     canDynamicBatch: boolean;
     isRender: boolean;
     owner: IBaseRenderNode;
     subShader: SubShader;
-    materialId: number;
+
     destroy(): void;
 }
 
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface IInstanceRenderBatch {
     batch(elements: SingletonList<IRenderElement3D>): void;
     clearRenderData(): void;
     recoverData(): void;
 }
 
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface IInstanceRenderElement3D extends IRenderElement3D {
     instanceElementList: SingletonList<IRenderElement3D>;
     setGeometry(geometry: IRenderGeometryElement): void;
@@ -68,6 +86,9 @@ export interface IInstanceRenderElement3D extends IRenderElement3D {
     recover(): void;
 }
 
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export interface ISkinRenderElement3D {
     skinnedData: Float32Array[];
 }

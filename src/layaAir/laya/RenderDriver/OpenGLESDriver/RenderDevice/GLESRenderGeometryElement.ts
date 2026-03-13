@@ -8,7 +8,6 @@ import { IBufferState } from "../../DriverDesign/RenderDevice/IBufferState";
 
 
 export class GLESRenderGeometryElement implements IRenderGeometryElement {
-  /**@internal */
   private _bufferState: IBufferState;
 
   /**@internal */
@@ -23,22 +22,22 @@ export class GLESRenderGeometryElement implements IRenderGeometryElement {
     this.drawParams = new FastSinglelist();
     this.drawType = drawType;
   }
+  getDrawDataParams(out: FastSinglelist<number>): void {
+    out && this.drawParams.cloneTo(out);
+  }
 
-  /**@internal */
   setDrawArrayParams(first: number, count: number): void {
     this.drawParams.add(first);
     this.drawParams.add(count);
     this._nativeObj.setDrawArrayParams(first, count);
   }
 
-  /**@internal */
   setDrawElemenParams(count: number, offset: number): void {
     this.drawParams.add(offset);
     this.drawParams.add(count);
     this._nativeObj.setDrawElementParams(count, offset);
   }
 
-  /**@internal */
   destroy(): void {
     this._nativeObj.destroy();
   }

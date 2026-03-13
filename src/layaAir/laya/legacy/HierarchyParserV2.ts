@@ -2,7 +2,6 @@ import { Component } from "../components/Component";
 import { Node } from "../display/Node";
 import { Camera } from "../d3/core/Camera";
 import { MeshSprite3D } from "../d3/core/MeshSprite3D";
-import { ShuriKenParticle3D } from "../d3/core/particleShuriKen/ShuriKenParticle3D";
 import { RenderableSprite3D } from "../d3/core/RenderableSprite3D";
 import { Scene3D } from "../d3/core/scene/Scene3D";
 import { SkinnedMeshSprite3D } from "../d3/core/SkinnedMeshSprite3D";
@@ -11,12 +10,13 @@ import { ClassUtils } from "../utils/ClassUtils";
 import { SimpleSkinnedMeshSprite3D } from "../d3/core/SimpleSkinnedMeshSprite3D";
 import { ILoadURL, Loader } from "../net/Loader";
 import { URL } from "../net/URL";
-import { HierarchyLoader } from "../loaders/HierarchyLoader";
 import { ReflectionProbe } from "../d3/component/Volume/reflectionProbe/ReflectionProbe";
 import { DirectionLightCom } from "../d3/core/light/DirectionLightCom";
 import { PointLightCom } from "../d3/core/light/PointLightCom";
 import { SpotLightCom } from "../d3/core/light/SpotLightCom";
-import { TrailRenderer } from "../d3/core/trail/TrailRenderer";
+import { TrailRenderer } from "../trail/trail3D/TrailRenderer";
+import { PrefabImpl } from "../resource/PrefabImpl";
+import { ShuriKenParticle3D } from "../particle/d3/ShuriKenParticle3D";
 
 /**
  * @internal
@@ -400,4 +400,4 @@ export class HierarchyParserV2 {
     }
 }
 
-HierarchyLoader.v2 = HierarchyParserV2;
+PrefabImpl.v2 = HierarchyParserV2;

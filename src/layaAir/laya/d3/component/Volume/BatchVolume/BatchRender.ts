@@ -9,6 +9,7 @@ import { Scene3D } from "../../../core/scene/Scene3D";
 /**
  * @en Class used to describe batched rendering nodes.
  * @zh 类用来描述合批的渲染节点。
+ * @blueprintIgnore @blueprintIgnoreSubclasses
  */
 export class BatchRender extends BaseRender {
     /**@internal */
@@ -73,7 +74,6 @@ export class BatchRender extends BaseRender {
 
     /**
      * @internal
-     * @protected
      * Overrid it
      *  是否满足batch条件
      */
@@ -86,7 +86,6 @@ export class BatchRender extends BaseRender {
 
     /**
      * @internal
-     * @protected
      */
     protected _onEnable(): void {
         super._onEnable();
@@ -99,7 +98,6 @@ export class BatchRender extends BaseRender {
 
     /**
      * @internal
-     * @protected
      */
     protected _onDisable(): void {
         super._onDisable();
@@ -112,7 +110,6 @@ export class BatchRender extends BaseRender {
 
     /**
      * @internal
-     * @protected
      * 根据lod的改变
      */
     protected _changeLOD(lod: number) {
@@ -142,7 +139,7 @@ export class BatchRender extends BaseRender {
         if (!this.checkLOD || !this._lodRateArray || this._lodRateArray.length < 1) {
             this._changeLOD(0);
         } else {
-            let checkCamera = (this.owner.scene as Scene3D).cullInfoCamera as Camera;
+            let checkCamera = this.owner.scene.cullInfoCamera;
             let maxYDistance = checkCamera.maxlocalYDistance;
             Vector3.subtract(this._bounds._imp.getCenter(), checkCamera.transform.position, tempVec);
             //大于farplane,或者不在视锥内.不做lod操作

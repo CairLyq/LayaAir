@@ -9,6 +9,7 @@ import { Transform3D } from "../Transform3D";
 /**
  * @en RenderElement class is used to implement rendering elements.
  * @zh RenderElement 类用于实现渲染元素。
+ * @blueprintIgnore @blueprintIgnoreSubclasses
  */
 export class RenderElement {
     /**
@@ -57,7 +58,7 @@ export class RenderElement {
 
         if (value) {
             this._material = value;
-            this.material._setOwnerElement(this._renderElementOBJ);
+            this.material._setOwner3DElement(this._renderElementOBJ);
         }
         else {
             this._material = null;

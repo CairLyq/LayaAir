@@ -1,40 +1,33 @@
 import { Sprite } from "./Sprite";
 import { Node } from "./Node";
 import { Config } from "./../../Config";
-import { Input } from "./Input";
-import { SpriteConst } from "./SpriteConst";
+import { SpriteConst, SubPassFlag, TransformKind, RepaintFlag } from "./SpriteConst";
 import { NodeFlags } from "../Const"
 import { Event } from "../events/Event"
 import { InputManager } from "../events/InputManager"
 import { Matrix } from "../maths/Matrix"
 import { Point } from "../maths/Point"
-import { Render } from "../renders/Render"
-import { RenderInfo } from "../renders/RenderInfo"
-import { Context } from "../renders/Context"
-import { HTMLCanvas } from "../resource/HTMLCanvas"
 import { Browser } from "../utils/Browser"
-import { CallLater } from "../utils/CallLater"
 import { ColorUtils } from "../utils/ColorUtils"
-import { RunDriver } from "../utils/RunDriver"
-import { VectorGraphManager } from "../utils/VectorGraphManager"
 import { Stat } from "../utils/Stat";
 import { ILaya } from "../../ILaya";
 import { ComponentDriver } from "../components/ComponentDriver";
-import { LayaEnv } from "../../LayaEnv";
-import { Scene3D } from "../d3/core/scene/Scene3D";
-import { Color } from "../maths/Color";
+import type { Scene3D } from "../d3/core/scene/Scene3D";
 import { LayaGL } from "../layagl/LayaGL";
+import { Scene } from "./Scene";
+import { RenderState2D } from "../webgl/utils/RenderState2D";
+import type { Laya3D } from "../../Laya3D";
+import { Timer } from "../utils/Timer";
+import { Tweener } from "../tween/Tweener";
+import { RenderTexture2D } from "../resource/RenderTexture2D";
+import { Render2DProcessor } from "./Render2DProcessor";
+import { Color } from "../maths/Color";
+import { PAL } from "../platform/PlatformAdapters";
+import { TextRenderConfig } from "../webgl/text/TextRenderConfig";
+import { StatElement } from "../layagl/StatisticsContext";
+import { Render } from "../renders/Render";
 
 /**
- * @zh Stage 是舞台类，显示列表的根节点，所有显示对象都在舞台上显示。通过 Laya.stage 单例访问。
- * Stage提供几种适配模式，不同的适配模式会产生不同的画布大小，画布越大，渲染压力越大，所以要选择合适的适配方案。
- * Stage提供不同的帧率模式，帧率越高，渲染压力越大，越费电，合理使用帧率甚至动态更改帧率有利于改进手机耗电。
- * - Event.RESIZE("resize"): 舞台大小经过重新调整时进行调度。
- * - Event.FOCUS("focus"): 舞台获得焦点时调度。比如浏览器或者当前标签处于后台，重新切换回来时进行调度。
- * - Event.BLUR("blur"): 舞台失去焦点时调度。比如浏览器或者当前标签被切换到后台后调度。
- * - Event.FOCUS_CHANGE("focuschange"): 舞台焦点变化时调度，使用Laya.stage.isFocused可以获取当前舞台是否获得焦点。
- * - Event.VISIBILITY_CHANGE("visibilitychange"): 舞台可见性发生变化时调度（比如浏览器或者当前标签被切换到后台后调度），使用Laya.stage.isVisibility可以获取当前是否处于显示状态。
- * - Event.FULL_SCREEN_CHANGE("fullscreenchange"): 浏览器全屏更改时调度，比如进入全屏或者退出全屏。
  * @en Stage is the root node of the display list. All display objects are shown on the stage. It can be accessed through the Laya.stage singleton.
  * Stage provides several adaptation modes. Different adaptation modes will produce different canvas sizes. The larger the canvas, the greater the rendering pressure, so it's important to choose an appropriate adaptation scheme.
  * Stage provides different frame rate modes. The higher the frame rate, the greater the rendering pressure and power consumption. Reasonable use of frame rates or even dynamic changes in frame rates can help improve mobile phone power consumption.
@@ -44,145 +37,137 @@ import { LayaGL } from "../layagl/LayaGL";
  * - Event.FOCUS_CHANGE("focuschange"): Dispatched when the stage focus changes. Use Laya.stage.isFocused to get whether the current stage has focus.
  * - Event.VISIBILITY_CHANGE("visibilitychange"): Dispatched when the stage visibility changes (e.g., when the browser or current tab is switched to the background). Use Laya.stage.isVisibility to get the current visibility state.
  * - Event.FULL_SCREEN_CHANGE("fullscreenchange"): Discheduled when the browser fullscreen state changes, such as entering or exiting fullscreen mode.
+ * @zh Stage 是舞台类，显示列表的根节点，所有显示对象都在舞台上显示。通过 Laya.stage 单例访问。
+ * Stage提供几种适配模式，不同的适配模式会产生不同的画布大小，画布越大，渲染压力越大，所以要选择合适的适配方案。
+ * Stage提供不同的帧率模式，帧率越高，渲染压力越大，越费电，合理使用帧率甚至动态更改帧率有利于改进手机耗电。
+ * - Event.RESIZE("resize"): 舞台大小经过重新调整时进行调度。
+ * - Event.FOCUS("focus"): 舞台获得焦点时调度。比如浏览器或者当前标签处于后台，重新切换回来时进行调度。
+ * - Event.BLUR("blur"): 舞台失去焦点时调度。比如浏览器或者当前标签被切换到后台后调度。
+ * - Event.FOCUS_CHANGE("focuschange"): 舞台焦点变化时调度，使用Laya.stage.isFocused可以获取当前舞台是否获得焦点。
+ * - Event.VISIBILITY_CHANGE("visibilitychange"): 舞台可见性发生变化时调度（比如浏览器或者当前标签被切换到后台后调度），使用Laya.stage.isVisibility可以获取当前是否处于显示状态。
+ * - Event.FULL_SCREEN_CHANGE("fullscreenchange"): 浏览器全屏更改时调度，比如进入全屏或者退出全屏。
  */
 export class Stage extends Sprite {
     /**
-    * @zh 不缩放模式：画布宽高等于设计宽高，不进行任何缩放，舞台按照设计尺寸显示，这种模式适合在固定像素大小的嵌入需求，如果出现在与设计宽高不同尺寸的设备上，会出现空白区域或内容超出屏幕（运行窗口）的情况。
-    * @en No Scale Mode:The canvas width and height are equal to the design resolution, with no scaling applied. The stage is rendered strictly according to the design dimensions. This mode is suitable for scenarios where a fixed-size pixel canvas is embedded in another interface. If used on devices with screen sizes different from the design resolution, blank margins may appear or content may overflow beyond the screen boundaries.
-    */
-    static SCALE_NOSCALE: string = "noscale";
-
-    /**
-     * @zh 设计内容全部显示的等比缩放模式：画布宽高等于设计宽高，在确保全部设计内容可见，避免裁切的前提下，将舞台（画布适配后的逻辑宽高）等比缩放至屏幕（运行窗口）最大尺寸，缩放系数取设计宽度与屏幕宽度、设计高度与屏幕高度之间的最小缩放因子。该模式在与设计尺寸比例不同的屏幕上，会出现上下或左右的空白边缘，通常需要配合画布的对齐方式使用。
-     * @en Show All Mode: The canvas size equals the design resolution. To ensure that all design content remains visible with no cropping, the stage (i.e., the logical width and height after the canvas is adapted) is uniformly scaled to the largest size that fits inside the screen (runtime window). The scaling factor is the smaller of the two ratios: screen width ÷ design width and screen height ÷ design height. When the screen’s aspect ratio differs from the design’s, blank margins may appear at the top and bottom or the left and right edges, so this mode is typically used together with a canvas-alignment setting.
+     * @en No scaling is applied, and the stage is displayed at its design size. The actual width and height of the canvas are set to the design width and height. This mode is suitable for applications that want to maintain the original design ratio, but it may result in blank areas or content overflow on different devices.
+     * @zh 不进行缩放，舞台按照设计尺寸显示，画布的实际宽度和高度设置为设计宽度和高度。这种模式适合希望保持原始设计比例的应用，但在不同设备上可能会出现空白区域或内容超出屏幕的情况。
      */
-    static SCALE_SHOWALL: string = "showall";
+    static readonly SCALE_NOSCALE: string = "noscale";
 
     /**
-     * @zh 没底色边的等比缩放模式（全屏适配）：画布宽高等于设计宽高，在确保不会漏出屏幕背景颜色的前提下，将舞台（画布适配后的逻辑宽高）等比缩放至填满屏幕（运行窗口），缩放系数取设计宽度与屏幕宽度、设计高度与屏幕高度之间的最大缩放因子。该模式在与设计尺寸比例不同的屏幕上，会导致部分设计内容被裁切（舞台尺寸超出屏幕），通常用于没有边缘UI，对边缘裁切无所谓的3D场景中。
-     * @en No Border Mode: The canvas size equals the design resolution. Under the premise of ensuring that the screen background color is never exposed, the stage (i.e., the logical width and height after the canvas is adapted) is uniformly scaled to fill the entire screen (runtime window). The scaling factor is the larger of the two ratios: screen width ÷ design width and screen height ÷ design height. When the screen’s aspect ratio differs from the design’s, part of the design content may be cropped (since the stage size exceeds the screen). This mode is typically used in 3D scenes without edge UI elements, where edge cropping is not a concern.
+     * @en The canvas and stage are proportionally scaled to fit the screen as much as possible while preserving the original design aspect ratio. The scaling factor is determined by the smaller ratio between the screen size and the design resolution (width and height), ensuring that all design content remains fully visible without cropping. This approach may result in blank margins at the top/bottom or sides of the screen, which are typically handled using appropriate canvas alignment settings.
+     * @zh 保持设计宽高比例的情况下，将画布和舞台等比缩放至屏幕最大尺寸，缩放系数取设计宽度与屏幕宽度、设计高度与屏幕高度之间的最小缩放因子，以确保整个设计宽高的内容可见，避免裁切，但可能会出现上下或左右的空白边缘，通常需要配合画布的对齐方式使用。
      */
-    static SCALE_NOBORDER: string = "noborder";
+    static readonly SCALE_SHOWALL: string = "showall";
 
     /**
-     * @zh 画布铺满的不缩放模式：画布和舞台（即画布适配后的逻辑宽高）等于屏幕（运行窗口）的宽高，但不对设计内容本身进行缩放。如果有 UI 元素，开发者需要根据设备的 DPR（设备像素比）自行进行缩放，否则在高 DPR 设备上 UI 会显得较小。该模式通常用于以 3D 内容为主、UI 较少且采用动态相对布局的场景。
-     * @en Full Mode: The canvas and the stage (i.e., the logical width and height after adaptation) are set to match the screen (runtime window) dimensions, but the design content itself is not scaled. If there are UI elements, developers need to scale them manually according to the device's DPR (pixelRatio), otherwise the UI may appear too small on high-DPR devices. This mode is commonly used in 3D games with minimal UI that relies on dynamic or relative layout.
+     * @en The stage is scaled to fill the screen, with the actual width and height of the canvas calculated based on the design width and height multiplied by the maximum scale factor. This mode ensures that content fully covers the display area, but it may result in some content being cut off.
+     * @zh 将舞台缩放以填满屏幕，画布的实际宽度和高度根据设计宽度和高度乘以最大缩放因子计算。这种模式保证内容完全覆盖屏幕，但可能会导致部分设计内容被裁切。
      */
-    static SCALE_FULL: string = "full";
+    static readonly SCALE_NOBORDER: string = "noborder";
 
     /**
-     * @zh 画布铺满的缩放模式：与SCALE_FULL类似，画布和舞台（即画布适配后的逻辑宽高）等于屏幕（运行窗口）的宽高，但区别是，设计内容会按 DPR(pixelRatio) 进行缩放，适合于各种高 DPR 的机型应用场景。
-     * - 该模式的好处是，不需要开发者对于 UI 根据 DPR 自行在逻辑里进行缩放处理。
-     * - 需要注意的是，在这种模式下，设计的宽高不能使用目标机型的物理分辨率，而是要使用目标机型的逻辑分辨率（物理分辨率除以DRP），这与其它适配模式不同，否则，会导致超出逻辑分辨率部分内容被裁切。
-     * @en Full Screen Mode: Similar to SCALE_FULL, the canvas and the stage (i.e., the logical width and height after adaptation) are set to match the screen (runtime window) dimensions.  However, unlike SCALE_FULL, the design content is automatically scaled according to the device’s DPR (pixelRatio), making it suitable for applications on high-DPR devices.
-     * - One advantage of this mode is that developers do not need to manually scale UI elements based on DPR in their code.
-     * - Note: In this mode, the design width and height should be based on the device’s logical resolution (i.e., physical resolution divided by DPR), which differs from other scaling modes. Otherwise, any content exceeding the logical resolution may be clipped.
-     **/
-    static SCALE_FULLSCREEN: string = "fullscreen";
-
-    /**
-     * @zh 保宽适配模式（全屏）：画布的宽等于设计宽，高度根据屏幕高度与全屏缩放因子计算得出。舞台（即画布适配后的逻辑宽高）根据画布尺寸等比缩放至填满屏幕（运行窗口）。这种模式可以确保水平方向的UI设计内容始终完全显示在屏幕内，而垂直方向的UI设计内容可能因缩放而部分超出屏幕或露出舞台背景色。但由于舞台始终填满屏幕，开发者可通过相对布局方式，使垂直方向的UI内容适配于各类屏幕，实现完美的全屏效果。
-     * @en Fixed width Mode：The canvas width is equal to the design width, while its height is calculated based on the screen height and a full-screen scaling factor. The stage (i.e., the logical width and height after canvas adaptation) is then uniformly scaled according to the canvas size to fill the entire screen (runtime window). This mode ensures that all horizontal design content is always fully visible on the screen, while vertical design content may be partially clipped or expose the stage background due to scaling. However, since the stage always fills the screen, developers can use relative layout in the vertical direction to adapt the content for various screen sizes and achieve a perfect full-screen experience.
+     * @en Set the stage and canvas directly to the screen's width and height. Other aspects are the same as the SCALE_NOSCALE mode, with no scaling applied to the design content itself. This mode is suitable for scenarios where you want to fully utilize the screen space and handle dynamic layout on the screen yourself.
+     * @zh 将舞台与画布直接设置为屏幕宽度和高度，其它方面与SCALE_NOSCALE模式一样，不对设计内容本身进行缩放。这种模式适用于希望完全利用屏幕空间，自行对屏幕动态排版的需求。
      */
-    static SCALE_FIXED_WIDTH: string = "fixedwidth";
+    static readonly SCALE_FULL: string = "full";
 
     /**
-     * @zh 保高适配模式（全屏）：画布的高等于设计高，宽度根据屏幕宽度与全屏缩放因子计算得出。舞台（即画布适配后的逻辑宽高）根据画布尺寸等比缩放至填满屏幕（运行窗口）。这种模式可以确保垂直方向的UI设计内容始终完全显示在屏幕内，而水平方向的UI设计内容可能因缩放而部分超出屏幕或露出舞台背景色。但由于舞台始终填满屏幕，开发者可通过相对布局方式，使水平方向的UI内容适配于各类屏幕，实现完美的全屏效果。
-     * @en Fixed height Mode：The canvas height is equal to the design height, while its width is calculated based on the screen width and a full-screen scaling factor. The stage (i.e., the logical width and height after canvas adaptation) is then uniformly scaled according to the canvas size to fill the entire screen (runtime window). This mode ensures that all vertical UI design content is always fully visible on the screen, while horizontal content may be partially clipped or expose the stage background due to scaling. However, since the stage always fills the screen, developers can use relative layout in the horizontal direction to adapt the content for various screen sizes and achieve a perfect full-screen experience.
+     * @en The stage width is kept fixed, and scaling is done based on the screen height. The canvas height is calculated based on the screen height and scale factor, and the stage height is set accordingly. This mode ensures consistent width but may alter the height ratio on different devices.
+     * @zh 保持舞台的宽度固定，根据屏幕高度进行缩放。画布的高度根据屏幕高度和缩放因子计算，并设置舞台的高度。这种模式确保宽度一致，但在不同设备上可能会改变高度比例。
      */
-    static SCALE_FIXED_HEIGHT: string = "fixedheight";
+    static readonly SCALE_FIXED_WIDTH: string = "fixedwidth";
 
     /**
-     * @zh 自动保宽高模式（全屏）：这是一种根据屏幕（运行窗口）宽高比动态选择“保宽”或“保高”策略的自适应模式。当屏幕宽高比小于设计宽高比时，采用“保宽”（fixedwidth）模式；反之，则采用“保高”（fixedheight）模式。该模式可确保UI设计内容始终处于舞台范围内，不会被裁切，但可能在水平方向或垂直方向漏出背景颜色。为实现理想的全屏效果，建议通过相对布局方式适配不同屏幕。
-     * @en Fixed Auto Mode: This is an adaptive scaling mode that dynamically selects either the "fixedwidth" or "fixedheight" strategy based on the aspect ratio of the screen (runtime window). When the screen’s aspect ratio is less than the design aspect ratio, it uses the **fixedwidth** mode; otherwise, it uses the **fixedheight** mode. This mode ensures that the UI design content always stays within the stage without being cropped, though background color may appear on the horizontal or vertical edges. For an optimal full-screen experience, it is recommended to use relative layout to adapt to various screen sizes.
+     * @en The stage height is kept fixed, and scaling is done based on the screen width. The canvas width is calculated based on the screen width and scale factor, and the stage width is set accordingly. This mode ensures consistent height but may alter the width ratio on different devices.
+     * @zh 保持舞台的高度固定，根据屏幕宽度进行缩放。画布的宽度根据屏幕宽度和缩放因子计算，并设置舞台的宽度。这种模式确保高度一致，但在不同设备上可能会改变宽度比例。
      */
-    static SCALE_FIXED_AUTO: string = "fixedauto";
+    static readonly SCALE_FIXED_HEIGHT: string = "fixedheight";
+
+    /**
+     * @en The scaling method is automatically chosen based on the comparison between the screen aspect ratio and the design aspect ratio. If the screen aspect ratio is less than the design aspect ratio, the width is kept fixed with equal scale factors and the canvas height is calculated; otherwise, the height is kept fixed with equal scale factors and the canvas width is calculated. This mode flexibly adapts to different devices but may result in content being cut off or blank borders appearing.
+     * @zh 根据屏幕宽高比与设计宽高比的比较，自动选择缩放方式；如果屏幕宽高比小于设计宽高比，则保持宽度固定，缩放因子相等并计算画布高度；否则，保持高度固定，缩放因子相等并计算画布宽度。这种模式可以灵活适应不同的设备，但可能会导致内容被裁切或出现空白边缘。
+     */
+    static readonly SCALE_FIXED_AUTO: string = "fixedauto";
 
     /**
      * @en Canvas is horizontally aligned to the left.
      * @zh 画布水平居左对齐。
      */
-    static ALIGN_LEFT: string = "left";
+    static readonly ALIGN_LEFT: string = "left";
     /**
      * @en Canvas is horizontally aligned to the right.
      * @zh 画布水平居右对齐。
      */
-    static ALIGN_RIGHT: string = "right";
+    static readonly ALIGN_RIGHT: string = "right";
     /**
      * @en Canvas is horizontally centered.
      * @zh 画布水平居中对齐。
      */
-    static ALIGN_CENTER: string = "center";
+    static readonly ALIGN_CENTER: string = "center";
     /**
      * @en Canvas is vertically aligned to the top.
      * @zh 画布垂直居上对齐。
      */
-    static ALIGN_TOP: string = "top";
+    static readonly ALIGN_TOP: string = "top";
     /**
      * @en Canvas is vertically centered.
      * @zh 画布垂直居中对齐。
      */
-    static ALIGN_MIDDLE: string = "middle";
+    static readonly ALIGN_MIDDLE: string = "middle";
     /**
      * @en Canvas is vertically aligned to the bottom.
      * @zh 画布垂直居下对齐。
      */
-    static ALIGN_BOTTOM: string = "bottom";
+    static readonly ALIGN_BOTTOM: string = "bottom";
 
     /**
      * @en Do not change the screen orientation.
      * @zh 不更改屏幕。
      */
-    static SCREEN_NONE: string = "none";
+    static readonly SCREEN_NONE: string = "none";
     /**
      * @en Automatically switch to landscape mode.
      * @zh 自动横屏。
      */
-    static SCREEN_HORIZONTAL: string = "horizontal";
+    static readonly SCREEN_HORIZONTAL: string = "horizontal";
     /**
      * @en Automatically switch to portrait mode.
      * @zh 自动竖屏。
      */
-    static SCREEN_VERTICAL: string = "vertical";
+    static readonly SCREEN_VERTICAL: string = "vertical";
 
     /**
      * @en Fast mode, running at the configured maximum frame rate (not exceeding the device's maximum frame rate).
      * @zh 快速模式，以配置的最高帧率运行（不得超过设备最高帧率）。
      */
-    static FRAME_FAST: string = "fast";
+    static readonly FRAME_FAST: string = "fast";
     /**
      * @en Slow mode has a frame rate that is half of the fast mode. The principle is to skip rendering every other frame. For example, if the maximum frame rate in fast mode is 60, the maximum frame rate in slow mode would be 30.
      * @zh 慢速模式的帧率是快速模式的一半，其原理是每隔一帧就会跳过渲染。例如快速模式的满帧为60时，慢速模式的满帧则为30。
      */
-    static FRAME_SLOW: string = "slow";
+    static readonly FRAME_SLOW: string = "slow";
     /**
      * @en Mouse mode, In this mode, it checks if the last mouse movement occurred within the last two seconds. If it did, `frameMode` will be set to `FRAME_FAST`; otherwise, it will be set to `FRAME_SLOW`.
      * @zh 鼠标模式，该模式下，会检查上一次鼠标移动的时间，如果是在最近的两秒内，帧率的模式会采用快速模式，否则采用慢速模式。
      */
-    static FRAME_MOUSE: string = "mouse";
+    static readonly FRAME_MOUSE: string = "mouse";
     /**
      * @en Sleep mode, running at 1 frame per second.
      * @zh 休眠模式，以每秒1帧的速度运行。
      */
-    static FRAME_SLEEP: string = "sleep";
+    static readonly FRAME_SLEEP: string = "sleep";
 
     /**
      * @en The current focus object, which will affect the dispatch of current keyboard events.
      * @zh 当前焦点对象，此对象会影响当前键盘事件的派发主体。
      */
-    focus: Node;
+    readonly focus: Node;
     /**
-     * @private
-     * @deprecated
-     * @en Offset relative to the browser's top-left corner, deprecated, please use _canvasTransform.
-     * @zh 相对浏览器左上角的偏移，弃用，请使用_canvasTransform。
+     * @en Offset relative to the browser's top-left corner.
+     * @zh 相对浏览器左上角的偏移。
      */
     offset: Point = new Point();
-    /**
-     * @en Frame rate types:fast (default, full frame rate),slow (half of the full frame rate),mouse (full frame rate after mouse activity, switches to half frame rate if the mouse is idle for 2 seconds),sleep (1 frame per second)
-     * @zh 帧率类型：fast(默认，满帧)，slow（满帧减半），mouse（鼠标活动后满帧，鼠标不动2秒后满帧减半），sleep（每秒1帧）。
-     */
-    private _frameRate: string = "fast";
     /**
      * @en Design width (the width set during initialization Laya.init(width,height))
      * @zh 设计宽度（初始化时设置的宽度Laya.init(width,height)）
@@ -215,194 +200,117 @@ export class Stage extends Sprite {
      * @zh 是否启用屏幕适配，可以适配后，在某个时候关闭屏幕适配，防止某些操作导致的屏幕意外改变。
      */
     screenAdaptationEnabled: boolean = true;
-    /**@internal */
-    _canvasTransform: Matrix = new Matrix();
-    /**@internal */
-    _mouseMoveTime: number = 0;
-    /**@internal webgl Color*/
-    _wgColor = new Color(0, 0, 0, 0);// number[] | null = [0, 0, 0, 1];
-    /**@internal */
-    _scene3Ds: Scene3D[] = [];
+    /**
+     * @en The transformation matrix of the canvas.
+     * @zh 画布的变换矩阵。
+     */
+    readonly _canvasTransform: Matrix = new Matrix();
+
+    /**
+     * @en The pass manager for 2D rendering. It manages the rendering passes and processes the rendering of 2D objects.
+     * @zh 2D渲染的Pass管理器，管理渲染Pass并处理2D对象的渲染。
+     */
+    readonly passManager: Render2DProcessor;
+
+    /** @internal */
+    readonly _scene3Ds: Scene3D[] = [];
+    /** @internal */
+    readonly _scene2Ds: Scene[] = [];
+    ;
     private _screenMode: string = "none";
     private _scaleMode: string = "noscale";
     private _alignV: string = "top";
     private _alignH: string = "left";
     private _bgColor: string = "gray";
-    private _renderCount: number = 0;
-    private _safariOffsetY: number = 0;
-    private _frameStartTime: number = 0;
-    private _previousOrientation: number = Browser.window.orientation;
     private _isFocused: boolean;
-    private _isVisibility: boolean;
-    private _globalRepaintSet: boolean = false;		// 设置全局重画标志。这个是给IDE用的。IDE的Image无法在onload的时候通知对应的sprite重画。
-    private _globalRepaintGet: boolean = false;		// 一个get一个set是为了把标志延迟到下一帧的开始，防止部分对象接收不到。
+    private _wgColor = new Color(0, 0, 0, 0);
+    private _needUpdateCanvasSize: boolean = false;
 
     /**
-     * @en Using physical resolution as the canvas size will improve rendering effects, but it will reduce performance
-     * @zh 使用物理分辨率作为画布大小，会改进渲染效果，但是会降低性能
-     */
-    useRetinalCanvas: boolean = false;
-
-    /**
-     * @ignore
+     * @ignore @blueprintIgnore
      * @en Stage class, there is only one stage instance in the engine. This instance can be accessed through Laya.stage.
      * @zh 场景类，引擎中只有一个stage实例，此实例可以通过Laya.stage访问。
      * */
     constructor() {
         super();
-        super.set_transform(this._createTransform());
-        //重置默认值，请不要修改
+
         this.mouseEnabled = true;
         this.hitTestPrior = true;
-        this.autoSize = false;
         this._setBit(NodeFlags.DISPLAYED_INSTAGE, true);
         this._setBit(NodeFlags.ACTIVE_INHIERARCHY, true);
         this._isFocused = true;
-        this._isVisibility = true;
-
-        //this.drawCallOptimize=true;
-        this.useRetinalCanvas = LayaEnv.isConch ? true : Config.useRetinalCanvas;
-
-        var window: any = Browser.window;
-        //var _me = this;	
-
-        window.addEventListener("focus", () => {
-            this._isFocused = true;
-            this.event(Event.FOCUS);
-            this.event(Event.FOCUS_CHANGE);
-        });
-        window.addEventListener("blur", () => {
-            this._isFocused = false;
-            this.event(Event.BLUR);
-            this.event(Event.FOCUS_CHANGE);
-            if (this._isInputting()) (Input["inputElement"] as any).target.focus = false;
-        });
-
-        // 各种浏览器兼容
-        var state = "visibilityState", visibilityChange = "visibilitychange";
-        var document: any = window.document;
-        if (typeof document.hidden !== "undefined") {
-            visibilityChange = "visibilitychange";
-            state = "visibilityState";
-        } else if (typeof document.mozHidden !== "undefined") {
-            visibilityChange = "mozvisibilitychange";
-            state = "mozVisibilityState";
-        } else if (typeof document.msHidden !== "undefined") {
-            visibilityChange = "msvisibilitychange";
-            state = "msVisibilityState";
-        } else if (typeof document.webkitHidden !== "undefined") {
-            visibilityChange = "webkitvisibilitychange";
-            state = "webkitVisibilityState";
-        }
-
-        window.document.addEventListener(visibilityChange, () => {
-            if (Browser.document[state] == "hidden") {
-                this._isVisibility = false;
-                if (this._isInputting()) (Input["inputElement"] as any).target.focus = false;
-            } else {
-                this._isVisibility = true;
-            }
-            this.renderingEnabled = this._isVisibility;
-            this.event(Event.VISIBILITY_CHANGE);
-        });
-        window.addEventListener("resize", () => {
-            // 处理屏幕旋转。旋转后收起输入法。
-            var orientation: any = Browser.window.orientation;
-            if (orientation != null && orientation != this._previousOrientation && this._isInputting()) {
-                (Input["inputElement"] as any).target.focus = false;
-            }
-            this._previousOrientation = orientation;
-
-            // 弹出输入法不应对画布进行resize。
-            if (this._isInputting()) return;
-
-            // Safari横屏工具栏偏移
-            if (Browser.onSafari)
-                this._safariOffsetY = Browser.getSafariToolbarOffset();
-
-            if (this.screenAdaptationEnabled) {
-                this.event(Event.WILL_RESIZE);
-                this.updateCanvasSize(true);
-            }
-        });
-
-        // 微信的iframe不触发orientationchange。
-        window.addEventListener("orientationchange", (e: any) => {
-            if (this.screenAdaptationEnabled) {
-                this.event(Event.WILL_RESIZE);
-                this.updateCanvasSize(true);
-            }
-        });
-
+        this._transform = new Matrix();
         this._componentDriver = new ComponentDriver();
+        this.passManager = new Render2DProcessor();
+
+        PAL.browser.on(Event.FOCUS, () => {
+            if (!this._isFocused) {
+                this._isFocused = true;
+                this.event(Event.FOCUS);
+                this.event(Event.FOCUS_CHANGE);
+            }
+        });
+        PAL.browser.on(Event.BLUR, () => {
+            if (this._isFocused) {
+                this._isFocused = false;
+                this.event(Event.BLUR);
+                this.event(Event.FOCUS_CHANGE);
+            }
+        });
+
+        PAL.browser.on(Event.VISIBILITY_CHANGE, (visible: boolean) => {
+            this.renderingEnabled = visible;
+            this.event(Event.VISIBILITY_CHANGE, visible);
+        });
+
+        PAL.browser.on(Event.RESIZE, () => {
+            // 弹出输入法不应对画布进行resize。
+            if (PAL.textInput.target) return;
+
+            if (this.screenAdaptationEnabled) {
+                this.event(Event.WILL_RESIZE);
+                this.updateCanvasSize(true);
+            }
+        });
+
+        PAL.browser.on(Event.ORIENTATION_CHANGE, (e: any) => {
+            if (this.screenAdaptationEnabled) {
+                this.event(Event.WILL_RESIZE);
+                this.updateCanvasSize(true);
+            }
+        });
+
+        this.passManager.basePass.root = this._struct;
+        this._struct.pass = this.passManager.basePass;
     }
 
     /**
-     * @en Returns whether it is currently in a text input state on mobile devices. 
-     * Note: Do not reset the canvas size while the input method is displayed during input on mobile devices.
-     * @zh 返回是否正处于移动端文本输入的状态。
-     * 注意，在移动端输入时，输入法弹出期间不要进行画布尺寸重置。
+     * @ignore
      */
-    private _isInputting(): boolean {
-        return (Browser.onMobile && InputManager.isTextInputting);
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
+
+        if ((kind & TransformKind.Size) != 0) {
+            this.designWidth = this._width;
+            this.designHeight = this._height;
+            this.updateCanvasSize(true);
+        }
     }
 
     /**
-     * @internal
-     * @en Set the width of the stage.
-     * @param value The numeric value to set as the width.
-     * @zh 设置舞台的宽度。
-     * @param value  要设置的宽度数值。
+     * @ignore
      */
-    set_width(value: number) {
-        this.designWidth = value;
-        super.set_width(value);
-        this.updateCanvasSize(true);
-    }
-
-    /**
-     * @internal
-     * @en Get the width of the stage.
-     * @zh 获取舞台的宽度。
-     */
-    get_width(): number {
+    protected measureWidth(): number {
         this.needUpdateCanvasSize();
-        return super.get_width();
+        return this._width;
     }
 
     /**
-     * @internal
-     * @en Set the height of the stage.
-     * @param value The numeric value to set as the height.
-     * @zh 设置舞台的高度。
-     * @param value 要设置的高度数值。
+     * @ignore
      */
-    set_height(value: number) {
-        this.designHeight = value;
-        super.set_height(value);
-        this.updateCanvasSize(true);
-    }
-
-    /**
-     * @internal
-     * @en Get the height of the stage.
-     * @zh 获取舞台的高度。
-     */
-    get_height(): number {
+    protected measureHeight(): number {
         this.needUpdateCanvasSize();
-        return super.get_height();
-    }
-
-    /**
-     * @en The matrix information of the object. By setting the matrix, node rotation, scaling, and displacement effects can be achieved.
-     * @zh 对象的矩阵信息。通过设置矩阵可以实现节点旋转，缩放，位移效果。
-     */
-    get transform(): Matrix {
-        if (this._tfChanged) this._adjustTransform();
-        return (this._transform = this._transform || this._createTransform());
-    }
-    set transform(value: Matrix) {
-        super.set_transform(value);
+        return this._height;
     }
 
     /**
@@ -418,10 +326,8 @@ export class Stage extends Sprite {
      * @zh 舞台是否处于可见状态(是否进入后台)。
      */
     get isVisibility(): boolean {
-        return this._isVisibility;
+        return PAL.browser.getVisibility();
     }
-
-    private _needUpdateCanvasSize: boolean = false;
 
     /**
      * @en Update the canvas size
@@ -460,281 +366,173 @@ export class Stage extends Sprite {
      */
     setScreenSize(screenWidth: number, screenHeight: number): void {
         this._needUpdateCanvasSize = false;
+        let pixelRatio = Browser.pixelRatio;
+        //screen width/height是乘了dpr的，先除回去
+        screenWidth /= pixelRatio;
+        screenHeight /= pixelRatio;
 
-        //计算是否旋转
-        var rotation: boolean = false;
+        //计算是否需要旋转
         if (this._screenMode !== Stage.SCREEN_NONE) {
-            var screenType: string = screenWidth / screenHeight < 1 ? Stage.SCREEN_VERTICAL : Stage.SCREEN_HORIZONTAL;
-            rotation = screenType !== this._screenMode;
-            if (rotation) {
+            let screenType: string = screenWidth / screenHeight < 1 ? Stage.SCREEN_VERTICAL : Stage.SCREEN_HORIZONTAL;
+            this.canvasRotation = screenType !== this._screenMode;
+            if (this.canvasRotation) {
                 //宽高互换
-                var temp: number = screenHeight;
+                let temp = screenHeight;
                 screenHeight = screenWidth;
                 screenWidth = temp;
             }
         }
-        this.canvasRotation = rotation;
+        else
+            this.canvasRotation = false;
 
-        var canvas: HTMLCanvas = Render._mainCanvas;
-        var mat: Matrix = this._canvasTransform.identity();
-        var scaleMode: string = this._scaleMode;
-        var scaleX: number = screenWidth / this.designWidth;
-        var scaleY: number = screenHeight / this.designHeight;
-        var canvasWidth: number = this.useRetinalCanvas ? screenWidth : this.designWidth;
-        var canvasHeight: number = this.useRetinalCanvas ? screenHeight : this.designHeight;
-        var realWidth: number = screenWidth;
-        var realHeight: number = screenHeight;
-        var pixelRatio: number = Browser.pixelRatio;
-        this._width = this.designWidth;
-        this._height = this.designHeight;
+        let canvas = Browser.mainCanvas;
+        let mat: Matrix = this._canvasTransform.identity();
+        let scaleMode: string = this._scaleMode;
+        let canvasWidth: number = this.designWidth;
+        let canvasHeight: number = this.designHeight;
+        let canvasScale: number = 1;
 
-        //处理缩放模式
+        if (!Browser.isDomSupported  //在这种情况下（例如小游戏），画布是强制全屏的，所以需要改变画布大小的模式都不能支持
+            && (scaleMode === Stage.SCALE_NOSCALE || scaleMode == Stage.SCALE_SHOWALL || scaleMode === Stage.SCALE_NOBORDER)) {
+            scaleMode = Stage.SCALE_FIXED_AUTO;
+        }
+
+        //设计大小 => 调整宽度或高度得到 => 舞台大小 => 乘以缩放因子 => canvas大小
         switch (scaleMode) {
             case Stage.SCALE_NOSCALE:
-                scaleX = scaleY = 1;
-                realWidth = this.designWidth;
-                realHeight = this.designHeight;
-                break;
-            case Stage.SCALE_SHOWALL:
-                scaleX = scaleY = Math.min(scaleX, scaleY);
-                realWidth = Math.round(this.designWidth * scaleX);
-                realHeight = Math.round(this.designHeight * scaleY);
-                break;
-            case Stage.SCALE_NOBORDER:
-                scaleX = scaleY = Math.max(scaleX, scaleY);
-                realWidth = Math.round(this.designWidth * scaleX);
-                realHeight = Math.round(this.designHeight * scaleY);
                 break;
             case Stage.SCALE_FULL:
-                scaleX = scaleY = 1;
-                this._width = canvasWidth = screenWidth;
-                this._height = canvasHeight = screenHeight;
-                break;
-            case Stage.SCALE_FULLSCREEN:
-                scaleX = scaleY = pixelRatio;
                 canvasWidth = screenWidth;
                 canvasHeight = screenHeight;
-                this._width = screenWidth / pixelRatio;
-                this._height = screenHeight / pixelRatio;
+                break;
+            case Stage.SCALE_SHOWALL:
+                canvasScale = Math.min(screenWidth / canvasWidth, screenHeight / canvasHeight);
+                break;
+            case Stage.SCALE_NOBORDER:
+                canvasScale = Math.max(screenWidth / canvasWidth, screenHeight / canvasHeight);
                 break;
             case Stage.SCALE_FIXED_WIDTH:
-                scaleY = scaleX;
-                this._height = canvasHeight = Math.round(screenHeight / scaleX);
-                break;
             case Stage.SCALE_FIXED_HEIGHT:
-                scaleX = scaleY;
-                this._width = canvasWidth = Math.round(screenWidth / scaleY);
-                break;
             case Stage.SCALE_FIXED_AUTO:
-                if ((screenWidth / screenHeight) < (this.designWidth / this.designHeight)) {
-                    scaleY = scaleX;
-                    this._height = canvasHeight = Math.round(screenHeight / scaleX);
-                } else {
-                    scaleX = scaleY;
-                    this._width = canvasWidth = Math.round(screenWidth / scaleY);
+                if (scaleMode === Stage.SCALE_FIXED_WIDTH
+                    || scaleMode === Stage.SCALE_FIXED_AUTO && (screenWidth / screenHeight) < (canvasWidth / canvasHeight)) {
+                    canvasScale = screenWidth / canvasWidth;
+                    canvasHeight = screenHeight / canvasScale;
+                }
+                else {
+                    canvasScale = screenHeight / canvasHeight;
+                    canvasWidth = screenWidth / canvasScale;
                 }
                 break;
         }
 
-        if (this.useRetinalCanvas) {
-            //对于会漏出画布的非全屏适配模式，没必要按设备物理分辨率统一处理
-            if (scaleMode === Stage.SCALE_SHOWALL || scaleMode === Stage.SCALE_NOSCALE) {
-                canvasWidth = realWidth;
-                canvasHeight = realHeight;
-            } else {
-                canvasWidth = realWidth = screenWidth;
-                canvasHeight = realHeight = screenHeight;
-            }
+        //设置舞台大小
+        this._width = canvasWidth;
+        this._height = canvasHeight;
+
+        if (Config.useRetinalCanvas || !Browser.isDomSupported) {
+            //高清画布模式放弃canvasScale, 通过改变画布大小实现
+            canvasWidth *= canvasScale;
+            canvasHeight *= canvasScale;
+            canvasScale = 1;
+
+            //高清画布模式继续将画布大小增大到乘以dpr，后续会通过matrix缩回到需求的显示大小，实现视网膜效果
+            if (pixelRatio > 4 && Browser.isDomSupported) //限制最大放大倍数，避免浏览器缩放引起巨大dpr造成的卡死
+                pixelRatio = 4;
+            canvasWidth *= pixelRatio;
+            canvasHeight *= pixelRatio;
+            canvasScale /= pixelRatio;
         }
+        mat.scale(canvasScale, canvasScale);
 
-        //根据不同尺寸缩放stage画面
-        scaleX *= this.scaleX;
-        scaleY *= this.scaleY;
-        if (scaleX === 1 && scaleY === 1) {
-            this.transform.identity();
-        } else {
-            this.transform.a = this._formatData(scaleX / (realWidth / canvasWidth));
-            this.transform.d = this._formatData(scaleY / (realHeight / canvasHeight));
+        //处理画布对齐
+        if (Browser.isDomSupported) { //在这种情况下，画布是强制全屏的，不能移动
+            let offsetX: number = 0;
+            let offsetY: number = 0;
+            //处理水平对齐
+            if (this._alignH === Stage.ALIGN_LEFT)
+                offsetX = 0;
+            else if (this._alignH === Stage.ALIGN_RIGHT)
+                offsetX = screenWidth - canvasWidth * canvasScale;
+            else
+                offsetX = (screenWidth - canvasWidth * canvasScale) * 0.5;
+
+            //处理垂直对齐
+            if (this._alignV === Stage.ALIGN_TOP)
+                offsetY = 0;
+            else if (this._alignV === Stage.ALIGN_BOTTOM)
+                offsetY = screenHeight - canvasHeight * canvasScale;
+            else
+                offsetY = (screenHeight - canvasHeight * canvasScale) * 0.5;
+            offsetX += this.offset.x;
+            offsetY += this.offset.y;
+
+            mat.translate(Math.round(offsetX), Math.round(offsetY));
         }
-
-        //处理canvas大小
-        canvas.size(canvasWidth, canvasHeight);
-        RunDriver.changeWebGLSize(canvasWidth, canvasHeight);
-        mat.scale(realWidth / canvasWidth / pixelRatio, realHeight / canvasHeight / pixelRatio);
-
-        //处理水平对齐
-        if (this._alignH === Stage.ALIGN_LEFT) this.offset.x = 0;
-        else if (this._alignH === Stage.ALIGN_RIGHT) this.offset.x = screenWidth - realWidth;
-        else this.offset.x = (screenWidth - realWidth) * 0.5 / pixelRatio;
-
-        //处理垂直对齐
-        if (this._alignV === Stage.ALIGN_TOP) this.offset.y = 0;
-        else if (this._alignV === Stage.ALIGN_BOTTOM) this.offset.y = screenHeight - realHeight;
-        else this.offset.y = (screenHeight - realHeight) * 0.5 / pixelRatio;
-
-        //处理用户自行设置的画布偏移
-        this.offset.x = Math.round(this.offset.x);
-        this.offset.y = Math.round(this.offset.y);
-        mat.translate(this.offset.x, this.offset.y);
-        if (this._safariOffsetY) mat.translate(0, this._safariOffsetY);
 
         //处理横竖屏
-        this.canvasDegree = 0;
-        if (rotation) {
+        if (this.canvasRotation) {
             if (this._screenMode === Stage.SCREEN_HORIZONTAL) {
                 mat.rotate(Math.PI / 2);
-                mat.translate(screenHeight / pixelRatio, 0);
+                mat.translate(screenHeight, 0);
                 this.canvasDegree = 90;
             } else {
                 mat.rotate(-Math.PI / 2);
-                mat.translate(0, screenWidth / pixelRatio);
+                mat.translate(0, screenWidth);
                 this.canvasDegree = -90;
             }
         }
+        else
+            this.canvasDegree = 0;
 
-        mat.a = this._formatData(mat.a);
-        mat.d = this._formatData(mat.d);
-        mat.tx = this._formatData(mat.tx);
-        mat.ty = this._formatData(mat.ty);
+        mat.a = formatData(mat.a);
+        mat.d = formatData(mat.d);
+        mat.tx = formatData(mat.tx);
+        mat.ty = formatData(mat.ty);
 
-        super.set_transform(this.transform);
-        Stage._setStageStyle(canvas, canvasWidth, canvasHeight, mat);
-        //修正用户自行设置的偏移
-        if (this._safariOffsetY) mat.translate(0, -this._safariOffsetY);
+        canvasWidth = Math.round(canvasWidth);
+        canvasHeight = Math.round(canvasHeight);
+        canvas.size(canvasWidth, canvasHeight);
+
+        if (Browser.isDomSupported) {
+            let canvasStyle = Browser.mainCanvas.source.style;
+            PAL.browser.setStyleTransformOrigin(canvasStyle, "0px 0px 0px");
+            PAL.browser.setStyleTransform(canvasStyle, "matrix(" + mat.toString() + ")");
+            canvasStyle.width = canvasWidth + "px";
+            canvasStyle.height = canvasHeight + "px";
+
+            mat.translate(parseInt(canvasStyle.left) || 0, parseInt(canvasStyle.top) || 0);
+        }
+
+        //放大舞台
+        this.scale(formatData(canvasWidth / this._width), formatData(canvasHeight / this._height));
+
+        RenderState2D.width = canvasWidth;
+        RenderState2D.height = canvasHeight;
+        (<typeof Laya3D>(<any>window)['Laya3D'])?._changeWebGLSize(canvasWidth, canvasHeight);
+        LayaGL.renderEngine.resizeOffScreen(canvasWidth, canvasHeight);
+
+        //执行高清字体策略
+        if (TextRenderConfig.scaleFontWithCtx) {
+            let fontScale = Math.min(Math.max(1, ILaya.stage.scaleX, ILaya.stage.scaleY), TextRenderConfig.maxFontScale);
+            fontScale = 0.2 * Math.ceil(fontScale / 0.2); //以0.2倍为步进，避免频繁变更
+            if (TextRenderConfig.fontScale !== fontScale) {
+                TextRenderConfig.fontScale = fontScale;
+                Render2DProcessor.runner._textRender.onFontScaleChanged();
+
+                const repaintTexts = (p: Sprite) => {
+                    for (let child of p._children) {
+                        if ((child._renderType & SpriteConst.TEXT) !== 0)
+                            child.repaint();
+                    }
+                };
+                repaintTexts(this);
+            }
+        }
+
         this.visible = true;
-        this._repaint |= SpriteConst.REPAINT_CACHE;
-
+        this.repaint();
         this.event(Event.RESIZE);
-    }
-
-    /**
-     * @internal
-     * @en Adapt to Taobao mini-game
-     * @param mainCanv The main canvas
-     * @param canvasWidth The width of the canvas
-     * @param canvasHeight The height of the canvas
-     * @param mat The transformation matrix
-     * @zh 适配淘宝小游戏
-     * @param mainCanv 主画布
-     * @param canvasWidth 画布宽度
-     * @param canvasHeight 画布高度
-     * @param mat 变换矩阵
-     */
-    static _setStageStyle(mainCanv: HTMLCanvas, canvasWidth: number, canvasHeight: number, mat: Matrix) {
-        var canvasStyle: any = mainCanv.source.style;
-        canvasStyle.transformOrigin = canvasStyle.webkitTransformOrigin = canvasStyle.msTransformOrigin = canvasStyle.mozTransformOrigin = canvasStyle.oTransformOrigin = "0px 0px 0px";
-        canvasStyle.transform = canvasStyle.webkitTransform = canvasStyle.msTransform = canvasStyle.mozTransform = canvasStyle.oTransform = "matrix(" + mat.toString() + ")";
-        canvasStyle.width = canvasWidth;
-        canvasStyle.height = canvasHeight;
-        mat.translate(parseInt(canvasStyle.left) || 0, parseInt(canvasStyle.top) || 0);
-    }
-
-    /**
-     * @en Set screen size for scene rotation, required by layaverse
-     * @param screenWidth The width of the screen
-     * @param screenHeight The height of the screen
-     * @param screenMode The screen mode. "none" is the default value, "horizontal" for landscape mode, "vertical" for portrait mode
-     * @zh 设置场景旋转的屏幕大小，layaverse 需要
-     * @param screenWidth 屏幕宽度
-     * @param screenHeight 屏幕高度
-     * @param screenMode 屏幕模式。"none"为默认值，"horizontal"为横屏，"vertical"为竖屏
-     */
-    setScreenSizeForScene(screenWidth: number, screenHeight: number, screenMode: string) {
-        //计算是否旋转
-        var rotation: boolean = false;
-        if (/**this.*/screenMode !== Stage.SCREEN_NONE) {
-            var screenType: string = screenWidth / screenHeight < 1 ? Stage.SCREEN_VERTICAL : Stage.SCREEN_HORIZONTAL;
-            rotation = screenType !== /**this.*/screenMode;
-            if (rotation) {
-                //宽高互换
-                var temp: number = screenHeight;
-                screenHeight = screenWidth;
-                screenWidth = temp;
-            }
-        }
-        this.canvasRotation = rotation;
-
-        // var canvas: HTMLCanvas = Render._mainCanvas;
-        // var canvasStyle: any = canvas.source.style;
-        // var mat: Matrix = this._canvasTransform.clone().identity();
-        var scaleMode: string = this._scaleMode;
-        var scaleX: number = screenWidth / this.designWidth
-        var scaleY: number = screenHeight / this.designHeight;
-        var canvasWidth: number = this.useRetinalCanvas ? screenWidth : this.designWidth;
-        var canvasHeight: number = this.useRetinalCanvas ? screenHeight : this.designHeight;
-        var realWidth: number = screenWidth;
-        var realHeight: number = screenHeight;
-        // var pixelRatio: number = Browser.pixelRatio;
-        let /**this.*/_width = this.designWidth;
-        let /**this.*/_height = this.designHeight;
-
-        //处理缩放模式
-        switch (scaleMode) {
-            case Stage.SCALE_NOSCALE:
-                scaleX = scaleY = 1;
-                realWidth = this.designWidth;
-                realHeight = this.designHeight;
-                break;
-            case Stage.SCALE_SHOWALL:
-                scaleX = scaleY = Math.min(scaleX, scaleY);
-                realWidth = Math.round(this.designWidth * scaleX);
-                realHeight = Math.round(this.designHeight * scaleY);
-                break;
-            case Stage.SCALE_NOBORDER:
-                scaleX = scaleY = Math.max(scaleX, scaleY);
-                realWidth = Math.round(this.designWidth * scaleX);
-                realHeight = Math.round(this.designHeight * scaleY);
-                break;
-            case Stage.SCALE_FULL:
-                scaleX = scaleY = 1;
-				/**this.*/_width = canvasWidth = screenWidth;
-				/**this.*/_height = canvasHeight = screenHeight;
-                break;
-            case Stage.SCALE_FIXED_WIDTH:
-                scaleY = scaleX;
-				/**this.*/_height = canvasHeight = Math.round(screenHeight / scaleX);
-                break;
-            case Stage.SCALE_FIXED_HEIGHT:
-                scaleX = scaleY;
-				/**this.*/_width = canvasWidth = Math.round(screenWidth / scaleY);
-                break;
-            case Stage.SCALE_FIXED_AUTO:
-                if ((screenWidth / screenHeight) < (this.designWidth / this.designHeight)) {
-                    scaleY = scaleX;
-					/**this.*/_height = canvasHeight = Math.round(screenHeight / scaleX);
-                } else {
-                    scaleX = scaleY;
-					/**this.*/_width = canvasWidth = Math.round(screenWidth / scaleY);
-                }
-                break;
-        }
-
-        if (this.useRetinalCanvas) {
-            //对于会漏出画布的非全屏适配模式，没必要按设备物理分辨率统一处理
-            if (scaleMode === Stage.SCALE_SHOWALL || scaleMode === Stage.SCALE_NOSCALE) {
-                canvasWidth = realWidth;
-                canvasHeight = realHeight;
-            } else {
-                canvasWidth = realWidth = screenWidth;
-                canvasHeight = realHeight = screenHeight;
-            }
-        }
-
-        return {
-            stageWidth: _width,
-            stageHeight: _height,
-            canvasWidth: canvasWidth,
-            canvasHeight: canvasHeight,
-            scaleX: scaleX / (realWidth / canvasWidth),
-            scaleY: scaleY / (realHeight / canvasHeight),
-        }
-    }
-
-    /**@private */
-    private _formatData(value: number): number {
-        if (Math.abs(value) < 0.000001) return 0;
-        if (Math.abs(1 - value) < 0.001) return value > 0 ? 1 : -1;
-        return value;
     }
 
     /**
@@ -821,26 +619,14 @@ export class Stage extends Sprite {
         if (value) {
             let colorArr = ColorUtils.create(value).arrColor;
             this._wgColor.setValue(colorArr[0], colorArr[1], colorArr[2], colorArr[3]);
+            // this._struct.pass.setClearColor(colorArr[0], colorArr[1], colorArr[2], colorArr[3]);
         }
         else
-            this._wgColor = null;
+            this._wgColor.setValue(0, 0, 0, 0);
+        //     this._struct.pass.setClearColor(0, 0, 0, 0);
 
-        Stage._setStyleBgColor(value);
-    }
-
-    /**
-     * @internal
-     * @en Adapt to Taobao mini-game
-     * @param value The background color value
-     * @zh 适配淘宝小游戏
-     * @param value 背景颜色值
-     */
-    static _setStyleBgColor(value: string) {
-        if (value) {
-            Render.canvas.style.background = value;
-        } else {
-            Render.canvas.style.background = "none";
-        }
+        if (Browser.isDomSupported)
+            Browser.mainCanvas.source.style.background = value ?? "none";
     }
 
     /**
@@ -875,7 +661,7 @@ export class Stage extends Sprite {
      */
     get clientScaleX(): number {
         this.needUpdateCanvasSize();
-        return this._transform ? this._transform.getScaleX() : 1;
+        return this._scaleX;
     }
 
     /**
@@ -884,7 +670,7 @@ export class Stage extends Sprite {
      */
     get clientScaleY(): number {
         this.needUpdateCanvasSize();
-        return this._transform ? this._transform.getScaleY() : 1;
+        return this._scaleY;
     }
 
     /**
@@ -908,48 +694,13 @@ export class Stage extends Sprite {
     }
 
     /**
-     * @en Redraw
-     * @param type The type of redraw
-     * @zh 重新绘制
-     * @param type 重新绘制类型
-     */
-    repaint(type: number = SpriteConst.REPAINT_CACHE): void {
-        this._repaint |= type;
-    }
-
-    /**
-     * @en Redraw the parent node
-     * @param type The type of redraw
-     * @zh 重新绘制父节点
-     * @param type 重新绘制类型
-     */
-    parentRepaint(type: number = SpriteConst.REPAINT_CACHE): void {
-    }
-
-    /**@internal */
-    _loop(timestamp:number): boolean {
-        this._globalRepaintGet = this._globalRepaintSet;
-        this._globalRepaintSet = false;
-        this.render(Render._context, 0, 0, timestamp);
-        return true;
-    }
-
-    /**
-     * @en Get frame start time.
-     * @zh 获取帧开始时间
-     */
-    getFrameTm(): number {
-        return this._frameStartTime;
-    }
-
-    /**
      * @en Get the time elapsed since the current frame started, in milliseconds.
      * This can be used to judge the time consumption within functions, reasonably control the processing time of each frame function, avoid doing too much in one frame, and process complex calculations across frames, which can effectively reduce frame rate fluctuations.
      * @zh 获得距当前帧开始后，过了多少时间，单位为毫秒。
      * 可以用来判断函数内时间消耗，通过合理控制每帧函数处理消耗时长，避免一帧做事情太多，对复杂计算分帧处理，能有效降低帧率波动。
      */
     getTimeFromFrameStart(): number {
-        return Browser.now() - this._frameStartTime;
+        return performance.now() - Render.frameStartTime;
     }
 
     /**
@@ -961,112 +712,157 @@ export class Stage extends Sprite {
     }
 
     set visible(value: boolean) {
-        if (this.visible !== value) {
-            super.set_visible(value);
-            Stage._setVisibleStyle(value);
-        }
-    }
+        super.visible = value;
 
-
-    /**
-     * @internal
-     * @en Adapt to Taobao mini-game
-     * @param value The visibility value
-     * @zh 适配淘宝小游戏
-     * @param value 可见性值
-     */
-    static _setVisibleStyle(value: boolean) {
-        var style: any = Render._mainCanvas.source.style;
-        style.visibility = value ? "visible" : "hidden";
+        if (Browser.isDomSupported)
+            Browser.mainCanvas.source.style.visibility = value ? "visible" : "hidden";
     }
 
     /**
      * @en Render all display objects on the stage
-     * @param context2D The rendering context
-     * @param x The x-axis coordinate
-     * @param y The y-axis coordinate
+     * @param timestamp Current time stamp
      * @zh 渲染舞台上的所有显示对象
-     * @param context2D 渲染的上下文
-     * @param x 横轴坐标
-     * @param y 纵轴坐标
+     * @param timestamp 当前时间戳
      */
-    render(context2D: Context, x: number, y: number, timestamp:number=0): void {
-        if (this._frameRate === Stage.FRAME_SLEEP) {
-            var now: number = Browser.now();
-            if (now - this._frameStartTime < 1000)
-                return;
-            this._frameStartTime = now;
-        } else {
-            if (!this._visible) {
-                this._renderCount++;
-                if (this._renderCount % 5 === 0) {
-                    CallLater.I._update();
-                    Stat.loopCount++;
-                    RenderInfo.loopCount = Stat.loopCount;
-                    this._runComponents();
-                    this._updateTimers(timestamp);
-                }
-                return;
-            }
-            this._frameStartTime = Browser.now();
-            RenderInfo.loopStTm = this._frameStartTime;
+    render(timestamp: number): void {
+        if (!this._visible) {
+            Timer.callLaters._update(timestamp);
+            Stat.loopCount++;
+            this._runComponents();
+            this._updateTimers(timestamp);
+            return;
         }
 
-        this._renderCount++;
-        var frameMode: string = this._frameRate === Stage.FRAME_MOUSE ? (((this._frameStartTime - this._mouseMoveTime) < 2000) ? Stage.FRAME_FAST : Stage.FRAME_SLOW) : this._frameRate;
-        var isFastMode: boolean = (frameMode !== Stage.FRAME_SLOW);
-        var isDoubleLoop: boolean = (this._renderCount % 2 === 0);
-
-        Stat.renderSlow = !isFastMode;
-        if (!isFastMode && !isDoubleLoop)//统一双帧处理渲染
-            return;
-
-        CallLater.I._update();
+        Timer.callLaters._update(timestamp);
         Stat.loopCount++;
-        RenderInfo.loopCount = Stat.loopCount;
+        LayaGL.renderEngine.startFrame();
 
         if (this.renderingEnabled) {
 
-            for (let i = 0, n = this._scene3Ds.length; i < n; i++)//更新3D场景,必须提出来,否则在脚本中移除节点会导致BUG
-                (<any>this._scene3Ds[i])._update();
             this._runComponents();
+
+            for (let i = 0, n = this._scene2Ds.length; i < n; i++) {
+                this._scene2Ds[i]._update();
+            }
+            for (let i = 0, n = this._scene3Ds.length; i < n; i++) {
+                this._scene3Ds[i]._update();
+            }
+
             this._componentDriver.callPreRender();
 
-            //仅仅是clear
-            context2D.render2D.renderStart(!Config.preserveDrawingBuffer, this._wgColor);
-            //context2D.render2D.renderEnd();
+            Render2DProcessor.rendercontext2D.setRenderTarget(null, true, this._wgColor);
 
-            //Stage.clear(this._bgColor);
             //先渲染3d
+            let t = performance.now();
             for (let i = 0, n = this._scene3Ds.length; i < n; i++)//更新3D场景,必须提出来,否则在脚本中移除节点会导致BUG
-                (<any>this._scene3Ds[i]).renderSubmit();
+                this._scene3Ds[i].renderSubmit();
+            LayaGL.statAgent.recordTimeData(StatElement.T_AllRender3D, performance.now() - t);
             //再渲染2d
-            this._render2d(context2D, x, y);
+            t = performance.now();
+            this._render2d();
+            LayaGL.statAgent.recordTimeData(StatElement.T_AllRender2D, performance.now() - t);
 
             this._componentDriver.callPostRender();
-
-            VectorGraphManager.instance && VectorGraphManager.getInstance().endDispose();
         }
         else
             this._runComponents();
 
         this._updateTimers(timestamp);
 
+        Stat.render();
+
         LayaGL.renderEngine.endFrame();
     }
 
+    /** @ignore */
+    _graphicUpdateList: Set<Sprite> = new Set();
+    /** @ignore */
+    _subpassUpdateList: Set<Sprite> = new Set();
+    /** @ignore */
+    _tranMatrixUpdateList: Set<Sprite> = new Set();
+
     /**
-     * @param context2D The rendering context
-     * @param x The x-axis coordinate
-     * @param y The y-axis coordinate
      * @perfTag PerformanceDefine.T_UIRender
     */
-    private _render2d(context2D: Context, x: number, y: number) {
-        Stat.draw2D = 0;
-        context2D.startRender();
-        super.render(context2D, x, y);
-        Stat.render(context2D, x, y);
-        context2D.endRender();
+    private _render2d() {
+        // context2D.render2dmgr.runProcess([])
+        for (let i = 0, n = this._scene2Ds.length; i < n; i++) {
+            this._scene2Ds[i].render(0, 0);
+        }
+
+        //subpass 分析  for
+        for (let sprite of this._subpassUpdateList) {
+            if (sprite._destroyed || !sprite._subpassUpdateFlag)
+                continue;
+
+            sprite.updateSubRenderPassState();
+            if (!sprite._oriRenderPass
+                || !sprite._oriRenderPass.enable
+            ) {
+                sprite._subpassUpdateFlag = 0;
+                continue;
+            }
+
+            let result = sprite.updateRenderTexture();
+            let destrt: RenderTexture2D = sprite._drawOriRT;
+            if (!destrt) {
+                sprite.setSubRenderPassState(false);
+                continue;
+            }
+
+            if (sprite.mask) {
+                sprite._oriRenderPass.mask = sprite.mask._struct;
+            } else {
+                sprite._oriRenderPass.mask = null;
+            }
+
+            if (result) {
+                sprite._oriRenderPass.renderTexture = destrt;
+            }
+
+            let process = sprite._renderType & SpriteConst.POSTPROCESS ? sprite._oriRenderPass.postProcess : null;
+            if (process && destrt != RenderTexture2D._empty) {
+                if (
+                    result ||
+                    (sprite._subpassUpdateFlag & SubPassFlag.UPDATE_POSTPROCESS)
+                ) {
+                    process.setResource(destrt);
+                    process.clearCMD();
+                    process._render();
+                }
+
+                if (process.enabled) {
+                    destrt = process._context.destination;
+                }
+            }
+
+            sprite._subStructRender._updateRenderTexture(sprite._drawOriRT, destrt);
+            //Mask TODO
+            sprite._subpassUpdateFlag = 0;
+        }
+
+        this._updateMatrixList(this._tranMatrixUpdateList, Stat.loopCount);
+
+        for (let sprite of this._graphicUpdateList) {
+            if (sprite._needGraphicsUpdate()) {
+                sprite._graphicsRenderer._render(Render2DProcessor.runner);
+            }
+        }
+
+        this.passManager.apply(Render2DProcessor.rendercontext2D);
+
+        this._graphicUpdateList.clear();
+        this._subpassUpdateList.clear();
+        this._tranMatrixUpdateList.clear();
+
+        RenderTexture2D.cleanupExpired();
+        Stat.render2DCount++;
+    }
+
+    private _updateMatrixList(changeMatrixList: Iterable<Sprite>, frame: number) {
+        for (let sprite of changeMatrixList) {
+            sprite._updateStruct();
+        }
     }
 
     private _runComponents() {
@@ -1080,32 +876,33 @@ export class Stage extends Sprite {
         ILaya.systemTimer._update(timestamp);
         ILaya.physicsTimer._update(timestamp);
         ILaya.timer._update(timestamp);
+        Tweener._runAll();
     }
 
     /**
      * @en Whether to enable fullscreen mode. Users can enter fullscreen mode by clicking.
+     * 
      * Compatibility note: Some browsers, such as iPhone, do not allow entering fullscreen mode by clicking.
      * @zh 是否开启全屏，用户点击后进入全屏。
+     * 
      * 兼容性提示：部分浏览器不允许点击进入全屏，比如iPhone等。
      */
     set fullScreenEnabled(value: boolean) {
-        var document: any = Browser.document;
-        var canvas: any = Render.canvas;
+        let canvas = Browser.mainCanvas.source;
         if (value) {
             canvas.addEventListener('mousedown', requestFullscreen);
             canvas.addEventListener('touchstart', requestFullscreen);
-            document.addEventListener("fullscreenchange", fullScreenChanged);
-            document.addEventListener("mozfullscreenchange", fullScreenChanged);
-            document.addEventListener("webkitfullscreenchange", fullScreenChanged);
-            document.addEventListener("msfullscreenchange", fullScreenChanged);
-        } else {
+            PAL.browser.on("fullscreenchange", this, this.fullScreenChanged);
+        }
+        else {
             canvas.removeEventListener('mousedown', requestFullscreen);
             canvas.removeEventListener('touchstart', requestFullscreen);
-            document.removeEventListener("fullscreenchange", fullScreenChanged);
-            document.removeEventListener("mozfullscreenchange", fullScreenChanged);
-            document.removeEventListener("webkitfullscreenchange", fullScreenChanged);
-            document.removeEventListener("msfullscreenchange", fullScreenChanged);
+            PAL.browser.off("fullscreenchange", this, this.fullScreenChanged);
         }
+    }
+
+    private fullScreenChanged(): void {
+        this.event(Event.FULL_SCREEN_CHANGE);
     }
 
     /**
@@ -1113,56 +910,48 @@ export class Stage extends Sprite {
      * @en 退出全屏模式
      */
     exitFullscreen(): void {
-        var document: any = Browser.document;
-        if (document.exitFullscreen) {
-            document.exitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-            document.mozCancelFullScreen();
-        } else if (document.webkitExitFullscreen) {
-            document.webkitExitFullscreen();
-        }
+        PAL.browser.exitFullscreen();
     }
 
     /**
+     * @deprecated Use Render.throttleMode instead.
      * @en Frame rate types:fast (default, full frame rate),slow (half of the full frame rate),mouse (full frame rate after mouse activity, switches to half frame rate if the mouse is idle for 2 seconds),sleep (1 frame per second)
      * @zh 当前帧率类型：fast(默认，满帧)，slow（满帧减半），mouse（鼠标活动后满帧，鼠标不动2秒后满帧减半），sleep（每秒1帧）。
      */
     get frameRate(): string {
-        return this._frameRate;
+        return Render.throttleMode === 0 ? "fast" : Render.throttleMode === 1 ? "slow" : Render.throttleMode === 2 ? "mouse" : "sleep";
     }
 
     set frameRate(value: string) {
-        this._frameRate = value;
+        Render.throttleMode = value === "slow" ? 1 : value === "mouse" ? 2 : value === "sleep" ? 3 : 0;
     }
 
-    /**@ignore */
-    isGlobalRepaint(): boolean {
-        return this._globalRepaintGet;
-    }
+    /** @internal @blueprintEvent */
+    Stage_bpEvent: {
+        [Event.KEY_DOWN]: (event: Event) => void;
+        [Event.KEY_UP]: (event: Event) => void;
+        [Event.KEY_PRESS]: (event: Event) => void;
 
-    /**@ignore */
-    setGlobalRepaint(): void {
-        this._globalRepaintSet = true;
-    }
+        [Event.RESIZE]: () => void;
+        [Event.FOCUS]: () => void;
+        [Event.BLUR]: () => void;
+        [Event.FOCUS_CHANGE]: () => void;
+        [Event.VISIBILITY_CHANGE]: (visible: boolean) => void;
+        [Event.FULL_SCREEN_CHANGE]: () => void;
+        [Event.WILL_RESIZE]: () => void;
+    };
 }
 
 function requestFullscreen(): void {
-    var element: any = Browser.document.documentElement;
-    if (element.requestFullscreen) {
-        element.requestFullscreen();
-    } else if (element.mozRequestFullScreen) {
-        element.mozRequestFullScreen();
-    } else if (element.webkitRequestFullscreen) {
-        element.webkitRequestFullscreen();
-    } else if (element.msRequestFullscreen) {
-        element.msRequestFullscreen();
-    }
+    PAL.browser.requestFullscreen();
 
-    var canvas: any = Render.canvas;
+    let canvas = Browser.mainCanvas.source;
     canvas.removeEventListener('mousedown', requestFullscreen);
     canvas.removeEventListener('touchstart', requestFullscreen);
 }
 
-function fullScreenChanged(): void {
-    ILaya.stage.event(Event.FULL_SCREEN_CHANGE);
+function formatData(value: number): number {
+    if (Math.abs(value) < 0.000001) return 0;
+    if (Math.abs(1 - value) < 0.001) return value > 0 ? 1 : -1;
+    return value;
 }

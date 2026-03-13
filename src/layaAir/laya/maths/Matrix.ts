@@ -1,5 +1,7 @@
 import { Point } from "./Point";
 import { Pool } from "../utils/Pool"
+import { Utils } from "../utils/Utils";
+import { MathUtils3D } from "./MathUtils3D";
 
 /**
  * @en Represents a transformation matrix that determines how to map points from one coordinate space to another.
@@ -10,18 +12,106 @@ import { Pool } from "../utils/Pool"
  * 然后应用该 Transform 对象作为显示对象的 transform 属性。这些转换函数包括平移（x 和 y 重新定位）、旋转、缩放和倾斜。
  */
 export class Matrix {
+    /**
+     * @en Compares two matrices for equality.
+     * @param a The first matrix.
+     * @param b The second matrix.
+     * @returns true if the matrices are equal, false otherwise.
+     * @zh 比较两个矩阵是否相等。
+     * @param a 第一个矩阵。
+     * @param b 第二个矩阵。
+     * @returns 如果矩阵相等，返回 true，否则返回 false。
+     */
+    static equals(a: Matrix, b: Matrix): boolean {
+        return MathUtils3D.nearEqual(a.a, b.a)
+            && MathUtils3D.nearEqual(a.b, b.b)
+            && MathUtils3D.nearEqual(a.c, b.c)
+            && MathUtils3D.nearEqual(a.d, b.d)
+            && MathUtils3D.nearEqual(a.tx, b.tx)
+            && MathUtils3D.nearEqual(a.ty, b.ty);
+    }
 
     /**
-     * @private
+     * @en Extracts the transformation information from the matrix, including the skew in the X and Y directions.
+     * @param matrix The matrix from which to extract the transformation information.
+     * @returns An object containing the transformation information.
+     * @zh 从 Matrix.abcd txty 提取变换信息，包括X和Y方向的倾斜
+     * @param matrix 需要提取的矩阵
+     * @returns 返回一个包含变换信息的对象
+     */
+    static extractTransformInfo(matrix: Matrix) {
+        let { a, b, c, d, tx, ty } = matrix;
+        // 角度转换常量
+        let x = tx;
+        let y = ty;
+
+        // 计算缩放和旋转前，先检查行列式
+        const det = a * d - b * c;
+        const sign = det < 0 ? -1 : 1;
+
+        // 提取缩放
+        let scaleX = Math.sqrt(a * a + b * b);
+        let scaleY = sign * Math.sqrt(c * c + d * d);
+
+        // 提取旋转（角度）
+        let rotation = Utils.toAngle(Math.atan2(b, a));
+
+        // 计算X和Y方向的倾斜（使用更精确的方法）
+        // 首先，去除旋转和缩放的影响
+        let skewX = 0;
+        let skewY = 0;
+
+        if (scaleX !== 0 && scaleY !== 0) {
+            // 归一化矩阵的第一行和第二行
+            const norm_a = a / scaleX;
+            const norm_b = b / scaleX;
+            const norm_c = c / scaleY;
+            const norm_d = d / scaleY;
+
+            // 旋转角的余弦和正弦
+            const cos = norm_a;
+            const sin = norm_b;
+
+            // 计算去除旋转后的矩阵元素
+            // 旋转矩阵的逆是其转置
+            const derot_c = norm_c * cos + norm_d * sin;
+            const derot_d = -norm_c * sin + norm_d * cos;
+
+            // X方向倾斜角（Y轴与参考系Y轴的夹角）
+            skewX = Utils.toAngle(Math.atan2(derot_c, derot_d));
+
+            // Y方向倾斜角（从矩阵特性推导）
+            const dotProduct = a * c + b * d;
+            const len1 = Math.sqrt(a * a + b * b);
+            const len2 = Math.sqrt(c * c + d * d);
+
+            if (len1 !== 0 && len2 !== 0) {
+                const cosTheta = dotProduct / (len1 * len2);
+                // 防止数值误差导致的超出[-1,1]范围
+                const clampedCosTheta = Math.max(-1, Math.min(1, cosTheta));
+                skewY = Utils.toAngle(Math.PI / 2 - Math.acos(clampedCosTheta));
+            }
+        }
+
+        return {
+            x, y,
+            scaleX, scaleY,
+            rotation,
+            skewX, skewY
+        };
+    }
+
+    /**
      * @en An initialized Matrix object. The content of this object is not allowed to be modified.
      * @zh 一个初始化的 Matrix 对象，不允许修改此对象内容。
      */
-    static EMPTY: Matrix = new Matrix();
+    static readonly EMPTY: Readonly<Matrix> = new Matrix();
     /**
      * @en A Matrix object used for temporary operations.
      * @zh 用于中转使用的 Matrix 对象。
      */
-    static TEMP: Matrix = new Matrix();
+    static readonly TEMP: Matrix = new Matrix();
+
     /**@internal */
     static _createFun: Function | null = null;
 
@@ -117,8 +207,8 @@ export class Matrix {
      * @param y The distance to translate along the y axis.
      * @returns The current matrix object.
      * @zh 设置沿 x 、y 轴平移每个点的距离。
-     * @param	x 沿 x 轴平移每个点的距离。
-     * @param	y 沿 y 轴平移每个点的距离。
+     * @param x 沿 x 轴平移每个点的距离。
+     * @param y 沿 y 轴平移每个点的距离。
      * @return	返回对象本身
      */
     setTranslate(x: number, y: number): Matrix {
@@ -133,8 +223,8 @@ export class Matrix {
      * @param y The amount to move along the y axis (in pixels).
      * @returns The current matrix object.
      * @zh 沿 x 和 y 轴平移矩阵，平移的变化量由 x 和 y 参数指定。
-     * @param	x 沿 x 轴向右移动的量（以像素为单位）。
-     * @param	y 沿 y 轴向下移动的量（以像素为单位）。
+     * @param x 沿 x 轴向右移动的量（以像素为单位）。
+     * @param y 沿 y 轴向下移动的量（以像素为单位）。
      * @return 返回此矩形对象。
      */
     translate(x: number, y: number): Matrix {
@@ -149,8 +239,8 @@ export class Matrix {
      * @param y The multiplier used to scale the object along the y axis.
      * @returns The current matrix object.
      * @zh 对矩阵应用缩放转换。
-     * @param	x 用于沿 x 轴缩放对象的乘数。
-     * @param	y 用于沿 y 轴缩放对象的乘数。
+     * @param x 用于沿 x 轴缩放对象的乘数。
+     * @param y 用于沿 y 轴缩放对象的乘数。
      * @return	返回矩阵对象本身
      */
     scale(x: number, y: number): Matrix {
@@ -169,7 +259,7 @@ export class Matrix {
      * @param angle The rotation angle in radians.
      * @returns The current matrix objec.
      * @zh 对 Matrix 对象应用旋转转换。
-     * @param	angle 以弧度为单位的旋转角度。
+     * @param angle 以弧度为单位的旋转角度。
      * @return	返回矩阵对象本身
      */
     rotate(angle: number): Matrix {
@@ -195,19 +285,25 @@ export class Matrix {
      * @param y The 2D skew angle along the Y axis in radians.
      * @returns The current Matrix object.
      * @zh 对 Matrix 对象应用倾斜转换。
-     * @param	x 沿着 X 轴的 2D 倾斜弧度。
-     * @param	y 沿着 Y 轴的 2D 倾斜弧度。
+     * @param x 沿着 X 轴的 2D 倾斜弧度。
+     * @param y 沿着 Y 轴的 2D 倾斜弧度。
      * @returns 当前 Matrix 对象。
      */
     skew(x: number, y: number): Matrix {
-        var tanX: number = Math.tan(x);
-        var tanY: number = Math.tan(y);
-        var a1: number = this.a;
-        var b1: number = this.b;
-        this.a += tanY * this.c;
-        this.b += tanY * this.d;
-        this.c += tanX * a1;
-        this.d += tanX * b1;
+        var sinx = Math.sin(x);
+        var cosx = Math.cos(x);
+        var siny = Math.sin(y);
+        var cosy = Math.cos(y);
+        var a = this.a;
+        var c = this.c;
+        var tx = this.tx;
+        this.a = cosy * a + sinx * this.b;
+        this.b = siny * a + cosx * this.b;
+        this.c = cosy * c + sinx * this.d;
+        this.d = siny * c + cosx * this.d;
+        this.tx = cosy * tx + sinx * this.ty;
+        this.ty = siny * tx + cosx * this.ty;
+        this._bTransform = true;
         return this;
     }
 
@@ -216,7 +312,7 @@ export class Matrix {
      * @param out The Point object to be transformed.
      * @returns The transformed out Point object.
      * @zh 对指定的点应用当前矩阵的逆转化并返回此点。
-     * @param	out 待转化的点 Point 对象。
+     * @param out 待转化的点 Point 对象。
      * @returns	返回out
      */
     invertTransformPoint(out: Point): Point {
@@ -241,7 +337,7 @@ export class Matrix {
      * @param out The point used to set the output result.
      * @returns The transformed out Point object.
      * @zh 将 Matrix 对象表示的几何转换应用于指定点。
-     * @param	out 用来设定输出结果的点。
+     * @param out 用来设定输出结果的点。
      * @returns	返回out
      */
     transformPoint(out: Point): Point {
@@ -253,7 +349,7 @@ export class Matrix {
      * @param out The point used to set the output result.
      * @returns The transformed out Point object.
      * @zh 将 Matrix 对象表示的几何转换应用于指定点，忽略tx、ty。
-     * @param	out 用来设定输出结果的点。
+     * @param out 用来设定输出结果的点。
      * @returns	返回out
      */
     transformPointN(out: Point): Point {
@@ -308,12 +404,12 @@ export class Matrix {
      * @param ty The distance by which to translate each point along the y axis.
      * @returns The current matrix object.
      * @zh 将 Matrix 的成员设置为指定值。
-     * @param	a 缩放或旋转图像时影响像素沿 x 轴定位的值。
-     * @param	b 旋转或倾斜图像时影响像素沿 y 轴定位的值。
-     * @param	c 旋转或倾斜图像时影响像素沿 x 轴定位的值。
-     * @param	d 缩放或旋转图像时影响像素沿 y 轴定位的值。
-     * @param	tx 沿 x 轴平移每个点的距离。
-     * @param	ty 沿 y 轴平移每个点的距离。
+     * @param a 缩放或旋转图像时影响像素沿 x 轴定位的值。
+     * @param b 旋转或倾斜图像时影响像素沿 y 轴定位的值。
+     * @param c 旋转或倾斜图像时影响像素沿 x 轴定位的值。
+     * @param d 缩放或旋转图像时影响像素沿 y 轴定位的值。
+     * @param tx 沿 x 轴平移每个点的距离。
+     * @param ty 沿 y 轴平移每个点的距离。
      * @return 当前矩阵对象。
      */
     setTo(a: number, b: number, c: number, d: number, tx: number, ty: number): Matrix {
@@ -326,7 +422,7 @@ export class Matrix {
      * @param matrix The matrix to be concatenated to the source matrix.
      * @returns The current matrix.
      * @zh 将指定矩阵与当前矩阵连接，从而将这两个矩阵的几何效果有效地结合在一起。
-     * @param	matrix 要连接到源矩阵的矩阵。
+     * @param matrix 要连接到源矩阵的矩阵。
      * @return	当前矩阵。
      */
     concat(matrix: Matrix): Matrix {
@@ -349,9 +445,9 @@ export class Matrix {
      * @param out The output object.
      * @returns The result output object out.
      * @zh 将指定的两个矩阵相乘后的结果赋值给指定的输出对象。
-     * @param	m1 矩阵一。
-     * @param	m2 矩阵二。
-     * @param	out 输出对象。
+     * @param m1 矩阵一。
+     * @param m2 矩阵二。
+     * @param out 输出对象。
      * @return	结果输出对象 out。
      */
     static mul(m1: Matrix, m2: Matrix, out: Matrix): Matrix {
@@ -409,13 +505,12 @@ export class Matrix {
     }
 
     /**
-     * @private
      * @en Applies a scaling transformation to the matrix. Reverse multiplication.
      * @param x The multiplier used to scale the object along the x axis.
      * @param y The multiplier used to scale the object along the y axis.
      * @zh 对矩阵应用缩放转换。反向相乘
-     * @param	x 用于沿 x 轴缩放对象的乘数。
-     * @param	y 用于沿 y 轴缩放对象的乘数。
+     * @param x 用于沿 x 轴缩放对象的乘数。
+     * @param y 用于沿 y 轴缩放对象的乘数。
      */
     scaleEx(x: number, y: number): void {
         var ba: number = this.a, bb: number = this.b, bc: number = this.c, bd: number = this.d;
@@ -434,7 +529,6 @@ export class Matrix {
     }
 
     /**
-     * @private
      * @en Applies a rotation transformation to the Matrix object. Reverse multiplication.
      * @param angle The rotation angle in radians.
      * @zh 对 Matrix 对象应用旋转转换。反向相乘
@@ -464,8 +558,25 @@ export class Matrix {
      * @zh 返回此 Matrix 对象的副本。
      * @returns 与原始实例具有完全相同的属性的新 Matrix 实例。
      */
-    clone(): Matrix {
-        var dec: Matrix = Matrix.create();
+    clone() {
+        var dec: Matrix = new Matrix();
+        dec.a = this.a;
+        dec.b = this.b;
+        dec.c = this.c;
+        dec.d = this.d;
+        dec.tx = this.tx;
+        dec.ty = this.ty;
+        dec._bTransform = this._bTransform;
+        return dec;
+    }
+
+    /**
+     * @en Returns a copy of this Matrix object.
+     * @returns A new Matrix instance with exactly the same properties as the original instance.
+     * @zh 返回此 Matrix 对象的副本。
+     * @returns 与原始实例具有完全相同的属性的新 Matrix 实例。
+     */
+    cloneTo(dec: Matrix) {
         dec.a = this.a;
         dec.b = this.b;
         dec.c = this.c;
@@ -496,10 +607,46 @@ export class Matrix {
     }
 
     /**
-     * @en Return a string that lists the properties of this Matrix object.
-     * @returns A string containing the property values of the Matrix object: a, b, c, d, tx, and ty.
-     * @zh 返回列出该 Matrix 对象属性的文本值。
-     * @returns 一个字符串，它包含 Matrix 对象的属性值：a、b、c、d、tx 和 ty。
+     * 设置矩阵
+     * 输出矩阵 = 平移矩阵*旋转矩阵*斜切矩阵*缩放矩阵*描点矩阵
+     * [a,b,tx] = [1,0,x]  *  [cos(r),-sin(r),0]  *  [cos(sy),sin(sx),0]  *  [sx,0,0]  *  [1,0,-pivotx]
+     * [c,d,ty]   [0,1,y]     [sin(r), cos(r),0]     [sin(sy),cos(sx),0]     [0,sy,0]     [0,1,-pivoty]   
+     * 
+     * @param x x坐标
+     * @param y y坐标
+     * @param sx x轴缩放
+     * @param sy y轴缩放
+     * @param rotation 旋转，以角度为单位。
+     * @param skewX x轴倾斜，以角度为单位。
+     * @param skewY y轴倾斜，以角度为单位。
+     * @param pivotx x 描点
+     * @param pivoty y 描点
+     */
+    setMatrix(x: number, y: number, sx: number, sy: number, rotation: number, skewX: number, skewY: number, pivotx: number, pivoty: number): Matrix {
+        rotation = Utils.toRadian(rotation);
+        skewX = Utils.toRadian(skewX);
+        skewY = Utils.toRadian(skewY);
+        const cosr = Math.cos(rotation);
+        const sinr = Math.sin(rotation);
+        const coskx = Math.cos(skewX);
+        const sinkx = Math.sin(skewX);
+        const cosky = Math.cos(skewY);
+        const sinky = Math.sin(skewY);
+
+        this.a = (cosr * cosky - sinr * sinky) * sx;
+        this.b = (sinr * cosky + cosr * sinky) * sx;
+        this.c = (cosr * sinkx - sinr * coskx) * sy;
+        this.d = (sinr * sinkx + cosr * coskx) * sy;
+
+        this.tx = x - this.a * pivotx - this.c * pivoty;
+        this.ty = y - this.b * pivotx - this.d * pivoty;
+        this._checkTransform();
+        return this;
+    }
+
+    /**
+     * 返回列出该 Matrix 对象属性的文本值。
+     * @return 一个字符串，它包含 Matrix 对象的属性值：a、b、c、d、tx 和 ty。
      */
     toString(): string {
         return this.a + "," + this.b + "," + this.c + "," + this.d + "," + this.tx + "," + this.ty;

@@ -1,10 +1,14 @@
+/**
+description
+ 处理Protobuf协议消息的网络通信工具类
+ */
 import { Laya } from "Laya";
 import { URL } from "laya/net/URL";
 import { Browser } from "laya/utils/Browser";
 import { Main } from "./../Main";
 
 export class Network_ProtocolBuffer {
-	private ProtoBuf: any = Browser.window.protobuf;
+	private ProtoBuf: any = (Browser.window as any).protobuf;
 
 	Main: typeof Main = null;
 	constructor(maincls: typeof Main) {

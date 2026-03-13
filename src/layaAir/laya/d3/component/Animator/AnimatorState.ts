@@ -19,24 +19,35 @@ export class AnimatorState extends EventDispatcher implements IClone {
     /**
      * @en Animation event called when the state is entered.
      * @zh 动画事件，在进入状态时调用。
+     * @blueprintIgnore
      */
-    static EVENT_OnStateEnter = "OnStartEnter";
+    static readonly EVENT_OnStateEnter = "OnStartEnter";
     /**
      * @en Animation event called when the state is updated.
      * @zh 动画事件，在更新状态时调用。
+     * @blueprintIgnore
      */
-    static EVENT_OnStateUpdate = "OnStateUpdate";
+    static readonly EVENT_OnStateUpdate = "OnStateUpdate";
 
     /**
      * @en Animation event called when a loop is completed.
      * @zh 动画事件，在循环完成时调用。
+     * @blueprintIgnore
      */
-    static EVENT_OnStateLoop = 'OnStateLoop';
+    static readonly EVENT_OnStateLoop = 'OnStateLoop';
     /**
      * @en Animation event called when the state is exited.
      * @zh 动画事件，在离开状态时调用。
+     * @blueprintIgnore
      */
-    static EVENT_OnStateExit = "OnStateExit";
+    static readonly EVENT_OnStateExit = "OnStateExit";
+
+    /**
+     * @en Event triggered when switching to a new state
+     * @zh 切换到新状态时触发的事件
+     * @blueprintIgnore
+     */
+    static readonly EVENT_OnStateSwitch = "OnStateSwitch";
 
     /** @internal */
     private _referenceCount: number = 0;
@@ -140,6 +151,7 @@ export class AnimatorState extends EventDispatcher implements IClone {
                 this._realtimeDatas.length = count;
                 for (var i: number = 0; i < count; i++) {
                     switch (clipNodes.getNodeByIndex(i).type) {
+                        case KeyFrameValueType.Boolean:
                         case KeyFrameValueType.Float:
                             break;
                         case KeyFrameValueType.Position:
@@ -172,14 +184,10 @@ export class AnimatorState extends EventDispatcher implements IClone {
      * @zh 动画是否循环播放。
      */
     get islooping() {
-        if (0 != this._isLooping) {
+        if (this._isLooping) {
             return 1 == this._isLooping;
         }
         return this._clip.islooping;
-    }
-
-    set islooping(value: boolean) {
-        this._isLooping = value ? 1 : 2;
     }
 
     /**
@@ -237,6 +245,19 @@ export class AnimatorState extends EventDispatcher implements IClone {
         if (this._scripts) {
             for (let i = 0, n = this._scripts.length; i < n; i++) {
                 this._scripts[i].onStateExit();
+            }
+        }
+    }
+
+    /**
+     * @internal
+     * @param currentState 
+     */
+    _eventSwitch(currentState: AnimatorState) {
+        this.event(AnimatorState.EVENT_OnStateSwitch, currentState);
+        if (this._scripts) {
+            for (let i = 0, n = this._scripts.length; i < n; i++) {
+                this._scripts[i].onStateSwitch && this._scripts[i].onStateSwitch(currentState);
             }
         }
     }
@@ -411,10 +432,17 @@ export class AnimatorState extends EventDispatcher implements IClone {
      * @zh 创建当前AnimatorState的克隆。
      * @returns 一个新的AnimatorState对象，具有与当前对象相同的属性。
      */
-    clone(): any {
+    clone() {
         var dest: AnimatorState = new AnimatorState();
         this.cloneTo(dest);
         return dest;
     }
 
+    /** @internal @blueprintEvent */
+    Animator_bpEvent: {
+        [AnimatorState.EVENT_OnStateEnter]: () => void;
+        [AnimatorState.EVENT_OnStateUpdate]: () => void;
+        [AnimatorState.EVENT_OnStateLoop]: (state: AnimatorState) => void;
+        [AnimatorState.EVENT_OnStateExit]: () => void;
+    };
 }

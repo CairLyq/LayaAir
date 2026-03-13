@@ -1,7 +1,6 @@
-import { LayaGL } from "../../layagl/LayaGL";
 import { IndexFormat } from "../../RenderEngine/RenderEnum/IndexFormat";
-import { RenderCapable } from "../../RenderEngine/RenderEnum/RenderCapable";
 import { SpineMeshBase } from "../mesh/SpineMeshBase";
+import { SpineMeshUtils } from "../mesh/SpineMeshUtils";
 import { AttachmentParse } from "./AttachmentParse";
 import { MultiRenderData } from "./MultiRenderData";
 import { SlotUtils } from "./SlotUtils";
@@ -10,53 +9,42 @@ import { VBCreator } from "./VBCreator";
 /**
  * @en Creator class for index buffer (IB) in spine rendering.
  * @zh Spine渲染中用于创建索引缓冲区（IB）的类。
+ * @blueprintIgnore
  */
 export class IBCreator {
+    /** 
+     * @en The index type.
+     * @zh 索引类型。
+     */
+    type: IndexFormat;
+    /**
+     * @en The byte count of the index type.
+     * @zh 索引类型字节数量。
+     */
+    size: number;
     /**
      * @en The index buffer array.
      * @zh 索引缓冲区数组。
      */
-    ib: Uint16Array | Uint32Array;
+    ib: Uint16Array | Uint32Array | Uint8Array;
     /**
      * @en The actual length of the index buffer.
      * @zh 索引缓冲区的实际长度。
      */
-    ibLength: number;
+    ibLength: number = 0;
+    /**
+     * @en The Max length of the index buffer.
+     * @zh 索引缓冲区的最大长度。
+     */
+    maxIndexCount: number = 0;
     /**
      * @en The output render data for multiple renders.
      * @zh 用于多重渲染的输出渲染数据。
      */
     outRenderData: MultiRenderData;
 
-    /**
-     * @en The Max length of the index buffer.
-     * @zh 索引缓冲区的最大长度。
-     */
-    maxIndexCount: number = 0;
-
-    /** 
-     * @en The index type.
-     * @zh 索引类型。
-     */
-    type: IndexFormat;
-
-    /**
-     * @en The byte count of the index type.
-     * @zh 索引类型字节数量。
-     */
-    size: number;
-
-    /**
-     * @en The actual index buffer.
-     * @zh 实际索引缓冲区。
-     */
-    get realIb(): Uint16Array | Uint32Array {
-        return this.ib;
-    }
-    
     /** @ignore */
     constructor() {
-        this.ibLength = 0;
     }
 
     /**
@@ -65,7 +53,7 @@ export class IBCreator {
      * @param vertexCount 顶点数目
      */
     updateFormat(vertexCount: number) {
-        let ntype: IndexFormat = IBCreator.getIndexFormat(vertexCount);
+        let ntype: IndexFormat = SpineMeshUtils.getIndexFormat(vertexCount);
         if (this.type === ntype) return
         this.type = ntype;
         this._updateBuffer();
@@ -91,10 +79,10 @@ export class IBCreator {
                 this.size = 2;
                 this.ib = new Uint16Array(this.maxIndexCount);
                 break;
-            // case IndexFormat.UInt8:
-            //     this.size = 1;
-            //     this.ib = new Uint8Array(this.maxIndexCount);
-            //     break;
+            case IndexFormat.UInt8:
+                this.size = 1;
+                this.ib = new Uint8Array(this.maxIndexCount);
+                break;
 
             case IndexFormat.UInt32:
                 this.size = 4
@@ -108,11 +96,11 @@ export class IBCreator {
     /**
      * @en Create index buffer for attachments.
      * @param attachs Array of attachment parse data.
-     * @param ibCreator Index buffer creator.
+     * @param vbCreator Vertex buffer creator.
      * @param order Optional draw order array.
      * @zh 为附件创建索引缓冲区。
      * @param attachs 附件解析数据数组。
-     * @param ibCreator 索引缓冲区创建器。
+     * @param vbCreator 顶点缓冲区创建器。
      * @param order 可选的绘制顺序数组。
      */
     createIB(attachs: AttachmentParse[], vbCreator: VBCreator, order?: number[]) {
@@ -120,7 +108,7 @@ export class IBCreator {
         let slotVBMap = vbCreator.slotVBMap;
         let drawOrder;
         let getAttach: (value: any) => AttachmentParse;
-        if (order) {
+        if (order) {//动画drawOrder
             drawOrder = order;
             getAttach = function (value: any) {
                 return attachs[value];
@@ -138,7 +126,6 @@ export class IBCreator {
 
         let uploadData: Array<{ offset: number, data: ArrayLike<number>, start: number }> = [];
         let end = -1;
-
         for (let i = 0, n = drawOrder.length; i < n; i++) {
             let attach = getAttach(drawOrder[i]);
             if (attach.attachment && !attach.isPath) {
@@ -155,15 +142,19 @@ export class IBCreator {
                     if (outRenderData.currentData) {
                         outRenderData.endData(offset);
                     }
-                    outRenderData.addData(attach.textureName, attach.blendMode, offset, 0);
+                    outRenderData.addData(attach.textureName, attach.blendMode, offset, 0, attach.attachment);
                 }
+
                 let attachPos = slotVBMap.get(attach.slotId).get(attach.attachment);
+
                 if (attach.attachment && attach.indexArray) {
+
                     uploadData.push({
                         data: attach.indexArray,
                         offset: attachPos.offset,
                         start: offset
                     });
+
                     offset += attach.indexArray.length;
                     end = Math.max(end, offset);
                 }
@@ -171,7 +162,7 @@ export class IBCreator {
         }
 
         let vertexCount = vbCreator.maxVertexCount;
-        let ntype: IndexFormat = IBCreator.getIndexFormat(vertexCount);
+        let ntype: IndexFormat = SpineMeshUtils.getIndexFormat(vertexCount);
 
         let needUpdateBuffer = false;
         if (ntype !== this.type) {
@@ -202,13 +193,5 @@ export class IBCreator {
 
         this.outRenderData = outRenderData;
         this.ibLength = offset;
-    }
-
-    static getIndexFormat(vertexCount: number) {
-        let type = IndexFormat.UInt32;
-        if (vertexCount < 65536) {
-            type = IndexFormat.UInt16;
-        }
-        return type;
     }
 }

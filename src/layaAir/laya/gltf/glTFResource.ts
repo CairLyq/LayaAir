@@ -16,18 +16,14 @@ import { VertexDeclaration } from "../RenderEngine/VertexDeclaration";
 import { Animator } from "../d3/component/Animator/Animator";
 import { AnimatorControllerLayer } from "../d3/component/Animator/AnimatorControllerLayer";
 import { AnimatorState } from "../d3/component/Animator/AnimatorState";
-import { FloatKeyframe } from "../d3/core/FloatKeyframe";
 import { MeshFilter } from "../d3/core/MeshFilter";
-import { QuaternionKeyframe } from "../d3/core/QuaternionKeyframe";
 import { SkinnedMeshRenderer } from "../d3/core/SkinnedMeshRenderer";
 import { Sprite3D } from "../d3/core/Sprite3D";
-import { Vector3Keyframe } from "../d3/core/Vector3Keyframe";
 import { IndexBuffer3D } from "../d3/graphics/IndexBuffer3D";
 import { VertexBuffer3D } from "../d3/graphics/VertexBuffer3D";
 import { MorphTarget, MorphTargetChannel } from "../d3/resource/models/MorphTarget";
 import { MorphTargetData } from "../d3/resource/models/MorphTargetData";
 import { SubMesh } from "../d3/resource/models/SubMesh";
-import { Node } from "../display/Node";
 import { Matrix4x4 } from "../maths/Matrix4x4";
 import { Quaternion } from "../maths/Quaternion";
 import { Vector3 } from "../maths/Vector3";
@@ -46,6 +42,9 @@ import { Laya3DRender } from "../d3/RenderObjs/Laya3DRender";
 import { RenderState } from "../RenderDriver/RenderModuleData/Design/RenderState";
 import { ShaderDefine } from "../RenderDriver/RenderModuleData/Design/ShaderDefine";
 import { MeshRenderer } from "../d3/core/MeshRenderer";
+import { FloatKeyframe } from "../maths/FloatKeyframe";
+import { QuaternionKeyframe } from "../maths/QuaternionKeyframe";
+import { Vector3Keyframe } from "../maths/Vector3Keyframe";
 
 const maxSubBoneCount = 24;
 
@@ -82,7 +81,7 @@ export class glTFResource extends Prefab {
     private _idCounter: Record<string, number>;
 
     constructor() {
-        super(3);
+        super();
 
         this._buffers = {};
         this._textures = [];
@@ -287,6 +286,13 @@ export class glTFResource extends Prefab {
             }
         });
 
+        data.nodes?.forEach(node => {
+            if (!node.name) {
+                let storeId = this.generateId("glTFNode");
+                node.name = `node_${storeId}`;
+            }
+        });
+
         let promise: Promise<any> = this.loadBinary(basePath, progress);
 
         promise = promise.then(() => {
@@ -410,7 +416,7 @@ export class glTFResource extends Prefab {
         });
     }
 
-    public create(): Node {
+    create(): Sprite3D {
         let data = this._data;
 
         this._scenes.length = 0;
@@ -423,7 +429,7 @@ export class glTFResource extends Prefab {
         this.loadAnimations(data.animations);
 
         let defaultSceneIndex = (data.scene != undefined) ? data.scene : 0;
-        let defaultScene: Sprite3D = this._scenes[defaultSceneIndex];
+        let defaultScene = this._scenes[defaultSceneIndex];
         this._scenes.length = 0;
         this._nodes.length = 0;
         this._idCounter = null;
@@ -2027,7 +2033,7 @@ export class glTFResource extends Prefab {
     }
 
     /**
-     * @interna
+     * @internal
      * 获取 Animator 根节点
      */
     private getAnimationRoot(channels: glTF.glTFAnimationChannel[]): Sprite3D {

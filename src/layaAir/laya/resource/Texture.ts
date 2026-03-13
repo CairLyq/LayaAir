@@ -5,10 +5,7 @@ import { Handler } from "../utils/Handler"
 import { ILaya } from "../../ILaya";
 import { BaseTexture } from "./BaseTexture";
 import { Resource } from "./Resource";
-import { RenderTexture2D } from "./RenderTexture2D";
-import { RenderTargetFormat } from "../RenderEngine/RenderEnum/RenderTargetFormat";
 import { AtlasResource } from "./AtlasResource";
-import { Loader } from "../net/Loader";
 
 const _rect1 = new Rectangle();
 const _rect2 = new Rectangle();
@@ -83,6 +80,7 @@ export class Texture extends Resource {
 
     /**
      * 九宫格
+     * @internal
      */
     _sizeGrid?: Array<number>;
     /**
@@ -135,16 +133,16 @@ export class Texture extends Resource {
     /**
      * @internal
      * 根据指定资源和坐标、宽高、偏移量等创建 <code>Texture</code> 对象。
-     * @param	source 绘图资源 Texture2D 或者 Texture 对象。
-     * @param	x 起始绝对坐标 x 。
-     * @param	y 起始绝对坐标 y 。
-     * @param	width 宽绝对值。
-     * @param	height 高绝对值。
-     * @param	offsetX X 轴偏移量（可选）。
-     * @param	offsetY Y 轴偏移量（可选）。
-     * @param	sourceWidth 原始宽度，包括被裁剪的透明区域（可选）。
-     * @param	sourceHeight 原始高度，包括被裁剪的透明区域（可选）。
-     * @param	outTexture 返回的Texture对象。
+     * @param source 绘图资源 Texture2D 或者 Texture 对象。
+     * @param x 起始绝对坐标 x 。
+     * @param y 起始绝对坐标 y 。
+     * @param width 宽绝对值。
+     * @param height 高绝对值。
+     * @param offsetX X 轴偏移量（可选）。
+     * @param offsetY Y 轴偏移量（可选）。
+     * @param sourceWidth 原始宽度，包括被裁剪的透明区域（可选）。
+     * @param sourceHeight 原始高度，包括被裁剪的透明区域（可选）。
+     * @param outTexture 返回的Texture对象。
      * @return  <code>Texture</code> 对象。
      */
     static _create(source: Texture | BaseTexture, x: number, y: number, width: number, height: number,
@@ -304,9 +302,13 @@ export class Texture extends Resource {
      * @en Creates an instance of Texture class.
      * @param source Bitmap resource.
      * @param uv UV data information.
+     * @param sourceWidth Original width of the texture.
+     * @param sourceHeight Original height of the texture.
      * @zh 创建 Texture 类的新实例
      * @param source 位图资源。
      * @param uv UV 数据信息。
+     * @param sourceWidth 纹理原始宽度。
+     * @param sourceHeight 纹理原始高度。
      */
     constructor(source: Texture | BaseTexture = null, uv: ArrayLike<number> = null,
         sourceWidth: number = 0, sourceHeight: number = 0) {
@@ -462,39 +464,7 @@ export class Texture extends Resource {
         }
 
         // 如果无法直接获取，只能先渲染出来
-        var ctx = new ILaya.Context();
-        ctx.size(width, height);
-        let rt = new RenderTexture2D(width, height, RenderTargetFormat.R8G8B8A8);
-        ctx.render2D = ctx.render2D.clone(rt)
-        var uv: number[] = null;
-        if (x != 0 || y != 0 || width != tex2dw || height != tex2dh) {
-            uv = (this._uv as number[]).slice();	// 复制一份uv
-            var stu = uv[0];
-            var stv = uv[1];
-            var uvw = uv[2] - stu;
-            var uvh = uv[7] - stv;
-            var uk = uvw / texw;
-            var vk = uvh / texh;
-            uv = [stu + rePosX * uk, stv + rePosY * vk,
-            stu + (rePosX + draww) * uk, stv + rePosY * vk,
-            stu + (rePosX + draww) * uk, stv + (rePosY + drawh) * vk,
-            stu + rePosX * uk, stv + (rePosY + drawh) * vk];
-        }
-        ctx.startRender();
-        ctx._drawTextureM(this, marginL, marginT, draww, drawh, null, 1.0, uv, 0xffffffff);
-        ctx.endRender();
-        var dt: Uint8Array = rt.getData(0, 0, width, height) as Uint8Array;
-        ctx.destroy();
-        rt.destroy();
-        // 上下颠倒一下
-        ret = new Uint8Array(width * height * 4);
-        st = 0;
-        dst = (height - 1) * wstride;
-        for (i = height - 1; i >= 0; i--) {
-            ret.set(dt.slice(dst, dst + wstride), st);
-            st += wstride;
-            dst -= wstride;
-        }
+        //TODO
         return ret;
     }
 
@@ -526,7 +496,7 @@ export class Texture extends Resource {
     recoverBitmap(callback?: () => void): void {
         var url = this._bitmap.url;
         if (!this._destroyed && (!this._bitmap || this._bitmap.destroyed) && url) {
-            ILaya.loader.load(url, Loader.IMAGE).then((tex: Texture) => {
+            ILaya.loader.load(url, "image").then((tex: Texture) => {
                 this.bitmap = tex.bitmap;
                 callback && callback();
             });
@@ -540,6 +510,7 @@ export class Texture extends Resource {
     disposeBitmap(): void {
         if (!this._destroyed && this._bitmap) {
             this._bitmap.destroy();
+            this.event("dispose");
         }
     }
 

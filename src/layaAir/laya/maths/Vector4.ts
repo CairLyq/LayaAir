@@ -1,6 +1,5 @@
 import { Matrix4x4 } from "./Matrix4x4";
 import { MathUtils3D } from "./MathUtils3D";
-import { Vector2 } from "./Vector2";
 import { IClone } from "../utils/IClone";
 
 /**
@@ -45,8 +44,7 @@ export class Vector4 implements IClone {
      */
     static readonly UnitW: Readonly<Vector4> = new Vector4(0.0, 0.0, 0.0, 1.0);
 
-    /** @internal */
-    static tempVec4: Vector4 = new Vector4(0.0, 0.0, 0.0, 0.0);
+    static readonly TEMP: Vector4 = new Vector4(0.0, 0.0, 0.0, 0.0);
 
     /**
      * @en X coordinate.
@@ -103,11 +101,12 @@ export class Vector4 implements IClone {
      * @param z Z值。
      * @param w W值。
      */
-    setValue(x: number, y: number, z: number, w: number): void {
+    setValue(x: number, y: number, z: number, w: number): this {
         this.x = x;
         this.y = y;
         this.z = z;
         this.w = w;
+        return this;
     }
 
     /**
@@ -118,11 +117,12 @@ export class Vector4 implements IClone {
      * @param arr 源数组。
      * @param offset 数组偏移。默认值为 0。
      */
-    fromArray(arr: ArrayLike<number>, offset: number = 0): void {
+    fromArray(arr: ArrayLike<number>, offset: number = 0): this {
         this.x = arr[offset + 0];
         this.y = arr[offset + 1];
         this.z = arr[offset + 2];
         this.w = arr[offset + 3];
+        return this;
     }
 
     /**
@@ -136,18 +136,19 @@ export class Vector4 implements IClone {
     }
 
     /**
-     * @en Writes the vector values to a Float32Array.
-     * @param arr The target Float32Array.
+     * @en Writes the vector values to a array.
+     * @param arr The target array.
      * @param offset The offset in the array. Default is 0.
-     * @zh 将向量值写入 Float32Array 数组。
-     * @zh arr 目标 Float32Array 数组。
+     * @zh 将向量值写入数组。
+     * @zh arr 目标数组。
      * @zh offset 数组偏移。默认值为 0。
      */
-    writeTo(arr: Float32Array, offset: number = 0): void {
+    writeTo(arr: { [n: number]: number }, offset: number = 0): this {
         arr[offset + 0] = this.x;
         arr[offset + 1] = this.y;
         arr[offset + 2] = this.z;
         arr[offset + 3] = this.w;
+        return this;
     }
 
     /**
@@ -156,11 +157,12 @@ export class Vector4 implements IClone {
      * @zh 将当前向量克隆到目标对象。
      * @param destObject 克隆的目标对象。
      */
-    cloneTo(destObject: Vector4): void {
+    cloneTo(destObject: Vector4): Vector4 {
         destObject.x = this.x;
         destObject.y = this.y;
         destObject.z = this.z;
         destObject.w = this.w;
+        return destObject;
     }
 
     /**
@@ -169,7 +171,7 @@ export class Vector4 implements IClone {
      * @zh 创建当前向量的克隆。
      * @returns 返回一个新的 Vector4 对象，其值与当前向量相同。
      */
-    clone(): any {
+    clone() {
         var destVector4: Vector4 = new Vector4();
         this.cloneTo(destVector4);
         return destVector4;
@@ -218,19 +220,15 @@ export class Vector4 implements IClone {
         out.z = vx * me[2] + vy * me[6] + vz * me[10] + vw * me[14];
         out.w = vx * me[3] + vy * me[7] + vz * me[11] + vw * me[15];
     }
-
+    
     /**
-     * @en Determines whether two Vector4 objects are equal.
-     * @param a The first Vector4.
-     * @param b The second Vector4.
-     * @returns True if the vectors are equal, false otherwise.
-     * @zh 判断两个四维向量是否相等。
-     * @param a 第一个四维向量。
-     * @param b 第二个四维向量。
-     * @returns 如果向量相等则返回 true，否则返回 false。
+     * 判断两个四维向量是否相等。
+     * @param a 四维向量。
+     * @param b 四维向量。
+     * @return  是否相等。
      */
     static equals(a: Vector4, b: Vector4): boolean {
-        return MathUtils3D.nearEqual(Math.abs(a.x), Math.abs(b.x)) && MathUtils3D.nearEqual(Math.abs(a.y), Math.abs(b.y)) && MathUtils3D.nearEqual(Math.abs(a.z), Math.abs(b.z)) && MathUtils3D.nearEqual(Math.abs(a.w), Math.abs(b.w));
+        return MathUtils3D.nearEqual(a.x, b.x) && MathUtils3D.nearEqual(a.y, b.y) && MathUtils3D.nearEqual(a.z, b.z) && MathUtils3D.nearEqual(a.w, b.w);
     }
 
     /**

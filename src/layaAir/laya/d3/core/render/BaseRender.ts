@@ -4,7 +4,6 @@ import { Material } from "../../../resource/Material";
 import { BoundFrustum } from "../../math/BoundFrustum"
 import { Event } from "../../../events/Event"
 import { MeshSprite3DShaderDeclaration } from "../../../d3/core/MeshSprite3DShaderDeclaration";
-import { TextureCube } from "../../../resource/TextureCube";
 import { Component } from "../../../components/Component";
 import { Sprite3D } from "../Sprite3D";
 import { Bounds } from "../../math/Bounds";
@@ -26,9 +25,10 @@ import { Laya3DRender } from "../../RenderObjs/Laya3DRender";
 import { LayaGL } from "../../../layagl/LayaGL";
 import { ShaderDefine } from "../../../RenderDriver/RenderModuleData/Design/ShaderDefine";
 import { ShaderData } from "../../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
-import { IBaseRenderNode } from "../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
+import { ENodeCustomData, IBaseRenderNode } from "../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
 import { IRenderContext3D, IRenderElement3D } from "../../../RenderDriver/DriverDesign/3DRenderPass/I3DRenderPass";
 import { Transform3D } from "../Transform3D";
+import { StatElement } from "../../../layagl/StatisticsContext";
 
 export enum RenderBitFlag {
     RenderBitFlag_CullFlag = 0,
@@ -53,8 +53,6 @@ export class BaseRender extends Component {
 
     /** @internal */
     static _meshVerticeDefine: Array<ShaderDefine> = [];
-
-    /**@internal */
     private static _uniqueIDCounter: number = 0;
 
     /**@internal */
@@ -66,6 +64,7 @@ export class BaseRender extends Component {
     /**
      * @en Initialize the BaseRender class.
      * @zh 初始化 BaseRender 类。
+     * @internal
      */
     static __init__() {
         BaseRender.shaderValueInit();
@@ -101,6 +100,12 @@ export class BaseRender extends Component {
                         break;
                     case VertexMesh.MESH_TANGENT0:
                         out.push(MeshSprite3DShaderDeclaration.SHADERDEFINE_TANGENT);
+                        break;
+                    case VertexMesh.MESH_BLENDINDICES0:
+                        out.push(MeshSprite3DShaderDeclaration.SHADERDEFINE_BONEI);
+                        break;
+                    case VertexMesh.MESH_BLENDWEIGHT0:
+                        out.push(MeshSprite3DShaderDeclaration.SHADERDEFINE_BONEW);
                         break;
                 }
             }
@@ -139,11 +144,8 @@ export class BaseRender extends Component {
      */
     static shaderValueInit() {
         Sprite3DRenderDeclaration.SHADERDEFINE_GI_LEGACYIBL = Shader3D.getDefineByName("GI_LEGACYIBL");
-        Sprite3DRenderDeclaration.SHADERDEFINE_GI_IBL = Shader3D.getDefineByName("GI_IBL");
         Sprite3DRenderDeclaration.SHADERDEFINE_IBL_RGBD = Shader3D.getDefineByName("IBL_RGBD");
         Sprite3DRenderDeclaration.SHADERDEFINE_SPECCUBE_BOX_PROJECTION = Shader3D.getDefineByName("SPECCUBE_BOX_PROJECTION");
-
-        Sprite3DRenderDeclaration.SHADERDEFINE_VOLUMETRICGI = Shader3D.getDefineByName("VOLUMETRICGI");
     }
 
     /**@internal renderData*/
@@ -171,7 +173,7 @@ export class BaseRender extends Component {
     _lightProb: VolumetricGI;
 
     /**@internal */
-    _surportVolumetricGI: boolean = false;
+    _supportVolumetricGI: boolean = false;
 
     /**@internal motion list index，not motion is -1*/
     _motionIndexList: number = -1;
@@ -185,28 +187,25 @@ export class BaseRender extends Component {
     /**@interface */
     _receiveShadow: boolean;
 
-    /** @internal */
-    protected _bounds: Bounds;
-
     /**@internal */
+    _inRenderList: boolean;
+    protected _bounds: Bounds;
     protected _transform: Transform3D;
 
-    /**@internal 如果这个值不是0,说明有一些条件使他不能加入渲染队列，例如如果是1，证明此节点被lod淘汰*/
+    /** 如果这个值不是0,说明有一些条件使他不能加入渲染队列，例如如果是1，证明此节点被lod淘汰*/
     private _volume: Volume;
 
-    /**@internal */
     protected _asynNative: boolean;
 
-    /** @internal */
     private _materialsInstance: boolean[];
 
-    /**@internal */
     private _renderid: number;
 
-    /**@internal */
     private _lightmapScaleOffset: Vector4 = new Vector4();
 
     _renderElements: RenderElement[] = [];
+
+    declare readonly owner: Sprite3D;
 
     /**
      * @en Whether to enable the renderer.
@@ -250,9 +249,7 @@ export class BaseRender extends Component {
         this._baseRenderNode.boundsChange = value
     }
 
-    /**
-     * 渲染数据
-     */
+
     /**
      * @en The render node.
      * @zh 渲染节点。
@@ -346,6 +343,9 @@ export class BaseRender extends Component {
     }
 
     set sharedMaterial(value: Material) {
+        if (value && !this._isMaterialVaild(value)) {
+            return;
+        }
         var lastValue = this._sharedMaterials[0];
         this._changeMaterialReference(lastValue, value);
         this._sharedMaterials[0] = value;
@@ -375,6 +375,9 @@ export class BaseRender extends Component {
             let count = value.length;
             for (let i = 0; i < count; i++) {
                 let mat = value[i];
+                if (mat && !this._isMaterialVaild(mat)) {
+                    continue;
+                }
                 let lastMat = sharedMats[i];
                 this._changeMaterialReference(lastMat, mat);
                 sharedMats[i] = mat;
@@ -496,15 +499,21 @@ export class BaseRender extends Component {
     set probReflection(value: ReflectionProbe) {
         if (this._probReflection == value)
             return;
-        this._baseRenderNode.probeReflectionUpdateMark = -1;//initial update mask
         this._probReflection = value;
-        this._baseRenderNode.probeReflection = value._dataModule;
-        if (this._baseRenderNode.reflectionMode == ReflectionProbeMode.off) {
-            this._baseRenderNode.shaderData.removeDefine(Sprite3DRenderDeclaration.SHADERDEFINE_SPECCUBE_BOX_PROJECTION);
-            this._baseRenderNode.shaderData.addDefine(Sprite3DRenderDeclaration.SHADERDEFINE_GI_IBL);
-            this._baseRenderNode.shaderData.setTexture(RenderableSprite3D.IBLTEX, TextureCube.blackTexture);
-            this._baseRenderNode.shaderData.setNumber(RenderableSprite3D.IBLROUGHNESSLEVEL, 0);
-        };
+
+        const ReflectionProbeBlockName = ReflectionProbe.BlockName;
+        if (value) {
+            this._baseRenderNode.probeReflection = value._dataModule;
+
+            this._baseRenderNode.additionShaderData.set(ReflectionProbeBlockName, value.shaderData);
+        }
+        else {
+            this._baseRenderNode.probeReflection = null;
+
+            this._baseRenderNode.additionShaderData.delete(ReflectionProbeBlockName);
+        }
+        this._baseRenderNode.additionShaderData = this._baseRenderNode.additionShaderData;
+
         this._getIrradientMode();
     }
 
@@ -522,8 +531,30 @@ export class BaseRender extends Component {
         }
         this._baseRenderNode.lightProbUpdateMark = -1;
         this._lightProb = volumetricGI;
-        this._baseRenderNode.volumetricGI = volumetricGI ? volumetricGI._dataModule : null;
+
+        const VolumeGIBlockName = VolumetricGI.BlockName;
+        if (volumetricGI) {
+            this._baseRenderNode.volumetricGI = volumetricGI._dataModule;
+            this._baseRenderNode.additionShaderData.set(VolumeGIBlockName, volumetricGI.shaderData);
+        }
+        else {
+            this._baseRenderNode.volumetricGI = null;
+            this._baseRenderNode.additionShaderData.delete(VolumeGIBlockName);
+        }
+
+        this._baseRenderNode.additionShaderData = this._baseRenderNode.additionShaderData;
+
         this._getIrradientMode();
+    }
+
+
+    /**
+     * 设置自定义的渲染数据
+     * @param dataSlot 
+     * @param data 
+     */
+    setNodeCustomData(dataSlot: ENodeCustomData, data: number) {
+        this.renderNode.setNodeCustomData(dataSlot, data);
     }
 
     /**
@@ -578,18 +609,23 @@ export class BaseRender extends Component {
 
     /**
      * set BaseRenderElement
-     * @param mesh 
      */
     protected _setRenderElements() {
         let arrayElement: IRenderElement3D[] = [];
+        if (this._renderElements.length == 0 && this._inRenderList) {
+            this.owner?.scene._removeRenderObject(this);
+        }
+        if (this.owner?.activeInHierarchy && this.enabled && this.owner?.scene && this._renderElements.length > 0 && !this._inRenderList)
+            this.owner.scene._addRenderObject(this);
+
         this._renderElements.forEach(element => {
             arrayElement.push(element._renderElementOBJ);
         });
-        this._baseRenderNode.setRenderelements(arrayElement)
+        this._baseRenderNode.setRenderelements(arrayElement);
+
     }
 
     /**
-     * @internal
      * BaseRender motion
      */
     protected _onWorldMatNeedChange(flag: number): void {
@@ -598,97 +634,62 @@ export class BaseRender extends Component {
         this._batchRender && this._batchRender._updateOneRender(this);
     }
 
-    /**
-     * @internal
-     * @protected
-     * @returns 
-     */
     protected _getcommonUniformMap(): Array<string> {
         return ["Sprite3D"];
     }
 
-    /**
-     * @internal
-     * @protected
-     * @returns 
-     */
     protected _createBaseRenderNode(): IBaseRenderNode {
         return Laya3DRender.Render3DModuleDataFactory.createBaseRenderNode();
     }
 
     /**
-     * @protected
      * @param context 
      */
     renderUpdate(context: RenderContext3D) {
 
     }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onAdded(): void {
-        this._transform = (this.owner as Sprite3D).transform;
-        (this.owner as Sprite3D)._isRenderNode++;
+        this._transform = this.owner.transform;
+        this.owner._isRenderNode++;
         this.setRenderbitFlag(RenderBitFlag.RenderBitFlag_Editor, this.owner._getBit(NodeFlags.HIDE_BY_EDITOR));
         this._baseRenderNode.transform = this._transform;
-        this._changeLayer((this.owner as Sprite3D).layer);
-        this._changeStaticMask((this.owner as Sprite3D)._isStatic);
+        this._changeLayer(this.owner.layer);
+        this._changeStaticMask(this.owner._isStatic);
     }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onEnable(): void {
         super._onEnable();
-        if (this.owner) {
-            (this.owner as Sprite3D).transform.on(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);//如果为合并BaseRender,owner可能为空
-            (this.owner as Sprite3D).on(Event.LAYERCHANGE, this, this._changeLayer);
-            (this.owner as Sprite3D).on(Event.staticMask, this, this._changeStaticMask);
-            this._changeLayer((this.owner as Sprite3D).layer);
-            this._changeStaticMask((this.owner as Sprite3D)._isStatic);
-        }
-        (<Scene3D>this.owner.scene)._addRenderObject(this);
+        this.owner.transform.on(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);//如果为合并BaseRender,owner可能为空
+        this.owner.on(Event.LAYER_CHANGE, this, this._changeLayer);
+        this.owner.on(Event.STATIC_MASK, this, this._changeStaticMask);
+        this._changeLayer(this.owner.layer);
+        this._changeStaticMask(this.owner._isStatic);
+        this.owner.scene._addRenderObject(this);
         this._setBelongScene(this.owner.scene);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDisable(): void {
-        if (this.owner) {
-            (this.owner as Sprite3D).transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);//如果为合并BaseRender,owner可能为空
-            (this.owner as Sprite3D).off(Event.LAYERCHANGE, this, this._changeLayer);
-            (this.owner as Sprite3D).off(Event.staticMask, this, this._changeStaticMask);
-        }
-        let scene = <Scene3D>this.owner.scene;
-        scene._removeRenderObject(this);
+        this.owner.transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);//如果为合并BaseRender,owner可能为空
+        this.owner.off(Event.LAYER_CHANGE, this, this._changeLayer);
+        this.owner.off(Event.STATIC_MASK, this, this._changeStaticMask);
+
+        this.owner.scene._removeRenderObject(this);
         this._setUnBelongScene();
         this.volume = null;
-    }
 
-    /**
-     * override it
-     * @internal
-     */
+    }
     protected _onDestroy() {
-        if (this.owner as Sprite3D)
-            (this.owner as Sprite3D)._isRenderNode--;
+        //按理说this.owner不会是空，但引擎里有直接new BaseRender的特殊用法
+        if (this.owner)
+            this.owner._isRenderNode--;
         (this._motionIndexList !== -1) && (this._scene._sceneRenderManager.removeMotionObject(this));
         (this._scene) && this._scene.sceneRenderableManager.removeRenderObject(this);
         this._baseRenderNode.destroy();
         this._baseRenderNode = null;
-
         this._renderElements.forEach(element => {
             element.destroy();
         });
         this._renderElements = null;
-
-        var i: number = 0, n: number = 0;
-        for (i = 0, n = this._sharedMaterials.length; i < n; i++) {
+        for (let i = 0, n = this._sharedMaterials.length; i < n; i++) {
             let m = this._sharedMaterials[i];
             m && !m.destroyed && m._removeReference();
         }
@@ -701,7 +702,6 @@ export class BaseRender extends Component {
     }
 
     /**
-     * @internal
      * 确定间接光模式
      */
     private _getIrradientMode() {
@@ -713,26 +713,14 @@ export class BaseRender extends Component {
             this._baseRenderNode.irradientMode = IrradianceMode.Common;
         }
     }
-
-    /**
-     * @internal
-     * @param layer 
-     */
     private _changeLayer(layer: number) {
         this._baseRenderNode.layer = layer;
     }
 
-    /**
-     * @internal
-     * @param staticmask 
-     */
     private _changeStaticMask(staticmask: number) {
         this._baseRenderNode.staticMask = staticmask;
     }
 
-    /**
-     * @internal
-     */
     private _changeMaterialReference(lastValue: Material, value: Material): void {
         (lastValue) && (lastValue._removeReference());
         value && value._addReference();
@@ -756,16 +744,16 @@ export class BaseRender extends Component {
     private _isSupportRenderFeature() {
         //surportReflectionProbe
         let preReflection = this._surportReflectionProbe;
-        let prelightprob = this._surportVolumetricGI;
+        let prelightprob = this._supportVolumetricGI;
         this._surportReflectionProbe = false;
-        this._surportVolumetricGI = false;
+        this._supportVolumetricGI = false;
         var sharedMats: Material[] = this._sharedMaterials;
         for (var i: number = 0, n: number = sharedMats.length; i < n; i++) {
             var mat: Material = sharedMats[i];
             this._surportReflectionProbe ||= (this._surportReflectionProbe || (mat && mat._shader._supportReflectionProbe));//TODO：最后一个判断是否合理
-            this._surportVolumetricGI ||= (this._surportVolumetricGI || (mat && mat._shader._surportVolumetricGI));
+            this._supportVolumetricGI ||= (this._supportVolumetricGI || (mat && mat._shader._supportVolumetricGI));
         }
-        if ((!preReflection && this._surportReflectionProbe) || (!prelightprob && this._surportVolumetricGI))//如果变成支持Reflection
+        if ((!preReflection && this._surportReflectionProbe) || (!prelightprob && this._supportVolumetricGI))//如果变成支持Reflection
             this._addReflectionProbeUpdate();
     }
 
@@ -794,11 +782,11 @@ export class BaseRender extends Component {
     }
 
     protected _statAdd() {
-        Stat.renderNode++;
+        LayaGL.statAgent.recordCountData(StatElement.C_BaseRenderCount, 1);
     }
 
     protected _statRemove() {
-        Stat.renderNode--;
+        LayaGL.statAgent.recordCountData(StatElement.C_BaseRenderCount, -1);
     }
 
     /**
@@ -826,12 +814,6 @@ export class BaseRender extends Component {
         else
             return true;
     }
-
-    /**
-     * @internal
-     * @override
-     * @param dest 
-     */
     _cloneTo(dest: BaseRender): void {
         super._cloneTo(dest);
         dest.receiveShadow = this.receiveShadow;
@@ -872,15 +854,17 @@ export class BaseRender extends Component {
         return this._sharedMaterials[0];
     }
 
+    protected _isMaterialVaild(value: Material): boolean {
+        return true;
+    }
+
     set material(value: Material) {
+        if (value && !this._isMaterialVaild(value))
+            return;
         this.sharedMaterial = value;
         this._isSupportRenderFeature();
     }
-    /**
-     * @internal
-     * @override
-     * @param dest 
-     */
+
     get materials(): Material[] {
         for (var i: number = 0, n: number = this._sharedMaterials.length; i < n; i++) {
             if (!this._materialsInstance[i]) {

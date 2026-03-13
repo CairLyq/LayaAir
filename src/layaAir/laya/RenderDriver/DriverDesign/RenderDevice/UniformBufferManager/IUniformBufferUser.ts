@@ -8,9 +8,7 @@ export interface IUniformBufferUser {
     bufferBlock: UniformBufferBlock;
     bufferAlone: UniformBufferAlone;
     manager: UniformBufferManager;
-    data: ShaderData;
     offset: number;
-
-    clearGPUBufferBind(): void;
-    notifyGPUBufferChange(): void;
+    notifyGPUBufferChange(info?: string): void;
+    updateOver(): void;
 }

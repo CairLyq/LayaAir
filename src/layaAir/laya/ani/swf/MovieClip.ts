@@ -1,68 +1,40 @@
 import { Sprite } from "../../display/Sprite";
 import { Byte } from "../../utils/Byte";
 import { Handler } from "../../utils/Handler";
-import { NodeFlags } from "../../Const";
 import { Event } from "../../events/Event";
 import { ILaya } from "../../../ILaya";
 import { Matrix } from "../../maths/Matrix";
 import { Loader } from "../../net/Loader";
 
 /**
- * @en The animation is scheduled after playing.
- * @zh 动画播放完毕后调度。
- * @eventType Event.COMPLETE
- */
-/*[Event(name = "complete", type = "laya.events.Event")]*/
-
-/**
- * @en Schedule after playing to a tag.
- * @zh 播放到某标签后调度。
- * @eventType Event.LABEL
- */
-/*[Event(name = "label", type = "laya.events.Event")]*/
-
-/**
- * @en Schedule after loading.
- * @zh 加载完成后调度。
- * @eventType Event.LOADED
- */
-/*[Event(name = "loaded", type = "laya.events.Event")]*/
-
-/**
- * @en Schedule after enter post frame.
- * @zh 进入帧后调度。
- * @eventType Event.FRAME
- */
-/*[Event(name = "frame", type = "laya.events.Event")]*/
-
-/**
  * @en MovieClip is used to play SWF animations that have been processed by tools.
+ * - Event.COMPLETE: After the animation is played.
+ * - Event.LABEL: After playing to a tag.
+ * - Event.LOADED: After loading.
+ * - Event.FRAME: After entering the frame.
  * @zh MovieClip 用于播放经过工具处理后的 swf 动画。
+ * - Event.COMPLETE: 动画播放完毕后调度。
+ * - Event.LABEL: 播放到某标签后调度。
+ * - Event.LOADED: 加载完成后调度。
+ * - Event.FRAME: 进入帧后调度。
  */
 export class MovieClip extends Sprite {
-    /**@internal */
     protected static _ValueList: any[] = ["x", "y", "width", "height", "scaleX", "scaleY", "rotation", "alpha"];
-    /**@internal 数据起始位置。*/
+    /** 数据起始位置。*/
     protected _start: number = 0;
-    /**@internal 当前位置。*/
+    /** 当前位置。*/
     protected _Pos: number = 0;
-    /**@internal 数据。*/
+    /** 数据。*/
     protected _data: Byte;
-    /**@internal */
     protected _curIndex: number;
-    /**@internal */
     protected _preIndex: number;
-    /**@internal */
     protected _playIndex: number;
-    /**@internal */
     protected _playing: boolean;
-    /**@internal */
     protected _ended: boolean = true;
-    /**@internal 总帧数。*/
+    /** 总帧数。*/
     protected _count: number;
     /**@internal id_data起始位置表*/
     _ids: any;
-    /**@internal */
     protected _loadedImage: any = {};
     /**@internal id_实例表*/
     _idOfSprite: any[];
@@ -70,18 +42,14 @@ export class MovieClip extends Sprite {
     _parentMovieClip: MovieClip;
     /**@internal 需要更新的movieClip表*/
     _movieClipList: MovieClip[];
-    /**@internal */
     protected _labels: any;
     /** 
      * @en Resource root directory
      * @zh 资源根目录
      */
     basePath: string;
-    /**@internal */
     private _isRoot: boolean;
-    /**@internal */
     private _completeHandler: Handler;
-    /**@internal */
     private _endFrame: number = -1;
     private _source: string;
 
@@ -112,7 +80,8 @@ export class MovieClip extends Sprite {
         if (!parentMovieClip) {
             this._movieClipList = [this];
             this._isRoot = true;
-            this._setBitUp(NodeFlags.DISPLAY);
+            this.on(Event.DISPLAY, this, this._onDisplay);
+            this.on(Event.UNDISPLAY, this, this._onDisplay);
         } else {
             this._isRoot = false;
             this._movieClipList = parentMovieClip._movieClipList;
@@ -121,7 +90,6 @@ export class MovieClip extends Sprite {
     }
 
     /**
-     * @override
      * @en Destroys this object and its referenced Texture.
      * @param destroyChild Whether to destroy child nodes simultaneously. If true, child nodes are destroyed; otherwise, they are not.
      * @zh 销毁此对象及其引用的Texture。
@@ -132,27 +100,14 @@ export class MovieClip extends Sprite {
         super.destroy(destroyChild);
     }
 
-    /**
-     * @internal
-     * @override 
-     */
-    _setDisplay(value: boolean): void {
-        super._setDisplay(value);
-        if (this._isRoot) {
-            this._onDisplay(value);
-        }
-    }
-    /**
-     * @internal 
-     * @override
-     */
-    protected _onDisplay(value?: boolean): void {
-        if (value) this.timer.loop(this.interval, this, this.updates, null, true);
-        else this.timer.clear(this, this.updates);
+    private _onDisplay(): void {
+        if (this.displayedInStage)
+            this.timer.loop(this.interval, this, this.updates, null, true);
+        else
+            this.timer.clear(this, this.updates);
     }
 
     /**
-     * @private
      * @en Update the timeline of the MovieClip.
      * @zh 更新 MovieClip 的时间轴。
      */
@@ -186,8 +141,8 @@ export class MovieClip extends Sprite {
      * @param label The name of the label.
      * @param index The frame index to add the label to.
      * @zh 在指定的帧索引上增加一个标签，播放到此索引后会派发label事件。
-     * @param	label	标签名称
-     * @param	index	索引位置
+     * @param label	标签名称
+     * @param index	索引位置
      */
     addLabel(label: string, index: number): void {
         if (!this._labels) this._labels = {};
@@ -198,7 +153,7 @@ export class MovieClip extends Sprite {
      * @en Remove the corresponding label from the specified label name.
      * @param label The name of the label to remove. If not provided, all labels are removed.
      * @zh 从指定的标签名字删除对应标签。
-     * @param	label 标签名字，如果label为空，则删除所有Label
+     * @param label 标签名字，如果label为空，则删除所有Label
      */
     removeLabel(label: string): void {
         if (!label) this._labels = null;
@@ -228,7 +183,6 @@ export class MovieClip extends Sprite {
         return this._playing;
     }
     /**
-     * @internal
      * 动画的帧更新处理函数。
      */
     //TODO:coverage
@@ -278,7 +232,6 @@ export class MovieClip extends Sprite {
     }
 
     /**
-     * @internal
      * 清理。
      */
     private _clear(): void {
@@ -309,9 +262,9 @@ export class MovieClip extends Sprite {
 
     /**
      * @en Play Animation
-     * @param	index frame index
+     * @param index frame index
      * @zh 播放动画。
-     * @param	index 帧索引
+     * @param index 帧索引
      */
     play(index: number = 0, loop: boolean = true): void {
         this.loop = loop;
@@ -320,7 +273,6 @@ export class MovieClip extends Sprite {
             this._displayFrame(index);
     }
 
-    /**@internal */
     //TODO:coverage
     private _displayFrame(frameIndex: number = -1): void {
         if (frameIndex != -1) {
@@ -329,14 +281,12 @@ export class MovieClip extends Sprite {
         }
     }
 
-    /**@internal */
     private _reset(rm: boolean = true): void {
         if (rm && this._curIndex != 1) this.removeChildren();
         this._preIndex = this._curIndex = -1;
         this._Pos = this._start;
     }
 
-    /**@internal */
     //TODO:coverage
     private _parseFrame(frameIndex: number): void {
         var mc: MovieClip, sp: Sprite, key: number, type: number, tPos: number, ttype: number, ifAdd: boolean = false;
@@ -350,23 +300,24 @@ export class MovieClip extends Sprite {
             _data.pos = this._Pos;
         }
         while ((this._curIndex <= frameIndex) && (!this._ended)) {
-            type = _data.getUint16();
+            type = _data.readUint16();
             switch (type) {
                 case 12: //new MC
-                    key = _data.getUint16();
-                    tPos = this._ids[_data.getUint16()];
+                    key = _data.readUint16();
+                    tPos = this._ids[_data.readUint16()];
                     this._Pos = _data.pos;
                     _data.pos = tPos;
-                    if ((ttype = _data.getUint8()) == 0) {
-                        var pid: number = _data.getUint16();
+                    if ((ttype = _data.readUint8()) == 0) {
+                        var pid: number = _data.readUint16();
                         sp = _idOfSprite[key]
                         if (!sp) {
                             sp = _idOfSprite[key] = new Sprite();
                             var spp: Sprite = new Sprite();
                             spp.loadImage(this.basePath + pid + ".png");
+                            spp.name = pid + "";
                             this._loadedImage[this.basePath + pid + ".png"] = true;
                             sp.addChild(spp);
-                            spp.size(_data.getFloat32(), _data.getFloat32());
+                            spp.size(_data.readFloat32(), _data.readFloat32());
                             var mat: Matrix = _data._getMatrix();
                             spp.transform = mat;
                         }
@@ -387,48 +338,48 @@ export class MovieClip extends Sprite {
                     _data.pos = this._Pos;
                     break;
                 case 3: //addChild
-                    var node: Sprite = _idOfSprite[ /*key*/_data.getUint16()];
+                    var node: Sprite = _idOfSprite[ /*key*/_data.readUint16()];
                     if (node) {
                         this.addChild(node);
-                        node.zOrder = _data.getUint16();
+                        node.zOrder = _data.readUint16();
                         ifAdd = true;
                     }
                     break;
                 case 4: //remove
-                    node = _idOfSprite[ /*key*/_data.getUint16()];
+                    node = _idOfSprite[ /*key*/_data.readUint16()];
                     node && node.removeSelf();
                     break;
                 case 5: //setValue
-                    _idOfSprite[_data.getUint16()][MovieClip._ValueList[_data.getUint16()]] = (_data.getFloat32());
+                    _idOfSprite[_data.readUint16()][MovieClip._ValueList[_data.readUint16()]] = (_data.readFloat32());
                     break;
                 case 6: //visible
-                    _idOfSprite[_data.getUint16()].visible = ( /*visible*/_data.getUint8() > 0);
+                    _idOfSprite[_data.readUint16()].visible = ( /*visible*/_data.readUint8() > 0);
                     break;
                 case 7: //SetTransform
-                    sp = _idOfSprite[ /*key*/_data.getUint16()]; //.transform=mt;
+                    sp = _idOfSprite[ /*key*/_data.readUint16()]; //.transform=mt;
                     var mt: Matrix = sp.transform || Matrix.create();
-                    mt.setTo(_data.getFloat32(), _data.getFloat32(), _data.getFloat32(), _data.getFloat32(), _data.getFloat32(), _data.getFloat32());
+                    mt.setTo(_data.readFloat32(), _data.readFloat32(), _data.readFloat32(), _data.readFloat32(), _data.readFloat32(), _data.readFloat32());
                     sp.transform = mt;
                     break;
                 case 8: //pos
-                    _idOfSprite[_data.getUint16()].setPos(_data.getFloat32(), _data.getFloat32());
+                    _idOfSprite[_data.readUint16()].setPos(_data.readFloat32(), _data.readFloat32());
                     break;
                 case 9: //size
-                    _idOfSprite[_data.getUint16()].setSize(_data.getFloat32(), _data.getFloat32());
+                    _idOfSprite[_data.readUint16()].setSize(_data.readFloat32(), _data.readFloat32());
                     break;
                 case 10: //alpha
-                    _idOfSprite[ /*key*/_data.getUint16()].alpha = /*alpha*/ _data.getFloat32();
+                    _idOfSprite[ /*key*/_data.readUint16()].alpha = /*alpha*/ _data.readFloat32();
                     break;
                 case 11: //scale
-                    _idOfSprite[_data.getUint16()].setScale(_data.getFloat32(), _data.getFloat32());
+                    _idOfSprite[_data.readUint16()].setScale(_data.readFloat32(), _data.readFloat32());
                     break;
                 case 98: //event		
-                    eStr = _data.getString();
+                    eStr = _data.readString();
                     this.event(eStr);
                     if (eStr == "stop") this.stop();
                     break;
                 case 99: //FrameBegin				
-                    this._curIndex = _data.getUint16();
+                    this._curIndex = _data.readUint16();
                     ifAdd && this.updateZOrder();
                     break;
                 case 100: //cmdEnd
@@ -448,7 +399,6 @@ export class MovieClip extends Sprite {
         this._Pos = _data.pos;
     }
 
-    /**@internal */
     //TODO:coverage
     _setData(data: Byte, start: number): void {
         this._data = data;
@@ -498,7 +448,6 @@ export class MovieClip extends Sprite {
         });
     }
 
-    /**@internal */
     //TODO:coverage
     private _initState(): void {
         this._reset();
@@ -510,13 +459,12 @@ export class MovieClip extends Sprite {
         this._playing = preState;
     }
 
-    /**@internal */
     //TODO:coverage
     private _initData(data: Byte, basePath: string): void {
         this.basePath = basePath;
-        let len: number = data.getUint16();
-        for (let i = 0; i < len; i++) this._ids[data.getInt16()] = data.getInt32();
-        this.interval = 1000 / data.getUint16();
+        let len: number = data.readUint16();
+        for (let i = 0; i < len; i++) this._ids[data.readInt16()] = data.readInt32();
+        this.interval = 1000 / data.readUint16();
         this._setData(data, this._ids[32767]);
         this._initState();
         this.play(0);

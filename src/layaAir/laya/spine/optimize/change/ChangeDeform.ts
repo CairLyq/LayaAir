@@ -17,9 +17,32 @@ export class ChangeDeform implements IVBChange {
      * @zh 存储插槽附件位置的映射。
      */
     sizeMap: Map<string, TAttamentPos>;
+    /**
+     * @en The start frame of this Change.
+     * @zh 变化的起始帧。
+     */
+    startFrame: number;
+    /**
+     * @en The end frame of this Change.
+     * @zh 变化的结束帧。
+     */
+    endFrame: number;
+
+    private _lastFrame:number;
 
     /** @ignore */
     constructor() {
+    }
+
+    apply(frame:number , vb: VBCreator, slots: spine.Slot[]): boolean {
+        if (frame >= this.startFrame) {
+            if (this._lastFrame >= this.endFrame && frame >= this.endFrame)//尝试
+                return false
+
+            this._lastFrame = frame;
+            return this.updateVB(vb , slots);
+        }else
+            return false
     }
 
     /**
@@ -59,28 +82,13 @@ export class ChangeDeform implements IVBChange {
             let deform :number[] = slot.deform;
             if (!deform || !deform.length) {
                 return false;
-                // deform = (slot.attachment as spine.MeshAttachment).vertices
             }
             let vertexSize = vb.vertexSize;
             let attachmentPos = this.sizeMap.get(slot.attachment.name);
             let offset = attachmentPos.offset * vertexSize ;
             let vbData = vb.vb;
-            // let attachment = slot.attachment as spine.MeshAttachment;
-            // let vetrexs = attachment.vertices;
             let attachmentParse = attachmentPos.attachment;
-            // console.log(deform[0]);
-            // let n = attachmentParse.vertexCount;
-            // attachment.computeWorldVertices(slot , 0 , n  * 2, vbData , offset , vb);
-            // vb.appendVertexArray(attachmentParse, vbData ,offset,vb);
             vb.appendDeform(attachmentParse , deform , offset  , vbData );
-            // vb.appendVB(attachmentParse);
-            // for (let i = 0; i < n; i++) {
-            //     let vbOffset = offset + i * vertexSize ;
-            //     let deformOffset = i * 2;
-            //     let vertexOffset = i * 3;
-            //     vbData[vbOffset + 6] = vetrexs[vertexOffset] + deform[deformOffset];
-            //     vbData[vbOffset + 7] = vetrexs[vertexOffset + 1] + deform[deformOffset + 1];
-            // }
         }        
 
         return true;
@@ -95,6 +103,8 @@ export class ChangeDeform implements IVBChange {
     clone(): IVBChange {
         let out = new ChangeDeform;
         out.slotId = this.slotId;
+        out.startFrame = this.startFrame;
+        out.endFrame = this.endFrame;
         // out.attachment = this.attachment;
         return out;
     }

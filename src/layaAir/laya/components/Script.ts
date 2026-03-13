@@ -10,37 +10,37 @@ import { ILaya } from "../../ILaya";
 /**
  * @en The Script class is used to create the parent class of a script, which is an abstract class and does not allow instances.
  * @zh Script 类用于创建脚本的父类，该类为抽象类，不允许实例。
+ * @blueprintInheritable
  */
 export class Script extends Component {
     /**
      * @en Script belonging to sprite
      * @zh 脚本所属精灵
      */
-    declare owner: Sprite | Sprite3D;
+    declare readonly owner: Sprite | Sprite3D;
 
     /**
-     * @internal
-     * @override
+     * @ignore
+     * @blueprintIgnore
      */
     _isScript(): boolean {
         return true;
     }
 
     /**
-     * @internal
      * 设置脚本
      */
     protected setupScript(): void {
         let owner = this.owner;
         let func: Function;
 
-        if (!(this.onTriggerEnter == Script.prototype.onTriggerEnter)) owner.on(Event.TRIGGER_ENTER, this, this.onTriggerEnter);
-        if (!(this.onTriggerStay == Script.prototype.onTriggerStay)) owner.on(Event.TRIGGER_STAY, this, this.onTriggerStay);
-        if (!(this.onTriggerExit == Script.prototype.onTriggerExit)) owner.on(Event.TRIGGER_EXIT, this, this.onTriggerExit);
+        if (func = this.onTriggerEnter) owner.on(Event.TRIGGER_ENTER, this, func);
+        if (func = this.onTriggerStay) owner.on(Event.TRIGGER_STAY, this, func);
+        if (func = this.onTriggerExit) owner.on(Event.TRIGGER_EXIT, this, func);
 
-        if (!(this.onCollisionEnter == Script.prototype.onCollisionEnter)) owner.on(Event.COLLISION_ENTER, this, this.onCollisionEnter);
-        if (!(this.onCollisionStay == Script.prototype.onCollisionStay)) owner.on(Event.COLLISION_STAY, this, this.onCollisionStay);
-        if (!(this.onCollisionExit == Script.prototype.onCollisionExit)) owner.on(Event.COLLISION_EXIT, this, this.onCollisionExit);
+        if (func = this.onCollisionEnter) owner.on(Event.COLLISION_ENTER, this, func);
+        if (func = this.onCollisionStay) owner.on(Event.COLLISION_STAY, this, func);
+        if (func = this.onCollisionExit) owner.on(Event.COLLISION_EXIT, this, func);
         if (func = this.onJointBreak) owner.on(Event.JOINT_BREAK, this, func);
 
         if (func = this.onMouseDown) owner.on(Event.MOUSE_DOWN, this, func);
@@ -59,7 +59,6 @@ export class Script extends Component {
         if (func = this.onKeyDown) ILaya.stage.on(Event.KEY_DOWN, this, func);
         if (func = this.onKeyPress) ILaya.stage.on(Event.KEY_PRESS, this, func);
         if (func = this.onKeyUp) ILaya.stage.on(Event.KEY_UP, this, func);
-        owner.event(Event._Add_Script);
     }
 
 
@@ -72,6 +71,7 @@ export class Script extends Component {
      * @param other 其他对象的碰撞器组件。
      * @param self 自身的碰撞器组件。
      * @param contact 接触点信息。
+     * @blueprintEvent
      */
     onTriggerEnter?(other: PhysicsColliderComponent | ColliderBase, self?: ColliderBase, contact?: any): void;
 
@@ -84,6 +84,7 @@ export class Script extends Component {
      * @param other 其他对象的碰撞器组件。
      * @param self 自身的碰撞器组件。
      * @param contact 接触点信息。
+     * @blueprintEvent
      */
     onTriggerStay?(other: PhysicsColliderComponent | ColliderBase, self?: ColliderBase, contact?: any): void;
 
@@ -96,6 +97,7 @@ export class Script extends Component {
      * @param other 其他对象的碰撞器组件或基类。
      * @param self 自身的碰撞器组件或基类。
      * @param contact 接触点信息。
+     * @blueprintEvent
      */
     onTriggerExit?(other: PhysicsColliderComponent | ColliderBase, self?: ColliderBase, contact?: any): void;
 
@@ -104,6 +106,7 @@ export class Script extends Component {
      * @param collision The collision.
      * @zh 3D物理碰撞器事件开始时调用（不适用于2D）。
      * @param collision 碰撞器。
+     * @blueprintEvent
      */
     onCollisionEnter?(collision: Collision): void;
 
@@ -112,6 +115,7 @@ export class Script extends Component {
      * @param collision The collision.
      * @zh 3D物理碰撞器事件持续碰撞时调用（不适用于2D）。
      * @param collision 碰撞器。
+     * @blueprintEvent
      */
     onCollisionStay?(collision: Collision): void;
 
@@ -120,12 +124,14 @@ export class Script extends Component {
      * @param collision The collision.
      * @zh 3D物理碰撞器事件结束碰撞时调用（不适用于2D）。
      * @param collision 碰撞器。
+     * @blueprintEvent
      */
     onCollisionExit?(collision: Collision): void;
 
     /**
      * @en Called when a joint is broken in the physics simulation.
      * @zh 物理模拟中关节断裂时调用。
+     * @blueprintEvent
      */
     onJointBreak?(): void;
 
@@ -134,6 +140,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标按下时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseDown?(evt: Event): void;
 
@@ -142,6 +149,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标抬起时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseUp?(evt: Event): void;
 
@@ -150,6 +158,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标右键或中键按下时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onRightMouseDown?(evt: Event): void;
 
@@ -158,6 +167,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标右键或中键抬起时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onRightMouseUp?(evt: Event): void;
 
@@ -166,6 +176,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标在节点上移动时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseMove?(evt: Event): void;
 
@@ -174,6 +185,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标进入节点时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseOver?(evt: Event): void;
 
@@ -182,6 +194,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标离开节点时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseOut?(evt: Event): void;
 
@@ -190,6 +203,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标按住一个物体后，拖拽时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseDrag?(evt: Event): void;
 
@@ -198,6 +212,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标按住一个物体，拖拽一定距离，释放鼠标按键后执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseDragEnd?(evt: Event): void;
 
@@ -206,6 +221,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标点击时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseClick?(evt: Event): void;
 
@@ -214,6 +230,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标双击时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseDoubleClick?(evt: Event): void;
 
@@ -222,6 +239,7 @@ export class Script extends Component {
      * @param evt The mouse event.
      * @zh 鼠标右键点击时执行。
      * @param evt 鼠标事件。
+     * @blueprintEvent
      */
     onMouseRightClick?(evt: Event): void;
 
@@ -230,6 +248,7 @@ export class Script extends Component {
      * @param evt The keyboard event.
      * @zh 键盘按下时执行。
      * @param evt 键盘事件。
+     * @blueprintEvent
      */
     onKeyDown?(evt: Event): void;
 
@@ -238,6 +257,7 @@ export class Script extends Component {
      * @param evt The keyboard event.
      * @zh 键盘产生一个字符时执行。
      * @param evt 键盘事件。
+     * @blueprintEvent
      */
     onKeyPress?(evt: Event): void;
 
@@ -246,6 +266,7 @@ export class Script extends Component {
      * @param evt The keyboard event.
      * @zh 键盘抬起时执行。
      * @param evt 键盘事件。
+     * @blueprintEvent
      */
     onKeyUp?(evt: Event): void;
 }

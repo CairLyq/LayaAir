@@ -2,7 +2,6 @@ import { Laya3D } from "../../../../Laya3D";
 import { IHingeJoint } from "../../../Physics3D/interface/Joint/IHingeJoint";
 import { EPhysicsCapable } from "../../../Physics3D/physicsEnum/EPhycisCapable";
 import { Vector3 } from "../../../maths/Vector3";
-import { Scene3D } from "../../core/scene/Scene3D";
 import { ConstraintComponent } from "./ConstraintComponent";
 
 /**
@@ -49,13 +48,8 @@ export class HingeConstraint extends ConstraintComponent {
         super();
     }
 
-    /**
-     * @internal
-     * @protected
-     * create joint
-     */
     protected _initJoint(): void {
-        this._physicsManager = ((<Scene3D>this.owner._scene))._physicsManager;
+        this._physicsManager = this.owner._scene._physicsManager;
         if (Laya3D.enablePhysics && Laya3D.PhysicsCreateUtil.getPhysicsCapable(EPhysicsCapable.Physics_HingeJoint)) {
             this._joint = Laya3D.PhysicsCreateUtil.createHingeJoint(this._physicsManager);
         } else {
@@ -63,24 +57,13 @@ export class HingeConstraint extends ConstraintComponent {
         }
     }
 
-    /**
-     * @internal
-     * @protected
-     * overrid it
-     */
     protected _onEnable(): void {
         super._onEnable();
         if (this._joint)
             this._joint.isEnable(true);
     }
 
-    /**
-     * @internal
-     * @protected
-     * overrid it
-     */
     protected _onDisable(): void {
-        super._onDisable();
         if (this._joint)
             this._joint.isEnable(false);
     }
@@ -235,6 +218,6 @@ export class HingeConstraint extends ConstraintComponent {
      * @zh 获取关节的角速度，单位为度每秒。
      */
     getVelocity(): Vector3 {
-        return this._joint ? this._joint.getVelocity() : Vector3._tempVector3.set(0, 0, 0);
+        return this._joint ? this._joint.getVelocity() : Vector3.TEMP.set(0, 0, 0);
     }
 }

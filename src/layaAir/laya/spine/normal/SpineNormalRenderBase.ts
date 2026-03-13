@@ -50,18 +50,24 @@ export abstract class SpineNormalRenderBase {
             this.vmeshs.push(vmesh);
             spineRenderNode._renderElements[this.nextBatchIndex++] = vmesh.element;
             vmesh.element.value2DShaderData = spineRenderNode._spriteShaderData;
+            vmesh.element.owner = spineRenderNode.owner._struct;
             return vmesh;
         }
         let vmesh = this.vmeshs[this.nextBatchIndex];
         spineRenderNode._renderElements[this.nextBatchIndex++] = vmesh.element;
+        vmesh.element.owner = spineRenderNode.owner._struct;
         vmesh.material = material;
         return vmesh;
     }
 
-    destroy(): void {
-        this.vmeshs.forEach((value) => {
-            value.destroy();
-        });
-        this.nextBatchIndex = 0;
+    /**
+     * @en Destroy the render.
+     * @zh 销毁渲染。
+     */
+    destroy() {
+        for (var i = 0; i < this.vmeshs.length; i++) {
+            this.vmeshs[i].destroy();
+        }
+        this.vmeshs.length = 0;
     }
 }

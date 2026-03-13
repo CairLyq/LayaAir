@@ -7,10 +7,11 @@ import { ISpineRender } from "../interface/ISpineRender";
 import { Spine2DRenderNode } from "../Spine2DRenderNode";
 import { SpineNormalRenderBase } from "./SpineNormalRenderBase";
 import { SpineMeshBase } from "../mesh/SpineMeshBase";
+import { SpineShaderInit } from "../material/SpineShaderInit";
 
 
 interface Renderable {
-    vertices: spine.ArrayLike<number>;
+    vertices: spine.NumberArrayLike;
     numVertices: number;
     numFloats: number;
 }
@@ -28,30 +29,17 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
      */
     premultipliedAlpha: boolean;
     /**
-     * @en Vertex effect to be applied during rendering.
-     * @zh 渲染期间要应用的顶点效果。
-     */
-    vertexEffect: spine.VertexEffect = null;
-    /**
      * @en Spine templet associated with this renderer.
      * @zh 与此渲染器关联的 Spine 模板。
      */
     templet: SpineTemplet;
 
-    private tempColor = new window.spine.Color();
-    private tempColor2 = new window.spine.Color();
-    private static vertices: ArrayLike<number>;
-    private vertexSize = 2 + 2 + 4;
-    private twoColorTint = false;
+    private tempColor: spine.Color;
+    private tempColor2: spine.Color;
+    private static vertices: spine.NumberArrayLike;
     private renderable: Renderable;
     private clipper: spine.SkeletonClipping;
 
-    // private temp = new window.spine.Vector2();
-    // private temp2 = new window.spine.Vector2();
-    // private temp3 = new window.spine.Color();
-    // private temp4 = new window.spine.Color();
-
-    
     /**
      * @en Create a mesh with the given material.
      * @param material The material to be used for the mesh.
@@ -60,29 +48,26 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
      * @param material 用于网格的材质。
      * @returns SpineMeshBase 对象。
      */
-    createMesh(material: Material): SpineMeshBase{
+    createMesh(material: Material): SpineMeshBase {
         return new SpineVirtualMesh(material);
     }
 
     /**
      * @en Create a new instance of the SpineSkeletonRenderer class.
      * @param templet The Spine templet to use.
-     * @param twoColorTint Whether to use two-color tinting.
      * @zh 创建 SpineSkeletonRenderer 类的新实例。
      * @param templet 要使用的 Spine 模板。
-     * @param twoColorTint 是否使用双色调色。
      */
-    constructor(templet: SpineTemplet, twoColorTint: boolean = true) {
+    constructor(templet: SpineTemplet) {
         super();
-        this.twoColorTint = twoColorTint;
-        if (twoColorTint)
-            this.vertexSize += 4;
         this.templet = templet;
         if (SpineSkeletonRenderer.vertices == null) {
             SpineSkeletonRenderer.vertices = spine.Utils.newFloatArray(12 * 1024);
         }
         this.renderable = { vertices: null, numVertices: 0, numFloats: 0 };
         this.clipper = new spine.SkeletonClipping();
+        this.tempColor = new spine.Color();
+        this.tempColor2 = new spine.Color();
     }
 
     // drawOld(skeleton: spine.Skeleton, graphics: Graphics, slotRangeStart: number = -1, slotRangeEnd: number = -1) {
@@ -337,28 +322,33 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
 
         let clipper = this.clipper;
         this.clearBatch();
-        // let premultipliedAlpha = true;//this.premultipliedAlpha;
-        let twoColorTint = this.twoColorTint;
+        // let premultipliedAlpha = this.templet.premultipliedAlpha;
+        let twoColorTint = true;//renderNode.twoColorTint;
         let blendMode: spine.BlendMode | null = null;
 
         let renderable: Renderable = this.renderable;
-        let uvs: ArrayLike<number>;
-        let triangles: Array<number>;
+        let uvs: spine.NumberArrayLike;
+        let triangles: spine.NumberArrayLike;
         let drawOrder = skeleton.drawOrder;
         let attachmentColor: spine.Color;
         let skeletonColor = skeleton.color;
-        let vertexSize = twoColorTint ? SpineVirtualMesh.vertexSize_TwoColor : SpineVirtualMesh.vertexSize;
+
+        let vertexSize: number = SpineVirtualMesh.vertexSize_TwoColor;
+
         let inRange = false;
         if (slotRangeStart == -1) inRange = true;
-        let mesh: SpineVirtualMesh;
-        //mesh.clear();
+        let virtualMesh: SpineVirtualMesh;
         let spineTex;
-        let needSlot = this.templet.needSlot;
         let staticVetices = SpineSkeletonRenderer.vertices;
+        let offsetX = -skeleton.x;
+        let offsetY = -skeleton.y;
+        let premultipliedAlpha = renderNode.premultipliedAlpha;
+
         for (let i = 0, n = drawOrder.length; i < n; i++) {
             let clippedVertexSize = clipper.isClipping() ? 2 : vertexSize;
             let slot = drawOrder[i];
-            let boneOrSlot = needSlot ? slot : slot.bone;
+            let boneOrSlot = this.templet.needSlot ? slot : slot.bone;
+
             if (!slot.bone.active) {
                 clipper.clipEndWithSlot(slot);
                 continue;
@@ -385,12 +375,15 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
                 renderable.vertices = staticVetices;
                 renderable.numVertices = 4;
                 renderable.numFloats = clippedVertexSize << 2;
+
+                if (attachment.sequence != null)
+                    attachment.sequence.apply(slot, attachment);
+
                 region.computeWorldVertices(boneOrSlot as any, renderable.vertices, 0, clippedVertexSize);
                 triangles = QUAD_TRIANGLES;
                 uvs = region.uvs;
                 texture = <SpineTexture>(region.region as any).page.texture;
                 attachmentColor = region.color;
-                // graphics.drawTexture(texture.realTexture,0,0,100,100,null,1,"#ffffff","normal",uvs as any)
 
             } else if (attachment instanceof window.spine.MeshAttachment) {
                 //continue;
@@ -402,7 +395,9 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
                 if (renderable.numFloats > renderable.vertices.length) {
                     renderable.vertices = staticVetices = window.spine.Utils.newFloatArray(renderable.numFloats);
                 }
+
                 mesh.computeWorldVertices(slot, 0, mesh.worldVerticesLength, renderable.vertices, 0, clippedVertexSize);
+
                 triangles = mesh.triangles;
                 texture = <SpineTexture>(mesh.region as any).page.texture;
                 uvs = mesh.uvs;
@@ -437,9 +432,10 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
                     //     darkColor.g = slot.darkColor.g * finalColor.a;
                     //     darkColor.b = slot.darkColor.b * finalColor.a;
                     // } else {
-                        darkColor.setFromColor(slot.darkColor);
+                    darkColor.setFromColor(slot.darkColor);
                     // }
                     // darkColor.a = premultipliedAlpha ? 1.0 : 0.0;
+                    // finalColor.rgb = ((texColor.a - 1.0) * v_dark.a + 1.0 - texColor.rgb) * v_dark.rgb + texColor.rgb * v_light.rgb;
                 }
 
                 let slotBlendMode = slot.data.blendMode;
@@ -454,28 +450,28 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
                 }
 
                 if (needNewMat) {
-                    mesh && mesh.draw();
-                    let mat = renderNode.getMaterial(texture.realTexture, blendMode);
-                    mesh = this.nextBatch(mat, renderNode) as SpineVirtualMesh;
-                    mesh.clear();
+                    virtualMesh && virtualMesh.draw();
+                    let mat = renderNode.templet.getMaterial(texture.realTexture, blendMode, premultipliedAlpha);
+                    virtualMesh = this.nextBatch(mat, renderNode) as SpineVirtualMesh;
+                    virtualMesh.clear();
                 }
 
                 if (clipper.isClipping()) {
                     clipper.clipTriangles(renderable.vertices, renderable.numFloats, triangles, triangles.length, uvs, finalColor, darkColor, twoColorTint);
-                    if (!mesh.canAppend(clipper.clippedVertices.length, clipper.clippedTriangles.length)) {
-                        mesh.draw();
-                        mesh = this.nextBatch(mesh.material, renderNode) as SpineVirtualMesh;
-                        mesh.clear();
+                    if (!virtualMesh.canAppend(clipper.clippedVertices.length, clipper.clippedTriangles.length)) {
+                        virtualMesh.draw();
+                        virtualMesh = this.nextBatch(virtualMesh.material, renderNode) as SpineVirtualMesh;
+                        virtualMesh.clear();
                     }
-                    mesh.appendVerticesClip(clipper.clippedVertices, clipper.clippedTriangles);
+                    virtualMesh.appendVerticesClip(clipper.clippedVertices, clipper.clippedTriangles, offsetX, offsetY);
                 } else {
-                    if (!mesh.canAppend(renderable.numFloats, triangles.length)) {
-                        mesh.draw();
-                        mesh = this.nextBatch(mesh.material, renderNode) as SpineVirtualMesh;
-                        mesh.clear();
+                    if (!virtualMesh.canAppend(renderable.numFloats, triangles.length)) {
+                        virtualMesh.draw();
+                        virtualMesh = this.nextBatch(virtualMesh.material, renderNode) as SpineVirtualMesh;
+                        virtualMesh.clear();
                     }
                     if (finalColor.a != 0) {
-                        mesh.appendVertices(renderable.vertices, renderable.numFloats, triangles, triangles.length, finalColor, uvs);
+                        virtualMesh.appendVertices(renderable.vertices, renderable.numFloats, triangles, triangles.length, finalColor, darkColor, uvs, offsetX, offsetY);
                     }
                 }
             }
@@ -483,6 +479,6 @@ export class SpineSkeletonRenderer extends SpineNormalRenderBase implements ISpi
         }
         clipper.clipEnd();
         
-        mesh && mesh.draw();
+        virtualMesh && virtualMesh.draw();
     }
 }

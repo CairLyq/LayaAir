@@ -1,5 +1,4 @@
 import { Component } from "../components/Component"
-import { FrameAnimation } from "../display/FrameAnimation"
 import { Node } from "../display/Node"
 import { ILaya } from "../../ILaya";
 import { Graphics } from "../display/Graphics";
@@ -10,12 +9,10 @@ import { ClassUtils } from "../utils/ClassUtils";
 import { HitArea } from "../utils/HitArea";
 import { Pool } from "../utils/Pool";
 import { WeakObject } from "../utils/WeakObject";
-import { Handler } from "laya/utils/Handler";
-import { NodeFlags } from "../Const";
+import { Handler } from "../utils/Handler";
 import { PrefabImpl } from "../resource/PrefabImpl";
 import { Scene } from "../display/Scene";
 import { LayaEnv } from "../../LayaEnv";
-import { HierarchyLoader } from "../loaders/HierarchyLoader";
 
 var _listClass: any;
 var _viewClass: any;
@@ -86,30 +83,30 @@ export class LegacyUIParser {
         }
 
         //处理动画信息
-        if (uiView.animations) {
-            var anilist: any[] = [];
-            var animations: any[] = uiView.animations;
-            var i: number, len: number = animations.length;
-            var tAni: FrameAnimation;
-            var tAniO: any;
-            for (i = 0; i < len; i++) {
-                tAni = new FrameAnimation();
-                tAniO = animations[i];
-                tAni._setUp(tInitTool._idMap, tAniO);
-                (<any>root)[tAniO.name] = tAni;
-                tAni._setControlNode(root);
-                switch (tAniO.action) {
-                    case 1:
-                        tAni.play(0, false);
-                        break;
-                    case 2:
-                        tAni.play(0, true);
-                        break;
-                }
-                anilist.push(tAni);
-            }
-            (<any>root)._aniList = anilist;
-        }
+        // if (uiView.animations) {
+        //     var anilist: any[] = [];
+        //     var animations: any[] = uiView.animations;
+        //     var i: number, len: number = animations.length;
+        //     var tAni: FrameAnimation;
+        //     var tAniO: any;
+        //     for (i = 0; i < len; i++) {
+        //         tAni = new FrameAnimation();
+        //         tAniO = animations[i];
+        //         tAni._setUp(tInitTool._idMap, tAniO);
+        //         (<any>root)[tAniO.name] = tAni;
+        //         tAni._setControlNode(root);
+        //         switch (tAniO.action) {
+        //             case 1:
+        //                 tAni.play(0, false);
+        //                 break;
+        //             case 2:
+        //                 tAni.play(0, true);
+        //                 break;
+        //         }
+        //         anilist.push(tAni);
+        //     }
+        //     (<any>root)._aniList = anilist;
+        // }
 
         //设置页面穿透
         if ((root instanceof Scene) && root._width > 0 && uiView.props.hitTestPrior == null && !root.mouseThrough)
@@ -117,7 +114,7 @@ export class LegacyUIParser {
 
         //设置组件
         tInitTool.finish();
-        root._setBit(NodeFlags.NOT_READY, false);
+        //root._setBit(NodeFlags.NOT_READY, false);
         if (root.parent && root.parent.activeInHierarchy && root.active)
             root._processActive(true);
         return root;
@@ -267,7 +264,10 @@ export class LegacyUIParser {
         if (prop === "var" && view) {
             view[value] = comp;
         } else {
-            comp[prop] = (value === "true" ? true : (value === "false" ? false : value));
+            if (prop === "texture" && comp instanceof Sprite)
+                comp.loadImage(value);
+            else
+                comp[prop] = (value === "true" ? true : (value === "false" ? false : value));
         }
     }
 
@@ -374,9 +374,9 @@ export class LegacyUIParser {
      * 		}
      * 	]
      * }
-     * @param	json json字符串或者Object对象。
-     * @param	node node节点，如果为空，则新创建一个。
-     * @param	root 根节点，用来设置var定义。
+     * @param json json字符串或者Object对象。
+     * @param node node节点，如果为空，则新创建一个。
+     * @param root 根节点，用来设置var定义。
      * @return	生成的节点。
      */
     static createByJson(json: any, node: any = null, root: Node = null, customHandler: Handler = null, instanceHandler: Handler = null): any {
@@ -384,8 +384,20 @@ export class LegacyUIParser {
         var props: any = json.props;
 
         if (!node) {
-            node = instanceHandler ? instanceHandler.runWith(json) : ClassUtils.getInstance(LayaEnv.isPlaying ? (props.runtime || json.type) : json.type);
-            if (!node) return null;
+            if (instanceHandler)
+                node = instanceHandler.runWith(json);
+            else {
+                let className = LayaEnv.isPlaying ? (props.runtime || json.type) : json.type;
+                let compClass: any = ClassUtils.getClass(className);
+                if (compClass)
+                    node = new compClass();
+                else {
+                    console.warn("[error] Undefined class:", className);
+                    return null;
+                }
+            }
+            if (!node)
+                return null;
         }
 
         var child: any[] = json.child;
@@ -484,7 +496,7 @@ export class LegacyUIParser {
         if (!dataO || !dataO.props) return sprite.graphics;
         var propsName: string = dataO.props.renderType;
         if (propsName === "hit" || propsName === "unHit") {
-            var hitArea: HitArea = <HitArea>sprite._style.hitArea || (sprite.hitArea = new HitArea());
+            var hitArea: HitArea = <HitArea>sprite._hitArea || (sprite.hitArea = new HitArea());
             if (!hitArea[propsName]) {
                 hitArea[propsName] = new Graphics();
             }
@@ -718,7 +730,7 @@ class InitTool {
     //TODO:coverage
     getReferData(referStr: string): any {
         if (referStr.indexOf("@Prefab:") >= 0) {
-            return new PrefabImpl(LegacyUIParser, Loader.getRes(referStr.replace("@Prefab:", "")), 2);
+            return new PrefabImpl(LegacyUIParser, Loader.getRes(referStr.replace("@Prefab:", "")));
         } else if (referStr.indexOf("@arr:") >= 0) {
             referStr = referStr.replace("@arr:", "");
             var list: string[];
@@ -764,4 +776,4 @@ class InitTool {
     }
 }
 
-HierarchyLoader.legacySceneOrPrefab = LegacyUIParser;
+PrefabImpl.legacySceneOrPrefab = LegacyUIParser;

@@ -2,24 +2,25 @@ import { AnimationClipParser03 } from "./AnimationClipParser03";
 import { AnimationClipParser04 } from "./AnimationClipParser04";
 import { KeyframeNodeList } from "./KeyframeNodeList";
 import { AnimationEvent } from "./AnimationEvent";
-import { FloatKeyframe } from "../core/FloatKeyframe"
-import { QuaternionKeyframe } from "../core/QuaternionKeyframe"
-import { Vector3Keyframe } from "../core/Vector3Keyframe"
 import { Utils3D } from "../utils/Utils3D"
 import { Resource } from "../../resource/Resource"
 import { Byte } from "../../utils/Byte"
 import { Handler } from "../../utils/Handler"
 import { ILaya } from "../../../ILaya";
-import { WeightedMode } from "../core/Keyframe";
 import { Loader } from "../../net/Loader";
-import { Vector2Keyframe } from "../core/Vector2Keyframe";
-import { Vector4Keyframe } from "../core/Vector4Keyframe";
 import { AvatarMask } from "../component/Animator/AvatarMask";
 import { KeyFrameValueType } from "../component/Animator/KeyframeNodeOwner";
 import { Quaternion } from "../../maths/Quaternion";
 import { Vector2 } from "../../maths/Vector2";
 import { Vector3 } from "../../maths/Vector3";
 import { Vector4 } from "../../maths/Vector4";
+import { FloatKeyframe } from "../../maths/FloatKeyframe";
+import { WeightedMode } from "../../maths/Keyframe";
+import { QuaternionKeyframe } from "../../maths/QuaternionKeyframe";
+import { Vector2Keyframe } from "../../maths/Vector2Keyframe";
+import { Vector3Keyframe } from "../../maths/Vector3Keyframe";
+import { Vector4Keyframe } from "../../maths/Vector4Keyframe";
+import { BooleanKeyframe } from "../../maths/BooleanKeyframe";
 
 /**
  * @en The AnimationClip class is used for animation clip resources.
@@ -31,8 +32,6 @@ export class AnimationClip extends Resource {
 	static _tempQuaternion0: Quaternion = new Quaternion();
 
 	/**
-	 * @internal
-	 * @inheritDoc
 	 * @en Parse animation data into animation clip
 	 * @returns Animation clip
 	 * @zh 动画数据解析为动画片段
@@ -431,7 +430,7 @@ export class AnimationClip extends Resource {
 	 * @param frontPlay 是否是前向播放。
 	 * @param outDatas 计算好的动画数据。
 	 */
-	_evaluateClipDatasRealTime(nodes: KeyframeNodeList, playCurTime: number, realTimeCurrentFrameIndexes: Int16Array, addtive: boolean, frontPlay: boolean, outDatas: Array<number | Vector3 | Quaternion | Vector4 | Vector2>, avatarMask: AvatarMask): void {
+	_evaluateClipDatasRealTime(nodes: KeyframeNodeList, playCurTime: number, realTimeCurrentFrameIndexes: Int16Array, addtive: boolean, frontPlay: boolean, outDatas: Array<boolean | number | Vector3 | Quaternion | Vector4 | Vector2>, avatarMask: AvatarMask): void {
 		for (var i = 0, n = nodes.count; i < n; i++) {
 			var node = nodes.getNodeByIndex(i);
 			var type = node.type;
@@ -475,6 +474,13 @@ export class AnimationClip extends Resource {
 
 			var isEnd = nextFrameIndex === keyFramesCount;
 			switch (type) {
+				case KeyFrameValueType.Boolean:
+					if (frameIndex !== -1) {
+						outDatas[i] = (<BooleanKeyframe>keyFrames[frameIndex]).value;
+					} else {
+						outDatas[i] = (<BooleanKeyframe>keyFrames[0]).value;
+					}
+					break;
 				case KeyFrameValueType.Float:
 					if (frameIndex !== -1) {
 						var frame = (<FloatKeyframe>keyFrames[frameIndex]);
@@ -706,9 +712,6 @@ export class AnimationClip extends Resource {
 	}
 
 	/**
-	 * @internal
-	 * @inheritDoc
-	 * @override
 	 * @en Dispose the resources.
 	 * @zh 销毁资源。
 	 */

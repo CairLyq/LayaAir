@@ -1,5 +1,5 @@
 import { CommandBuffer } from "../../../d3/core/render/command/CommandBuffer";
-import { IRenderCMD } from "../../DriverDesign/3DRenderPass/IRendderCMD";
+import { IRenderCMD } from "../../DriverDesign/RenderDevice/IRenderCMD";
 import { GLESDirectLightShadowRP } from "./GLESDirectLightShadowRP";
 import { GLESForwardAddClusterRP } from "./GLESForwardAddClusterRP";
 import { GLESSpotLightShadowRP } from "./GLESSpotLightShadowRP";
@@ -126,7 +126,6 @@ export class GLESForwardAddRP {
     }
 
     destroy() {
-        this._nativeObj = null;
         this.directLightShadowPass.destroy();
         this._directLightShadowPass = null;
         this.spotLightShadowPass.destroy();

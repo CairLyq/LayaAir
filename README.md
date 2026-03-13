@@ -38,13 +38,15 @@ Run the following command from the command line in the engine root directory, as
 npm install
 ```
 
-#### Run examples
+#### Run tests
 
-Run the following command from the command line in the engine root directory, as shown below:
+Run the following command from the command line in the repo root directory, as shown below:
 
 ```bash
 npm run start
 ```
+
+And then open bin/index.html with live server.
 
 #### Build
 
@@ -56,7 +58,7 @@ npm run build
 
 #### How to use compiled engine in LayaAirIDE
 
-If you need to use your own compiled engine instead of the IDE's built-in engine, you can copy the JavaScript files from the "build/libs" folder of the engine to the "root directory of your IDE project/engine/libs". You don't need to copy all the JavaScript files, you can only copy the files you need to overwrite.
+If you need to use your own compiled engine instead of the IDE's built-in engine, you can copy the JavaScript files from the "build/libs" folder of the engine to the "root directory of your project/engine/libs". You don't need to copy all the JavaScript files, you can only copy the files you need to overwrite.
 
 #### How to choose a branch
 

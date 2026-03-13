@@ -1,3 +1,7 @@
+/**
+description
+ 性能测试：模拟大量虫子动态移动和渲染的Laya引擎示例
+ */
 import { Laya } from "Laya";
 import { Sprite } from "laya/display/Sprite";
 import { Rectangle } from "laya/maths/Rectangle";
@@ -51,7 +55,7 @@ export class PerformanceTest_Maggots2 {
 	 * @param num
 	 */
 	private initMaggots(num: number = 1000): void {
-		this.nowTime = Browser.now();
+		this.nowTime = performance.now();
 		this.maggotAmount += num;
 		for (var i: number = 0; i < num; i++) {
 			var maggot: Maggot = this.newMaggot();
@@ -125,7 +129,7 @@ export class PerformanceTest_Maggots2 {
 
 		this.tick += 0.1;
 
-		var currentTime: number = Browser.now();
+		var currentTime: number = performance.now();
 		var chazhi: number = currentTime - this.nowTime;
 		console.log("------------chazhi:" + chazhi);
 		if (Stat.FPS < 50 && (chazhi > 4990) && !this._isClear) {

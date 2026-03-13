@@ -6,37 +6,30 @@ import { Mesh } from "../resource/models/Mesh";
 import { Texture2D } from "../../resource/Texture2D";
 import { Vector2 } from "../../maths/Vector2";
 import { Vector4 } from "../../maths/Vector4";
-import { BaseRenderType, IBaseRenderNode, ISimpleSkinRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
+import { BaseRenderType, IBaseRenderNode, IMeshRenderNode, ISimpleSkinRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
 import { Laya3DRender } from "../RenderObjs/Laya3DRender";
 import { RenderContext3D } from "./render/RenderContext3D";
 import { SimpleSkinnedMeshSprite3D } from "./SimpleSkinnedMeshSprite3D";
+import { LayaGL } from "../../layagl/LayaGL";
+import { StatElement } from "../../layagl/StatisticsContext";
 
 export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
-    // /**@internal 解决循环引用 */
-    // static SIMPLE_SIMPLEANIMATORTEXTURE: number;
-    // /**@internal 解决循环引用*/
-    // static SIMPLE_SIMPLEANIMATORPARAMS: number;
-    // /**@internal 解决循环引用*/
-    // static SIMPLE_SIMPLEANIMATORTEXTURESIZE: number;
-
-    /**@internal */
     private _simpleAnimatorTexture: Texture2D;
     /**@internal */
     _simpleAnimatorParams: Vector4;
-    /**@internal */
     private _simpleAnimatorTextureSize: number;
-    /**@internal  x simpleAnimation offset,y simpleFrameOffset*/
+    /**  x simpleAnimation offset,y simpleFrameOffset*/
     private _simpleAnimatorOffset: Vector2;
-    /**@internal */
+    /**
+     * @en The number of bones.
+     * @zh 骨骼数量
+     */
     _bonesNums: number;
 
-    /**@internal */
-    _baseRenderNode: IBaseRenderNode;
     //解决编译bug TODO
     private _ownerSimpleRenderNode: ISimpleSkinRenderNode;
 
     /**
-     * @internal
      * @en The animator texture
      * @zh 动画帧贴图
      */
@@ -44,9 +37,6 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
         return this._simpleAnimatorTexture;
     }
 
-    /**
-     * @internal
-     */
     set simpleAnimatorTexture(value: Texture2D) {
         this._simpleAnimatorTexture = value;
         this._simpleAnimatorTextureSize = value.width;
@@ -90,21 +80,11 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
         this._baseRenderNode.shaderData.setVector(SimpleSkinnedMeshSprite3D.SIMPLE_SIMPLEANIMATORPARAMS, new Vector4());
     }
 
-    /**
-     * @internal
-     * @protected
-     * @returns 
-     */
     protected _createBaseRenderNode(): IBaseRenderNode {
         this._ownerSimpleRenderNode = Laya3DRender.Render3DModuleDataFactory.createSimpleSkinRenderNode();
         return this._ownerSimpleRenderNode;
     }
 
-    /**
-     * @internal
-     * @protected
-     * @returns 
-     */
     protected _getcommonUniformMap(): string[] {
         return ["Sprite3D", "SimpleSkinnedMesh"];
     }
@@ -121,13 +101,13 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
      * @param context 3D 渲染上下文。
      */
     renderUpdate(context: RenderContext3D): void {
+        let t = performance.now();
         super.renderUpdate(context);
         this._computeSkinnedData();
+        LayaGL.statAgent.recordTimeData(StatElement.T_SkinBoneUpdate, performance.now() - t);
     }
 
     /**
-     *@inheritDoc
-     *@override
      *@internal
      */
     _createRenderElement() {
@@ -163,8 +143,6 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
     }
 
     /**
-    *@inheritDoc
-    *@override
     *@internal
     */
     _onMeshChange(value: Mesh): void {
@@ -175,7 +153,7 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
         this._setRenderElements();
 
     }
-    
+
     /**
      * @internal
      * 克隆到目标
@@ -189,8 +167,6 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
     }
 
     /**
-     * @internal
-     * @protected
      * 删除节点
      */
     protected _onDestroy() {

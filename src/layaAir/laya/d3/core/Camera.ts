@@ -1,8 +1,6 @@
 import { Config3D } from "../../../Config3D";
-import { Node } from "../../display/Node";
 import { Event } from "../../events/Event";
 import { BaseTexture } from "../../resource/BaseTexture";
-import { PostProcess } from "../component/PostProcess";
 import { DepthPass } from "../depthMap/DepthPass";
 import { BoundFrustum } from "../math/BoundFrustum";
 import { Ray } from "../math/Ray";
@@ -33,7 +31,7 @@ import { ICameraNodeData } from "../../RenderDriver/RenderModuleData/Design/3D/I
 import { Transform3D } from "./Transform3D";
 import { Cluster } from "../graphics/renderPath/Cluster";
 import { Viewport } from "../../maths/Viewport";
-import { RenderPassStatisticsInfo } from "../../RenderEngine/RenderEnum/RenderStatInfo";
+import { PostProcess } from "./render/postProcessBase/PostProcess";
 
 /**
  * @en Camera clear flags.
@@ -406,43 +404,25 @@ export class Camera extends BaseCamera {
     }
 
 
-    /** @internal */
     protected _aspectRatio: number;
-    /** @internal */
     protected _viewport: Viewport;
-    /** @internal */
     protected _rayViewport: Viewport;
-    /** @internal */
     protected _normalizedViewport: Viewport;
-    /** @internal */
     protected _viewMatrix: Matrix4x4;
-    /** @internal */
     protected _projectionMatrix: Matrix4x4;
-    /** @internal */
     protected _projectionViewMatrix: Matrix4x4;
-    /** @internal */
     protected _boundFrustum: BoundFrustum;
-    /** @internal */
     private _updateViewMatrix: boolean = true;
-    /** @internal */
+    private _updateViewProjectionMatrix: boolean = true;
     protected _postProcess: PostProcess = null;
-    /** @internal */
     protected _enableHDR: boolean = false;
-    /** @internal */
     private _viewportParams: Vector4 = new Vector4();
-    /** @internal */
     private _projectionParams: Vector4 = new Vector4();
-    /** @internal*/
     protected _needBuiltInRenderTexture: boolean = false;
-    /**@internal */
     protected _msaa: boolean = false;
-    /**@internal */
     private _fxaa: boolean = false;
-    /** @internal*/
     private _depthTextureMode: DepthTextureMode;
-    /** @internal */
     _offScreenRenderTexture: RenderTexture = null;
-    /** @internal */
     _internalRenderTexture: RenderTexture = null;
     /**
      * @internal
@@ -453,8 +433,6 @@ export class Camera extends BaseCamera {
     /**@internal */
     _internalCommandBuffer: CommandBuffer = new CommandBuffer();
     /**
-     * @internal
-     * @protected
      * @en Depth texture format
      * @zh 深度贴图格式
      */
@@ -485,7 +463,6 @@ export class Camera extends BaseCamera {
     /** @internal */
     _cameraEventCommandBuffer: { [key: string]: CommandBuffer[] } = {};
     /**
-     * @internal
      * @en Implement shadow rendering using CommandBuffer
      * @zh 实现CommandBuffer的阴影渲染
      */
@@ -723,6 +700,8 @@ export class Camera extends BaseCamera {
             this._updateViewMatrix = false;
             if (this.skyRenderElement._renderElementOBJ)
                 this.skyRenderElement.calculateViewMatrix(this._viewMatrix);
+
+            this._updateViewProjectionMatrix = true;
         }
         return this._viewMatrix;
     }
@@ -745,9 +724,22 @@ export class Camera extends BaseCamera {
      * @zh 视图投影矩阵。
      */
     get projectionViewMatrix(): Matrix4x4 {
-        Matrix4x4.multiply(this.projectionMatrix, this.viewMatrix, this._projectionViewMatrix);
-        this._renderDataModule.setProjectionViewMatrix(this._projectionViewMatrix);
+        this.updateViewProjectionMatrix();
         return this._projectionViewMatrix;
+    }
+
+    private updateViewProjectionMatrix(): void {
+        let viewMatrix = this.viewMatrix;
+        let projectionMatrix = this.projectionMatrix;
+
+        if (this._updateViewProjectionMatrix) {
+            Matrix4x4.multiply(projectionMatrix, viewMatrix, this._projectionViewMatrix);
+            this._updateViewProjectionMatrix = false;
+
+            this._boundFrustum.matrix = this._projectionViewMatrix;
+        }
+
+        this._renderDataModule.setProjectionViewMatrix(this._projectionViewMatrix);
     }
 
     /**
@@ -755,7 +747,7 @@ export class Camera extends BaseCamera {
      * @zh 摄像机视锥。
      */
     get boundFrustum(): BoundFrustum {
-        this._boundFrustum.matrix = this.projectionViewMatrix;
+        this.updateViewProjectionMatrix();
         return this._boundFrustum;
     }
 
@@ -903,9 +895,9 @@ export class Camera extends BaseCamera {
      * @param nearPlane The near clipping plane distance.
      * @param farPlane The far clipping plane distance.
      * @zh 创建一个Camera实例。
-     * @param	aspectRatio 横纵比。
-     * @param	nearPlane 近裁面。
-     * @param	farPlane 远裁面。
+     * @param aspectRatio 横纵比。
+     * @param nearPlane 近裁面。
+     * @param farPlane 远裁面。
      */
     constructor(aspectRatio: number = 0, nearPlane: number = 0.3, farPlane: number = 1000) {
         super(nearPlane, farPlane);
@@ -933,9 +925,6 @@ export class Camera extends BaseCamera {
         this._renderDataModule.aspectRatio = this.aspectRatio;
     }
 
-    /**
-     * @internal
-     */
     private _calculationViewport(normalizedViewport: Viewport, width: number, height: number): void {
         var lx: number = normalizedViewport.x * width;//不应限制x范围
         var ly: number = normalizedViewport.y * height;//不应限制y范围
@@ -958,11 +947,6 @@ export class Camera extends BaseCamera {
         this._viewport.height = pixelRightY - pixelLeftY;
     }
 
-    /**
-     * @inheritDoc
-     * @override
-     * @internal
-     */
     protected _calculateProjectionMatrix(): void {
         if (!this._useUserProjectionMatrix) {
             if (this._orthographic) {
@@ -974,6 +958,8 @@ export class Camera extends BaseCamera {
             }
             if (this.skyRenderElement._renderElementOBJ)
                 this.skyRenderElement.caluclateProjectionMatrix(this._projectionMatrix, this.aspectRatio, this.nearPlane, this.farPlane, this.fieldOfView, this.orthographic);
+
+            this._updateViewProjectionMatrix = true;
         }
     }
 
@@ -1002,7 +988,7 @@ export class Camera extends BaseCamera {
      * @en Clone the camera.
      * @zh 克隆相机。
      */
-    clone(): Camera {
+    clone() {
         let camera = <Camera>super.clone();
         camera.clearFlag = this.clearFlag;
         this.clearColor.cloneTo(camera.clearColor);
@@ -1122,16 +1108,15 @@ export class Camera extends BaseCamera {
     }
 
 
-    /**
-     * @override
+    /** 
      * @internal
      */
     _prepareCameraToRender(): void {
         super._prepareCameraToRender();
         var vp: Viewport = this.viewport;
         this._viewportParams.setValue(vp.x, vp.y, vp.width, vp.height);
-        let invertY = LayaGL.renderEngine._screenInvertY ? !RenderContext3D._instance.invertY : RenderContext3D._instance.invertY;
-        // let invertY = RenderContext3D._instance.invertY;
+        // let invertY = LayaGL.renderEngine._screenInvertY ? !RenderContext3D._instance.invertY : RenderContext3D._instance.invertY;
+        let invertY = RenderContext3D._instance.invertY;
         this._projectionParams.setValue(this._nearPlane, this._farPlane, invertY ? -1 : 1, 1 / this.farPlane);
         this._shaderValues.setVector(BaseCamera.VIEWPORT, this._viewportParams);
         this._shaderValues.setVector(BaseCamera.PROJECTION_PARAMS, this._projectionParams);
@@ -1357,8 +1342,7 @@ export class Camera extends BaseCamera {
     }
 
 
-    /**
-     * @override
+    /** 
      * @en Render the scene.
      * @param scene The scene to render.
      * @zh 渲染场景。
@@ -1396,17 +1380,14 @@ export class Camera extends BaseCamera {
         context.invertY = false;
         let renderRT = this._getRenderTexture();
         if (renderRT) {
-            context.invertY = renderRT._isCameraTarget ? !LayaGL.renderEngine._screenInvertY : false;
+            // context.invertY = renderRT._isCameraTarget ? !LayaGL.renderEngine._screenInvertY : false;
+            context.invertY = renderRT._isCameraTarget;
         }
 
         // camera data 
         this._prepareCameraToRender();
         this._applyViewProject(this.viewMatrix, this.projectionMatrix, context.invertY);
         this._contextApply(context);
-        // todo proterty name
-        if (this._cameraUniformData && this._cameraUniformUBO) {
-            this._cameraUniformUBO.setDataByUniformBufferData(this._cameraUniformData);
-        }
 
         if (this.clearFlag == CameraClearFlags.Sky) {
             scene.skyRenderer.setRenderElement(this.skyRenderElement);
@@ -1420,9 +1401,7 @@ export class Camera extends BaseCamera {
         if (multiLight) {
             Cluster.instance.update(this, scene);
         }
-        var time = performance.now();//T_CameraRender Stat
         this._Render3DProcess.fowardRender(context._contextOBJ, this);
-        Stat.renderPassStatArray[RenderPassStatisticsInfo.T_CameraRender] += (performance.now() - time);//Stat
 
         scene._componentDriver.callPostRender();
     }
@@ -1521,9 +1500,7 @@ export class Camera extends BaseCamera {
         }
     }
 
-    /**
-     * @override
-     * @inheritDoc
+    /** 
      * @en Destroy the Camera node.
      * @param destroyChild Whether to destroy child nodes.
      * @zh 删除Camera节点。
@@ -1595,13 +1572,6 @@ export class Camera extends BaseCamera {
     removeCommandBuffers(event: CameraEventFlags): void {
         if (this._cameraEventCommandBuffer[event])
             this._cameraEventCommandBuffer[event].length = 0;
-    }
-
-    /**
-     * @internal
-     */
-    protected _create(): Node {
-        return new Camera();
     }
 
     /** @internal [NATIVE]*/

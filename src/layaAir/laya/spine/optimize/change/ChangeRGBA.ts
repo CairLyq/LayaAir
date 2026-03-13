@@ -16,6 +16,16 @@ export class ChangeRGBA implements IVBChange {
      * @zh 存储插槽附件位置的映射。
      */
     sizeMap: Map<string, TAttamentPos>;
+    /**
+     * @en The start frame of this Change.
+     * @zh 变化的起始帧。
+     */
+    startFrame: number;
+    /**
+     * @en The end frame of this Change.
+     * @zh 变化的结束帧。
+     */
+    endFrame: number;
 
     /**
      * @en Creates a new instance of ChangeRGBA.
@@ -25,6 +35,11 @@ export class ChangeRGBA implements IVBChange {
      */
     constructor(slotId: number) {
         this.slotId = slotId;
+    }
+
+    apply(frame:number , vb: VBCreator, slots: spine.Slot[]): boolean {
+        this.updateVB(vb , slots);
+        return frame >= this.startFrame;
     }
 
     /**
@@ -58,43 +73,63 @@ export class ChangeRGBA implements IVBChange {
             }
         }
         let slot = slots[this.slotId];
+        let color = slot.color;
         if (slot.attachment) {
             let vertexSize = vb.vertexSize;
             let attachmentPos = this.sizeMap.get(slot.attachment.name);
-            let offset = attachmentPos.offset * vertexSize;
             let vbData = vb.vb;
+            let offset = attachmentPos.offset * vertexSize;
             let attachment = attachmentPos.attachment;
             let r, g, b, a;
-            let attachmentColor = attachment.attachmentColor;
-            let light = slot.color;
-            let drak = slot.darkColor;
-            // let premultipliedAlpha = true;
+            let attachmentColor = attachment.lightColor;
+            let twoColorTint = vb.twoColorTint;
+            
+            let colorElement = vb.vertexDeclaration.getVertexElementByUsage(1);
+            let cOffset = colorElement.offset / 4;
+
+            let c2Offset = 0;
+            if (twoColorTint) {
+                let color2Element = vb.vertexDeclaration.getVertexElementByUsage(11);
+                c2Offset = color2Element.offset / 4;
+            }
 
             if (!attachmentColor) {
-                r = light.r;
-                g = light.g;
-                b = light.b;
-                a = light.a;
+                r = color.r;
+                g = color.g;
+                b = color.b;
+                a = color.a;
             }
             else {
-                r = light.r * attachmentColor.r
-                g = light.g * attachmentColor.g
-                b = light.b * attachmentColor.b
-                a = light.a * attachmentColor.a
+                r = color.r * attachmentColor.r;
+                g = color.g * attachmentColor.g;
+                b = color.b * attachmentColor.b;
+                a = color.a * attachmentColor.a;
             }
-
-            // if (premultipliedAlpha) {
-            //     r = r * a;
-            //     g = g * a;
-            //     b = b * a;
-            // }
+            
+            let darkColor = slot.darkColor;
+            let darkColorR = 0, darkColorG = 0 , darkColorB = 0 , darkColorA = 1;
+            if (darkColor) {
+                darkColorR = darkColor.r;
+                darkColorG = darkColor.g;
+                darkColorB = darkColor.b;
+                darkColorA = darkColor.a;
+            }
 
             let n = attachment.vertexCount;
             for (let i = 0; i < n; i++) {
-                vbData[offset + i * vertexSize + 2] = r;
-                vbData[offset + i * vertexSize + 3] = g;
-                vbData[offset + i * vertexSize + 4] = b;
-                vbData[offset + i * vertexSize + 5] = a;
+                let co = offset + i * vertexSize + cOffset;
+                vbData[co] = r;
+                vbData[co + 1] = g;
+                vbData[co + 2] = b;
+                vbData[co + 3] = a;
+
+                if (twoColorTint) {
+                    let c2o = offset + i * vertexSize + c2Offset;
+                    vbData[c2o] = darkColorR;
+                    vbData[c2o + 1] = darkColorG;
+                    vbData[c2o + 2] = darkColorB;
+                    vbData[c2o + 3] = darkColorA;
+                }
             }
         }
         return true;
@@ -107,6 +142,9 @@ export class ChangeRGBA implements IVBChange {
      * @returns 具有相同插槽ID的新IVBChange实例。
      */
     clone(): IVBChange {
-        return new ChangeRGBA(this.slotId);
+        let out = new ChangeRGBA(this.slotId);
+        out.startFrame = this.startFrame;
+        out.endFrame = this.endFrame;
+        return out
     }
 }

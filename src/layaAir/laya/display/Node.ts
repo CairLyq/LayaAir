@@ -3,13 +3,27 @@ import { Component } from "../components/Component"
 import { Event } from "../events/Event"
 import { EventDispatcher } from "../events/EventDispatcher"
 import { Pool } from "../utils/Pool"
-import { Stat } from "../utils/Stat"
 import { Timer } from "../utils/Timer"
 import { ILaya } from "../../ILaya";
 import { ComponentDriver } from "../components/ComponentDriver";
-import { OutOfRangeError } from "../utils/Error"
+import { OutOfRangeError } from "../utils/Error";
+import { type Stage } from "./Stage";
+import { type Sprite } from "./Sprite";
+import { type Sprite3D } from "../d3/core/Sprite3D";
+import { type Scene3D } from "../d3/core/scene/Scene3D";
+import { type GWidget } from "../ui2/GWidget"
+import { LayaGL } from "../layagl/LayaGL"
+import { StatElement } from "../layagl/StatisticsContext"
 
 const ARRAY_EMPTY: any[] = [];
+const initBits = NodeFlags.ACTIVE;
+const reactiveBits = NodeFlags.DISPLAY;
+
+type ChildType<T> = T extends Sprite3D ? Sprite3D
+    : T extends GWidget ? GWidget
+    : T extends Scene3D ? Sprite3D
+    : T extends Sprite ? Sprite
+    : Node;
 
 /**
  * @en The `Node` class is the base class for all objects that can be placed in the display list.
@@ -17,23 +31,31 @@ const ARRAY_EMPTY: any[] = [];
  * Use the Node class to arrange the display list. A Node object can have child display objects.
  * @zh `Node` 类是可放在显示列表中的所有对象的基类。
  * 该显示列表管理 LayaAir 运行时中显示的所有对象。使用 Node 类排列显示列表中的显示对象。Node 对象可以有子显示对象。
+ * @blueprintable @blueprintableSubclasses
  */
 export class Node extends EventDispatcher {
-    private _bits: number = 0;
-    private _hideFlags: number = 0;
+
+    protected _bits: number = 0;
+    /**
+     * @zh 在_setBits里如果改变了这里指定的值的话会同时触发onSetBit方法
+     * @en If the value specified here is changed in _setBits, the onSetBit method will be triggered at the same time
+     */
+    protected _reactiveBits: number = 0;
+    protected _hideFlags: number = 0;
 
     /**
      * @internal
      * @en Child object collection, please do not modify this object directly.
      * @zh 子对象集合，请不要直接修改此对象。
      */
-    _children: Node[] = ARRAY_EMPTY;
+    _children: Node[];
     /**
      * @internal
      * @en Parent node object.
      * @zh 父节点对象。
      */
     _parent: Node = null;
+
     /**
      * @internal
      * @en Whether it has been destroyed.
@@ -44,12 +66,27 @@ export class Node extends EventDispatcher {
     _conchData: any;
     /**@internal */
     _componentDriver: ComponentDriver;
-    /**
-     * @internal
-     * @en Whether it is a 3D node, i.e., Scene3D, Sprite3D and their derived classes.
-     * @zh 是否是3D节点，即Scene3D、Sprite3D及其衍生类。
+    /** 
+     * 0-2D节点，1-3D节点，2-New UI节点
      */
-    _is3D: boolean;
+    _nodeType: number = 0;
+
+    /** 
+     * @internal
+     * 可以为节点定义一个容器节点，后续addChild等操作会默认添加到这个容器节点中，而不是本节点
+     */
+    _$container: Node;
+    /** 
+     * @internal
+     * 当节点具有_$container节点后，_$container的孩子节点的_$parent属性指向本节点
+     */
+    _$parent: Node;
+    /** 
+     * @internal
+     * 当节点具有_$container节点后，它的_$children属性会指向_$container的_children
+     */
+    _$children: Node[];
+
     /**
      * @internal
      * @en the URL of the resource.
@@ -105,7 +142,7 @@ export class Node extends EventDispatcher {
      * @zh 是否是3D节点，即Scene3D、Sprite3D及其衍生类。
      */
     get is3D(): boolean {
-        return this._is3D;
+        return this._nodeType === 1;
     }
 
     /**
@@ -116,9 +153,15 @@ export class Node extends EventDispatcher {
         return this._destroyed;
     }
 
-    /** @ignore */
+    /** @ignore  @blueprintIgnore */
     constructor() {
         super();
+
+        this._bits = initBits;
+        this._reactiveBits = reactiveBits;
+        this._children = [];
+        this._$children = this._children;
+        this._$container = this;
         this._initialize();
     }
 
@@ -133,68 +176,68 @@ export class Node extends EventDispatcher {
 
     /**
      * @en Set a specific bit of the node.
-     * @param type The bit type to set.
+     * @param bit The bit to set.
      * @param value The value to set, true or false.
+     * @return Whether the bit was changed.
      * @zh 设置节点的特定位。
-     * @param type 要设置的位类型。
+     * @param bit 要设置的位。
      * @param value 要设置的值,true或false。
+     * @returns 位是否有变化。
      */
-    _setBit(type: number, value: boolean): void {
-        if (type === NodeFlags.DISPLAY) {
-            var preValue: boolean = this._getBit(type);
-            if (preValue != value) this._updateDisplayedInstage();
-        }
-        if (value) this._bits |= type;
-        else this._bits &= ~type;
+    _setBit(bit: number, value: boolean): boolean {
+        //要判断全部标志没有命中，所以用非值判断
+        if (((this._bits & bit) === 0) === !value)
+            return false;
+
+        if (value)
+            this._bits |= bit;
+        else
+            this._bits &= ~bit;
+
+        if ((bit & this._reactiveBits) != 0)
+            this._onSetBit(bit, value);
+
+        return true;
     }
 
     /**
      * @en Get a specific bit of the node.
-     * @param type The bit type to get.
+     * @param bit The bit to get.
      * @returns The bit value, true or false.
      * @zh 获取节点的特定位。
-     * @param type 要获取的位类型。
+     * @param bit 要获取的位。
      * @returns 位的值,true或false。
      */
-    _getBit(type: number): boolean {
-        return (this._bits & type) != 0;
+    _getBit(bit: number): boolean {
+        return (this._bits & bit) !== 0;
     }
 
     /**
-     * @en Update the display status of the node in the stage.
-     * This method checks the node's hierarchy to determine if it or any of its parents are displayed in the stage, and updates the DISPLAYED_INSTAGE flag accordingly.
-     * @zh 更新节点在舞台中的显示状态。
-     * 此方法检查节点的层次结构，以确定它或其任何父节点是否显示在舞台中，并相应地更新 DISPLAYED_INSTAGE 标志。
+     * @zh 当_setBits设置的目标位包含在reactiveBits中时，会触发onSetBit方法
+     * @param bit 要设置的位。
+     * @param value 要设置的值,true或false。
+     * @en When the target bit set by _setBits is included in reactiveBits, the onSetBit method will be triggered
+     * @param bit The bit to set.
+     * @param value The value to set, true or false.
      */
-    private _updateDisplayedInstage(): void {
-        var ele: Node;
-        ele = this;
-        var stage: Node = ILaya.stage;
-        var displayedInStage: boolean = false;
-        while (ele) {
-            if (ele._getBit(NodeFlags.DISPLAY)) {
-                displayedInStage = ele._getBit(NodeFlags.DISPLAYED_INSTAGE);
-                break;
+    protected _onSetBit(bit: number, value: boolean): void {
+        if ((bit & NodeFlags.DISPLAY) !== 0) {
+            let ele: Node = this._parent;
+            let stage: Node = ILaya.stage;
+            let displayedInStage: boolean = this === stage;
+            while (ele) {
+                if ((ele._bits & NodeFlags.DISPLAY) !== 0) {
+                    displayedInStage = (ele._bits & NodeFlags.DISPLAYED_INSTAGE) !== 0;
+                    break;
+                }
+                if (ele === stage) {
+                    displayedInStage = true;
+                    break;
+                }
+                ele = ele._parent;
             }
-            if (ele === stage || ele._getBit(NodeFlags.DISPLAYED_INSTAGE)) {
-                displayedInStage = true;
-                break;
-            }
-            ele = ele._parent;
+            this._setBit(NodeFlags.DISPLAYED_INSTAGE, displayedInStage);
         }
-        this._setBit(NodeFlags.DISPLAYED_INSTAGE, displayedInStage);
-    }
-
-
-    /**
-     * @internal
-     * @en Set up the notification chain for the node.
-     * This method ensures that the DISPLAY flag is propagated upwards through the node's hierarchy.
-     * @zh 设置节点的通知链。
-     * 此方法确保 DISPLAY 标志向上传播通过节点的层次结构。
-     */
-    _setUpNoticeChain(): void {
-        if (this._getBit(NodeFlags.DISPLAY)) this._setBitUp(NodeFlags.DISPLAY);
     }
 
     /**
@@ -205,11 +248,12 @@ export class Node extends EventDispatcher {
      * @param type 要设置的位类型。
      */
     _setBitUp(type: number): void {
-        var ele: Node = this;
+        let ele: Node = this;
         ele._setBit(type, true);
         ele = ele._parent;
         while (ele) {
-            if (ele._getBit(type)) return;
+            if ((ele._bits & type) !== 0)
+                return;
             ele._setBit(type, true);
             ele = ele._parent;
         }
@@ -224,45 +268,46 @@ export class Node extends EventDispatcher {
      * @param type 要监听的事件类型。
      */
     protected onStartListeningToType(type: string) {
-        if (type === Event.DISPLAY || type === Event.UNDISPLAY) {
-            if (!this._getBit(NodeFlags.DISPLAY)) this._setBitUp(NodeFlags.DISPLAY);
+        if ((type === Event.DISPLAY || type === Event.UNDISPLAY) && (this._bits & NodeFlags.DISPLAY) === 0) {
+            this._setBitUp(NodeFlags.DISPLAY);
         }
     }
 
     /**
      * @en Bubble an event up the parent chain.
      * @param type The event type.
-     * @param data The event data. If not provided, a new Event object will be created.
+     * @param data The event data. An Event object can be passed.
      * @zh 事件冒泡到父节点链。
      * @param type 事件类型。
-     * @param data 事件数据。如果未提供,将创建一个新的Event对象。
+     * @param data 事件数据。可以传递一个Event对象。
      */
     bubbleEvent(type: string, data?: any) {
-        let arr: Array<Node> = _bubbleChainPool.length > 0 ? _bubbleChainPool.pop() : [];
+        let arr: Array<Node> = [];
         arr.length = 0;
 
         let obj: Node = this;
         while (obj) {
             if (obj.activeInHierarchy)
                 arr.push(obj);
-            obj = obj.parent;
+            obj = obj._parent;
         }
 
+        let evt: Event;
         if (data instanceof Event) {
-            data._stopped = false;
-            for (let obj of arr) {
-                data.setTo(type, obj, this);
+            evt = data;
+            evt._stopped = false;
+        }
+
+        for (let obj of arr) {
+            if (evt) {
+                evt.setTo(type, obj, this);
                 obj.event(type, data);
-                if (data._stopped)
+                if (evt._stopped)
                     break;
             }
-        }
-        else {
-            for (let obj of arr)
+            else
                 obj.event(type, data);
         }
-
-        _bubbleChainPool.push(arr);
     }
 
     /**
@@ -286,27 +331,34 @@ export class Node extends EventDispatcher {
      * @param destroyChild 是否同时销毁子节点,若值为true,则销毁子节点,否则不销毁子节点。
      */
     destroy(destroyChild: boolean = true): void {
+        if (this._destroyed)
+            return;
+
         this._destroyed = true;
         this.destroyAllComponent();
-        this._parent && this._parent.removeChild(this);
+        this._parent && this._parent._removeChild(this);
 
-        //销毁子节点
-        if (this._children) {
-            if (destroyChild) this.destroyChildren();
-            else this.removeChildren();
+        //销毁子节点，这里要用_children，所以不能用destroyChildren
+        for (let i = 0, n = this._children.length; i < n; i++) {
+            let node = this._children[0];
+            this._children.shift();
+            if (!node)
+                continue;
+
+            node._setParent(null);
+            if (destroyChild)
+                node.destroy();
         }
         this.onDestroy();
-
-        this._children = null;
 
         //移除所有事件监听
         this.offAll();
     }
 
-
     /**
     * @en The callback function when the node is destroyed. This is a virtual method. You can override it for custom logic when the node is about to be destroyed.
     * @zh 节点被销毁时执行的回调函数。此方法为虚方法，使用时重写覆盖即可。
+     * @blueprintDefaultEvent
     */
     onDestroy(): void {
         //trace("onDestroy node", this.name);
@@ -317,15 +369,19 @@ export class Node extends EventDispatcher {
      * @zh 销毁所有子节点,但不销毁节点本身。
      */
     destroyChildren(): void {
-        //销毁子节点
-        if (this._children) {
-            //为了保持销毁顺序，所以需要正序销毁
-            for (let i = 0, n = this._children.length; i < n; i++) {
-                this._children[0] && this._children[0].destroy(true);
-            }
+        //为了保持销毁顺序，所以需要正序销毁
+        for (let i = 0, n = this._$children.length; i < n; i++) {
+            this._$children[0].destroy(true);
         }
     }
 
+    /**
+     * @en Get children array.
+     * @zh 获取子节点数组。
+     */
+    get children(): ReadonlyArray<Node> {
+        return this._$children;
+    }
 
     /**
      * @en Add a child node.
@@ -336,23 +392,7 @@ export class Node extends EventDispatcher {
      * @returns 返回添加的节点。
      */
     addChild<T extends Node>(node: T): T {
-        if (!node || this._destroyed || node as any === this) return node;
-        if ((<any>node)._zOrder) this._setBit(NodeFlags.HAS_ZORDER, true);
-        if (node._parent === this) {
-            var index: number = this.getChildIndex(node);
-            if (index !== this._children.length - 1) {
-                this._children.splice(index, 1);
-                this._children.push(node);
-                this._childChanged();
-            }
-        } else {
-            node._parent && node._parent.removeChild(node);
-            this._children === ARRAY_EMPTY && (this._children = []);
-            this._children.push(node);
-            node._setParent(this);
-        }
-
-        return node;
+        return this.addChildAt(node, this._$children.length) as T;
     }
 
     /**
@@ -361,10 +401,10 @@ export class Node extends EventDispatcher {
      * @zh 批量增加子节点。
      * @param args 无数子节点。
      */
-    addChildren(...args: any[]): void {
-        var i: number = 0, n: number = args.length;
+    addChildren(...args: Node[]): void {
+        let i: number = 0, n: number = args.length;
         while (i < n) {
-            this.addChild(args[i++]);
+            this.addChildAt(args[i++], this._$children.length);
         }
     }
 
@@ -378,20 +418,15 @@ export class Node extends EventDispatcher {
      * @param index 索引位置。
      * @returns 返回添加的节点。
      */
-    addChildAt(node: Node, index: number): Node {
-        if (!node || this._destroyed || node === this) return node;
-        if ((<any>node)._zOrder) this._setBit(NodeFlags.HAS_ZORDER, true);
-        if (index >= 0 && index <= this._children.length) {
-            if (node._parent === this) {
-                var oldIndex: number = this.getChildIndex(node);
-                this._children.splice(oldIndex, 1);
-                this._children.splice(index, 0, node);
-                this._childChanged();
+    addChildAt<T extends Node>(node: T, index: number): T {
+        if (index >= 0 && index <= this._$children.length) {
+            if (node._$parent === this) {
+                this.setChildIndex(node, index);
             } else {
                 node._parent && node._parent.removeChild(node);
-                this._children === ARRAY_EMPTY && (this._children = []);
-                this._children.splice(index, 0, node);
-                node._setParent(this);
+                this._$children.splice(index, 0, node);
+                node._$parent = this;
+                node._setParent(this._$container, index);
             }
             return node;
         } else {
@@ -408,35 +443,105 @@ export class Node extends EventDispatcher {
      * @returns 子节点所在的索引位置。
      */
     getChildIndex(node: Node): number {
-        return this._children.indexOf(node);
+        return this._$children.indexOf(node);
     }
 
     /**
     * @en Get a child node by its name.
     * @param name The name of the child node.
+    * @param classType Optional child node type, used to specify the type of the returned child node.
     * @returns The child node with the specified name, or null if not found.
     * @zh 根据子节点的名字获取子节点对象。
     * @param name 子节点的名字。
+    * @param classType 可选的子节点类型，用于明确返回子节点的类型。
     * @returns 节点对象。
     */
-    getChildByName(name: string): Node {
-        for (let child of this._children) {
-            if (child && child.name === name)
-                return child;
+    getChild<T extends Node = ChildType<this>>(name: string, classType?: new (...args: any[]) => T): T {
+        for (let child of this._$children) {
+            if (child.name === name)
+                return <T>child;
         }
         return null;
     }
 
     /**
+     * @en Same as getChild，recommended to use getChild
+     * @param name The name of the child node.
+     * @param classType Optional child node type, used to specify the type of the returned child node.
+     * @returns The child node with the specified name, or null if not found.
+     * @zh 同getChild，推荐使用getChild
+     * @param name 子节点的名字。
+     * @param classType 可选的子节点类型，用于明确返回子节点的类型。
+     * @returns 节点对象。
+     */
+    getChildByName<T extends Node = ChildType<this>>(name: string, classType?: new (...args: any[]) => T): T {
+        return this.getChild(name, classType);
+    }
+
+    /**
      * @en Get a child node by its index.
      * @param index The index of the child node.
+     * @param classType Optional child node type, used to specify the type of the returned child node.
      * @returns The child node at the specified index, or null if the index is out of range.
      * @zh 根据子节点的索引位置获取子节点对象。
      * @param index 索引位置。
+     * @param classType 可选的子节点类型，用于明确返回子节点的类型。
      * @returns 指定索引处的子节点，如果索引超出范围，则为空。
      */
-    getChildAt(index: number): Node {
-        return this._children[index] || null;
+    getChildAt<T extends Node = ChildType<this>>(index: number, classType?: new (...args: any[]) => T): T {
+        if (index >= 0 && index < this.numChildren)
+            return <T>this._$children[index];
+        else
+            throw new OutOfRangeError(index);
+    }
+
+    /**
+     * @en Get the first child node with the specified path. e.g. getChildByPath("A.B.C") is similar to getChild("A") followed by getChild("B") followed by getChild("C").
+     * @param path The path of the child node.
+     * @param classType Optional child node type, used to specify the type of the returned child node.
+     * @returns The child node with the specified path.
+     * @zh 获取具有指定路径的第一个子节点。例如 getChildByPath("A.B.C") 类似于 getChild("A") 后跟 getChild("B") 后跟 getChild("C")。
+     * @param path 子节点的路径。
+     * @param classType 可选的子节点类型，用于明确返回子节点的类型。
+     * @returns 指定路径的子节点。
+     */
+    getChildByPath<T extends Node = ChildType<this>>(path: String, classType?: new (...args: any[]) => T): T {
+        let arr: string[] = path.split(".");
+        let cnt: number = arr.length;
+        let p: Node = this;
+        let obj: Node;
+        for (let i = 0; i < cnt; ++i) {
+            obj = p.getChild(arr[i], classType);
+            if (!obj)
+                break;
+
+            p = obj;
+        }
+
+        return <T>obj;
+    }
+
+    /**
+     * @en Recursively find child nodes, but will not search nodes inside Prefabs.
+     * @param name The name of the child node to find. 
+     * @param classType Optional child node type, used to specify the type of the returned child node.
+     * @returns The child node with the specified name. 
+     * @zh 递归查找子节点，但不会查找Prefab内部的节点。
+     * @param name 要查找的子节点的名称。
+     * @param classType 可选的子节点类型，用于明确返回子节点的类型。
+     * @returns 指定名称的子节点。
+     */
+    findChild<T extends Node = ChildType<this>>(name: string, classType?: new (...args: any[]) => T): T {
+        for (let c of this._$children) {
+            if (c.name == name)
+                return <T>c;
+            if (!c.url) {
+                c = c.findChild(name, classType);
+                if (c)
+                    return <T>c;
+            }
+        }
+        return null;
     }
 
     /**
@@ -449,18 +554,56 @@ export class Node extends EventDispatcher {
      * @param index 新的索引。
      * @returns 返回子节点本身。
      */
-    setChildIndex(node: Node, index: number): Node {
-        var childs: any[] = this._children;
-        if (index < 0 || index >= childs.length) {
-            throw new OutOfRangeError(index);
-        }
+    setChildIndex<T extends Node>(node: T, index: number): T {
+        let oldIndex = this._$children.indexOf(node);
+        if (oldIndex < 0)
+            throw new Error("not a child of this node");
 
-        var oldIndex: number = this.getChildIndex(node);
-        if (oldIndex < 0) throw new Error("node must be a child of this object.");
-        childs.splice(oldIndex, 1);
-        childs.splice(index, 0, node);
-        this._childChanged();
+        this._setChildIndex(node, oldIndex, index);
+
         return node;
+    }
+
+    /**
+     * @zh 设置子节点的索引位置为指定的 index 之前的一个位置。
+     * @param node
+     * @param index 
+     * @returns 
+     * @en Set the index of a child node to the index before the specified index.
+     * @param node
+     * @param index 
+     * @returns 
+     */
+    setChildIndexBefore(node: Node, index: number): number {
+        let oldIndex = this._$children.indexOf(node);
+        if (oldIndex == -1)
+            throw new Error("not a child of this node");
+
+        if (oldIndex < index)
+            return this._setChildIndex(node, oldIndex, index - 1);
+        else
+            return this._setChildIndex(node, oldIndex, index);
+    }
+
+    /**
+     * @internal
+     */
+    _setChildIndex(node: Node, oldIndex: number, index: number): number {
+        let cnt = this._$children.length;
+        if (index > cnt)
+            index = cnt;
+
+        if (oldIndex == index)
+            return oldIndex;
+
+        this._$children.splice(oldIndex, 1);
+        if (index >= this._$children.length)
+            this._$children.push(node);
+        else
+            this._$children.splice(index, 0, node);
+        this._$container._childChanged();
+
+        return index;
     }
 
     /**
@@ -469,22 +612,28 @@ export class Node extends EventDispatcher {
      * @zh 子节点发生变化时的回调。
      * @param child 发生变化的子节点。
      */
-    protected _childChanged(child: Node = null): void {
-
+    protected _childChanged(child?: Node): void {
     }
 
     /**
      * @en Remove a child node.
      * @param node The child node to be removed.
+     * @param destroy Whether to destroy the child node. If true, the child node will be destroyed; otherwise, it will only be removed from the parent.
      * @returns The removed node.
      * @zh 删除子节点。
      * @param node 子节点。
+     * @param destroy 是否销毁子节点,若值为true,则销毁子节点,否则不销毁子节点。
      * @returns 被删除的节点。
      */
-    removeChild(node: Node): Node {
-        if (!this._children) return node;
-        var index: number = this._children.indexOf(node);
-        return this.removeChildAt(index);
+    removeChild<T extends Node>(node: T, destroy?: boolean): T {
+        let index: number = this._$children.indexOf(node);
+        if (index == -1)
+            throw new Error("not a child of this node");
+        this._$children.splice(index, 1);
+        node._setParent(null);
+        if (destroy)
+            node.destroy();
+        return node;
     }
 
     /**
@@ -494,38 +643,42 @@ export class Node extends EventDispatcher {
      * @returns 当前节点。
      */
     removeSelf(): Node {
-        this._parent && this._parent.removeChild(this);
+        this._parent && this._parent._removeChild(this);
         return this;
     }
 
     /**
      * @en Remove a child node by its name.
      * @param name The name of the child node.
+     * @param destroy Whether to destroy the child node. If true, the child node will be destroyed; otherwise, it will only be removed from the parent.
      * @returns The removed node.
      * @zh 根据子节点名字删除对应的子节点对象,如果找不到不会抛出异常。
      * @param name 对象名字。
+     * @param destroy 是否销毁子节点,若值为true,则销毁子节点,否则不销毁子节点。
      * @returns 查找到的节点。
      */
-    removeChildByName(name: string): Node {
-        var node: Node = this.getChildByName(name);
-        node && this.removeChild(node);
+    removeChildByName(name: string, destroy?: boolean): Node {
+        let node: Node = this.getChild(name);
+        node && this.removeChild(node, destroy);
         return node;
     }
 
     /**
      * @en Remove a child node by its index.
      * @param index The index of the child node.
+     * @param destroy Whether to destroy the child node. If true, the child node will be destroyed; otherwise, it will only be removed from the parent.
      * @returns The removed node.
      * @zh 根据子节点索引位置,删除对应的子节点对象。
      * @param index 节点索引位置。
+     * @param destroy 是否销毁子节点,若值为true,则销毁子节点,否则不销毁子节点。
      * @returns 被删除的节点。
      */
-    removeChildAt(index: number): Node {
-        var node: Node = this.getChildAt(index);
-        if (node) {
-            this._children.splice(index, 1);
-            node._setParent(null);
-        }
+    removeChildAt(index: number, destroy?: boolean): Node {
+        let node = this._$children[index];
+        this._$children.splice(index, 1);
+        node._setParent(null);
+        if (destroy)
+            node.destroy();
         return node;
     }
 
@@ -533,26 +686,23 @@ export class Node extends EventDispatcher {
      * @en Remove all children from this node.
      * @param beginIndex The begin index.
      * @param endIndex The end index.
+     * @param destroy Whether to destroy the child nodes. If true, all child nodes will be destroyed; otherwise, they will only be removed from the parent.
      * @returns The node itself.
      * @zh 删除指定索引区间的所有子对象。
      * @param beginIndex 开始索引。
      * @param endIndex 结束索引。
+     * @param destroy 是否销毁子节点,若值为true,则销毁子节点,否则不销毁子节点。
      * @returns 当前节点对象。
      */
-    removeChildren(beginIndex: number = 0, endIndex: number = 0x7fffffff): Node {
-        if (this._children && this._children.length > 0) {
-            var childs: any[] = this._children;
-            if (beginIndex === 0 && endIndex >= childs.length - 1) {
-                var arr: any[] = childs;
-                this._children = ARRAY_EMPTY;
-            } else {
-                arr = childs.splice(beginIndex, endIndex - beginIndex + 1);
-            }
-            for (var i: number = 0, n: number = arr.length; i < n; i++) {
-                arr[i]._setParent(null);
-            }
-        }
-        return this;
+    removeChildren(beginIndex?: number, endIndex?: number, destroy?: boolean): void {
+        beginIndex = beginIndex || 0;
+        if (endIndex == null)
+            endIndex = -1;
+        if (endIndex < 0 || endIndex >= this._$children.length)
+            endIndex = this._$children.length - 1;
+
+        for (let i = beginIndex; i <= endIndex; ++i)
+            this.removeChildAt(beginIndex, destroy);
     }
 
     /**
@@ -566,14 +716,63 @@ export class Node extends EventDispatcher {
      * @returns 返回新节点。
      */
     replaceChild(newNode: Node, oldNode: Node): Node {
-        var index: number = this._children.indexOf(oldNode);
-        if (index > -1) {
-            this._children.splice(index, 1, newNode);
-            oldNode._setParent(null);
-            newNode._setParent(this);
-            return newNode;
+        let index: number = this._$children.indexOf(oldNode);
+        if (index == -1)
+            throw new Error("not a child of this node");
+
+        this.removeChildAt(index);
+        return this.addChildAt(newNode, index);
+    }
+
+    /**
+     * @internal
+     * 为节点设置一个容器节点，这样后续addChild等操作会默认添加到这个容器节点中，而不是自身
+     */
+    _setContainer(container: Node): void {
+        this._$container = container;
+        this._$children = container._children;
+    }
+
+    /**
+     * @internal
+     * 当节点成为容器节点后，addChild操作会作用到容器节点上，如果需要添加到自身，可以通过这个方法恢复
+     */
+    _addChild(node: Node, index?: number): Node {
+        let children = this._children;
+        if (index == null)
+            index = children.length;
+        if (index >= 0 && index <= children.length) {
+            if (node._parent === this) {
+                let oldIndex = children.indexOf(node);
+                children.splice(oldIndex, 1);
+                if (index >= children.length)
+                    children.push(node);
+                else
+                    children.splice(index, 0, node);
+                this._childChanged(node);
+            } else {
+                node._parent && node._parent.removeChild(node);
+                children.splice(index, 0, node);
+                node._$parent = this;
+                node._setParent(this, index);
+            }
+            return node;
+        } else {
+            throw new OutOfRangeError(index);
         }
-        return null;
+    }
+
+    /**
+     * @internal
+     * 当节点成为容器节点后，removeChild操作会作用到容器节点上，如果需要移除自身的孩子，可以通过这个方法恢复
+    */
+    _removeChild(node: Node): Node {
+        let index: number = this._children.indexOf(node);
+        if (index == -1)
+            throw new Error("not a child of this node");
+        this._children.splice(index, 1);
+        node._setParent(null);
+        return node;
     }
 
     /**
@@ -581,7 +780,7 @@ export class Node extends EventDispatcher {
      * @zh 子对象数量。
      */
     get numChildren(): number {
-        return this._children ? this._children.length : 0;
+        return this._$children.length;
     }
 
     /**
@@ -589,7 +788,7 @@ export class Node extends EventDispatcher {
      * @zh 父节点。
      */
     get parent(): Node {
-        return this._parent;
+        return this._$parent;
     }
 
     /**
@@ -601,15 +800,18 @@ export class Node extends EventDispatcher {
      * @returns 一个布尔值，表示本节点是否是某个节点的上层节点。
      */
     isAncestorOf(node: Node): boolean {
-        let p = node.parent;
+        if (!node)
+            return false;
+
+        let p = node._parent;
         while (p) {
             if (p == this)
                 return true;
 
-            p = p.parent;
+            p = p._parent;
         }
         return false;
-    };
+    }
 
     /**
      * @en Set the parent node of the current node.
@@ -617,27 +819,27 @@ export class Node extends EventDispatcher {
      * @zh 设置当前节点的父节点。
      * @param value 新的父节点。
      */
-    protected _setParent(value: Node): void {
-        if (this._parent !== value) {
-            if (value) {
-                this._parent = value;
-                //如果父对象可见，则设置子对象可见
-                this._onAdded();
-                this.event(Event.ADDED);
-                if (this._getBit(NodeFlags.DISPLAY)) {
-                    this._setUpNoticeChain();
-                    value.displayedInStage && this._displayChild(this, true);
-                }
-                value._childChanged(this);
-            } else {
-                //设置子对象不可见
-                this._onRemoved();
-                this.event(Event.REMOVED);
-                let p = this._parent;
-                if (this._getBit(NodeFlags.DISPLAY)) this._displayChild(this, false);
-                this._parent = value;
-                p._childChanged(this);
+    protected _setParent(value: Node, index: number = -1): void {
+        if (value) {
+            this._parent = value;
+            this._onAdded();
+            this.event(Event.ADDED);
+            if ((this._bits & NodeFlags.DISPLAY) !== 0) {
+                this._setBitUp(NodeFlags.DISPLAY);
+                if (value.displayedInStage)
+                    this._displayChild(this, true);
             }
+            value._childChanged(this);
+        } else {
+            this._onRemoved();
+            this.event(Event.REMOVED);
+            let p = this._parent;
+            if ((this._bits & NodeFlags.DISPLAY) !== 0)
+                this._displayChild(this, false);
+            this._parent = null;
+            this._$parent = null;
+            if (!p._destroyed)
+                p._childChanged(this);
         }
     }
 
@@ -646,12 +848,10 @@ export class Node extends EventDispatcher {
      * @zh 表示是否在显示列表中显示。
      */
     get displayedInStage(): boolean {
-        if (this._getBit(NodeFlags.DISPLAY)) return this._getBit(NodeFlags.DISPLAYED_INSTAGE);
-        this._setBitUp(NodeFlags.DISPLAY);
-        return this._getBit(NodeFlags.DISPLAYED_INSTAGE);
+        if ((this._bits & NodeFlags.DISPLAY) === 0)
+            this._setBitUp(NodeFlags.DISPLAY);
+        return (this._bits & NodeFlags.DISPLAYED_INSTAGE) !== 0;
     }
-
-
 
     /**
      * @internal
@@ -661,10 +861,12 @@ export class Node extends EventDispatcher {
      * @param value 显示状态。
      */
     _setDisplay(value: boolean): void {
-        if (this._getBit(NodeFlags.DISPLAYED_INSTAGE) !== value) {
+        if (((this._bits & NodeFlags.DISPLAYED_INSTAGE) !== 0) !== value) {
             this._setBit(NodeFlags.DISPLAYED_INSTAGE, value);
-            if (value) this.event(Event.DISPLAY);
-            else this.event(Event.UNDISPLAY);
+            if (value)
+                this.event(Event.DISPLAY);
+            else
+                this.event(Event.UNDISPLAY);
         }
     }
 
@@ -677,17 +879,13 @@ export class Node extends EventDispatcher {
     * @param display 是否可见。
     */
     private _displayChild(node: Node, display: boolean): void {
-        var childs: any[] = node._children;
-        if (childs) {
-            for (var i: number = 0, n: number = childs.length; i < n; i++) {
-                var child: Node = childs[i];
-                if (!child) continue;
-                if (!child._getBit(NodeFlags.DISPLAY)) continue;
-                if (child._children.length > 0) {
-                    this._displayChild(child, display);
-                } else {
-                    child._setDisplay(display);
-                }
+        for (let child of node._children) {
+            if ((child._bits & NodeFlags.DISPLAY) === 0)
+                continue;
+            if (child._children.length > 0) {
+                this._displayChild(child, display);
+            } else {
+                child._setDisplay(display);
             }
         }
         node._setDisplay(display);
@@ -826,7 +1024,6 @@ export class Node extends EventDispatcher {
      * @zh 节点的组件列表。
      */
     protected _components: Component[];
-    /**@private */
     private _activeChangeScripts: Component[];
 
 
@@ -841,8 +1038,16 @@ export class Node extends EventDispatcher {
      * @en Get the scene this node belongs to.
      * @zh 获取该节点所属的场景。
      */
-    get scene(): any {
+    get scene(): Node {
         return this._scene;
+    }
+
+    /** 
+     * @en Reference to the stage.
+     * @zh 对舞台的引用。
+     */
+    get stage(): Stage {
+        return ILaya.stage;
     }
 
     /**
@@ -850,31 +1055,28 @@ export class Node extends EventDispatcher {
      * @zh 该节点自身是否激活。
      */
     get active(): boolean {
-        return !this._getBit(NodeFlags.NOT_READY) && !this._getBit(NodeFlags.NOT_ACTIVE);
+        return (this._bits & NodeFlags.ACTIVE) !== 0;
     }
 
     set active(value: boolean) {
         value = !!value;
-        if (!this._getBit(NodeFlags.NOT_ACTIVE) !== value) {
-            if (this._activeChangeScripts && this._activeChangeScripts.length !== 0) {
+        if (((this._bits & NodeFlags.ACTIVE) !== 0) !== value) {
+            if (this._activeChangeScripts && this._activeChangeScripts.length !== 0)
                 throw new Error("recursive set active");
-            } else {
-                this._setBit(NodeFlags.NOT_ACTIVE, !value);
-                if (this._parent) {
-                    if (this._parent.activeInHierarchy) {
-                        this._processActive(value, true);
-                    }
-                }
+
+            this._setBit(NodeFlags.ACTIVE, value);
+            if (this._parent?.activeInHierarchy && (this._bits & NodeFlags.NOT_IN_PAGE) == 0) {
+                this._processActive(value, true);
             }
         }
     }
 
     /**
-     * @en Thether this node is active in the hierarchy.
+     * @en Whether this node is active in the hierarchy.
      * @zh 该节点在层级中是否激活。
      */
     get activeInHierarchy(): boolean {
-        return this._getBit(NodeFlags.ACTIVE_INHIERARCHY);
+        return (this._bits & NodeFlags.ACTIVE_INHIERARCHY) !== 0;
     }
 
     /**
@@ -882,7 +1084,6 @@ export class Node extends EventDispatcher {
      * @zh 节点激活时执行的操作。
      */
     protected _onActive(): void {
-        Stat.spriteCount++;
     }
 
     /**
@@ -890,7 +1091,6 @@ export class Node extends EventDispatcher {
      * @zh 节点停用时执行的操作。
      */
     protected _onInActive(): void {
-        Stat.spriteCount--;
     }
 
     /**
@@ -914,6 +1114,7 @@ export class Node extends EventDispatcher {
      * This is a virtual method that needs to be overridden in the subclass.
      * @zh 组件被激活后执行，此时所有节点和组件均已创建完毕，此方法只执行一次。
      * 此方法为虚方法，使用时重写覆盖即可。
+     * @blueprintDefaultEvent
      */
     onAwake(): void {
         //this.name  && trace("onAwake node ", this.name);
@@ -924,6 +1125,7 @@ export class Node extends EventDispatcher {
     * This is a virtual method that needs to be overridden in the subclass.
     * @zh 组件被启用后执行，比如节点被添加到舞台后。
     * 此方法为虚方法，使用时重写覆盖即可。
+     * @blueprintDefaultEvent
     */
     onEnable(): void {
         //this.name  && trace("onEnable node ", this.name);
@@ -934,6 +1136,7 @@ export class Node extends EventDispatcher {
      * This is a virtual method that needs to be overridden in the subclass.
      * @zh 组件被禁用时执行，比如从节点从舞台移除后。
      * 此方法为虚方法，使用时重写覆盖即可。
+     * @blueprintDefaultEvent
      */
     onDisable(): void {
         //trace("onDisable node", this.name);
@@ -954,11 +1157,11 @@ export class Node extends EventDispatcher {
     * @param scene 节点所属的场景。
     */
     _setBelongScene(scene: Node): void {
-        if (!this._scene || this.scene != scene) {
+        if (!this._scene || this._scene != scene) {
             this._scene = scene;
             this._onActiveInScene();
-            for (let i = 0, n = this._children.length; i < n; i++)
-                this._children[i]._setBelongScene(scene);
+            for (let child of this._children)
+                child._setBelongScene(scene);
         }
     }
 
@@ -971,8 +1174,8 @@ export class Node extends EventDispatcher {
         if (this._scene !== this) {//移除节点本身是scene不继续派发
             this._onInActiveInScene();
             this._scene = null;
-            for (let i = 0, n = this._children.length; i < n; i++)
-                this._children[i]._setUnBelongScene();
+            for (let child of this._children)
+                child._setUnBelongScene();
         }
     }
 
@@ -1022,11 +1225,13 @@ export class Node extends EventDispatcher {
         }
 
         this._onActive();
-        for (let i = 0, n = this._children.length; i < n; i++) {
-            let child = this._children[i];
-            (!child._getBit(NodeFlags.NOT_ACTIVE) && !child._getBit(NodeFlags.NOT_READY)) && (child._activeHierarchy(activeChangeScripts, fromSetter));
+        LayaGL.statAgent.recordCountData(StatElement.C_Sprite2DCount, 1);
+
+        for (let child of this._children) {
+            if ((child._bits & NodeFlags.ACTIVE) !== 0 && (child._bits & NodeFlags.NOT_IN_PAGE) === 0)
+                child._activeHierarchy(activeChangeScripts, fromSetter);
         }
-        if (!this._getBit(NodeFlags.AWAKED)) {
+        if ((this._bits & NodeFlags.AWAKED) === 0) {
             this._setBit(NodeFlags.AWAKED, true);
             this.onAwake();
         }
@@ -1042,6 +1247,8 @@ export class Node extends EventDispatcher {
      */
     _inActiveHierarchy(activeChangeScripts: any[], fromSetter?: boolean): void {
         this._onInActive();
+        LayaGL.statAgent.recordCountData(StatElement.C_Sprite2DCount, -1);
+
         if (this._components) {
             for (let i = 0, n = this._components.length; i < n; i++) {
                 let comp = this._components[i];
@@ -1053,9 +1260,9 @@ export class Node extends EventDispatcher {
         }
         this._setBit(NodeFlags.ACTIVE_INHIERARCHY, false);
 
-        for (let i = 0, n = this._children.length; i < n; i++) {
-            let child = this._children[i];
-            (child && !child._getBit(NodeFlags.NOT_ACTIVE)) && (child._inActiveHierarchy(activeChangeScripts, fromSetter));
+        for (let child of this._children) {
+            if ((child._bits & NodeFlags.ACTIVE_INHIERARCHY) !== 0)
+                child._inActiveHierarchy(activeChangeScripts, fromSetter);
         }
         this.onDisable();
     }
@@ -1071,11 +1278,14 @@ export class Node extends EventDispatcher {
             throw new Error("recursive set active");
         } else {
             let parentScene = this._parent.scene;
-            parentScene && this._setBelongScene(parentScene);
-            (this._parent.activeInHierarchy && this.active) && this._processActive(true);
+            if (parentScene)
+                this._setBelongScene(parentScene);
+            if (this._parent.activeInHierarchy
+                && (this._bits & NodeFlags.ACTIVE) !== 0
+                && (this._bits & NodeFlags.NOT_IN_PAGE) === 0)
+                this._processActive(true);
         }
     }
-
 
     /**
      * @en Handle the removal of the node from its parent.
@@ -1087,19 +1297,27 @@ export class Node extends EventDispatcher {
         if (this._activeChangeScripts && this._activeChangeScripts.length !== 0) {
             throw new Error("recursive set active");
         } else {
-            (this._parent.activeInHierarchy && this.active) && this._processActive(false);
-            this._parent.scene && this._setUnBelongScene();
+            if (this._parent.activeInHierarchy
+                && (this._bits & NodeFlags.ACTIVE) !== 0
+                && (this._bits & NodeFlags.NOT_IN_PAGE) === 0)
+                this._processActive(false);
+            if (this._parent.scene)
+                this._setUnBelongScene();
         }
     }
 
     /**
-     * @internal
      * @en Add a component instance to the node.
      * @param comp The component instance.
      * @zh 添加组件实例到节点。
      * @param comp 组件实例。
      */
-    _addComponentInstance(comp: Component): void {
+    protected _addComponentInstance(comp: Component): void {
+        if (comp._singleton && this.getComponent((<any>comp).constructor)) {
+            console.warn("the component is singleton, can't add the second one.", comp);
+            return;
+        }
+
         if (!this._components)
             this._components = [];
         this._components.push(comp);
@@ -1167,12 +1385,11 @@ export class Node extends EventDispatcher {
     _cloneTo(destObject: Node, srcRoot: Node, dstRoot: Node): void {
         if (this._components) {
             for (let i = 0, n = this._components.length; i < n; i++) {
-                var destComponent = destObject.addComponent((this._components[i] as any).constructor);
+                let destComponent = destObject.addComponent((this._components[i] as any).constructor);
                 this._components[i]._cloneTo(destComponent);
             }
         }
     }
-
 
     /**
      * @en Add a component instance to the node.
@@ -1185,10 +1402,8 @@ export class Node extends EventDispatcher {
     addComponentInstance(component: Component): Component {
         if (component.owner)
             throw new Error("the component is belong to other node.");
-        if (component._singleton && this.getComponent(((<any>component)).constructor))
-            console.warn("the component is singleton, can't add the second one.", component);
-        else
-            this._addComponentInstance(component);
+
+        this._addComponentInstance(component);
         return component;
     }
 
@@ -1202,14 +1417,10 @@ export class Node extends EventDispatcher {
      */
     addComponent<T extends Component>(componentType: new () => T): T {
         let comp: T = Pool.createByClass(componentType);
-        if (!comp) {
+        if (!comp)
             throw new Error("missing " + componentType.toString());
-        }
 
-        if (comp._singleton && this.getComponent(componentType))
-            console.warn("the component is singleton, can't add the second one.", comp);
-        else
-            this._addComponentInstance(comp);
+        this._addComponentInstance(comp);
         return comp;
     }
 
@@ -1251,7 +1462,7 @@ export class Node extends EventDispatcher {
      * @returns 组件实例数组。
      */
     getComponents(componentType: typeof Component): Component[] {
-        var arr: any[];
+        let arr: any[] = [];
         if (this._components) {
             for (let i = 0, n = this._components.length; i < n; i++) {
                 let comp = this._components[i];
@@ -1277,10 +1488,9 @@ export class Node extends EventDispatcher {
     /**
      * @en Called after deserialization.
      * @zh 反序列化后调用。
+     * @blueprintIgnore
      */
     onAfterDeserialize() { }
 }
-
-const _bubbleChainPool: Array<Array<Node>> = [];
 
 export interface INodeExtra { }

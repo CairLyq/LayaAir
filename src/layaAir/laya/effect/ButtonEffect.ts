@@ -1,7 +1,7 @@
 import { Sprite } from "../display/Sprite";
-import { Tween } from "../utils/Tween";
+import { Tween } from "../tween/Tween";
 import { Event } from "../events/Event";
-import { Ease } from "../utils/Ease";
+import { Ease } from "../tween/Ease";
 import { Handler } from "../utils/Handler";
 
 /**

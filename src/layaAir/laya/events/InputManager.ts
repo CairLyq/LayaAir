@@ -1,10 +1,16 @@
+import { ILaya } from "../../ILaya";
+import { LayaEnv } from "../../LayaEnv";
 import { HideFlags, NodeFlags } from "../Const";
-import { Node } from "../display/Node";
+import { Area2D } from "../display/Area2D";
+import type { Node } from "../display/Node";
 import { Sprite } from "../display/Sprite";
+import { SpriteConst } from "../display/SpriteConst";
 import { Stage } from "../display/Stage";
 import { Point } from "../maths/Point";
 import { Rectangle } from "../maths/Rectangle";
+import { PAL } from "../platform/PlatformAdapters";
 import { Browser } from "../utils/Browser";
+import { Delegate } from "../utils/Delegate";
 import { Event, ITouchInfo } from "./Event";
 
 var _isFirstTouch = true;
@@ -14,6 +20,11 @@ const _rollOverChain: Array<Node> = [];
 const _rollOutChain: Array<Node> = [];
 var _inst: InputManager;
 
+/**
+ * @en The `InputManager` class is responsible for managing input events such as mouse, touch, and keyboard events.
+ * @zh `InputManager` 类负责管理输入事件，例如鼠标、触摸和键盘事件。
+ * @blueprintable
+ */
 export class InputManager {
 
     /**
@@ -47,16 +58,25 @@ export class InputManager {
      * @zh canvas 上鼠标的 Y 坐标。
      */
     static mouseY: number = 0;
+
     /**
-     * @en Indicates whether text input is currently active.
-     * @zh 表示当前是否正在输入文字。
+     * @en The time of the last mouse event.
+     * @zh 上一次鼠标事件的时间。
      */
-    static isTextInputting = false;
+    static lastMouseTime: number = 0;
+
     /**
-     * @en Indicates whether the current platform is iOS's WKWebView.
-     * @zh 表示当前是否是 iOS 的 WKWebView 平台。
+     * @en The ID of the last touch event.
+     * @zh 上一次触摸事件的ID。
      */
-    static isiOSWKwebView: boolean = false;
+    static lastTouchId: number = 0;
+
+    /**
+     * @en Dispatched before the process of a MOUSE_DOWN event, which can be used to preprocess the MOUSE_DOWN event.
+     * @zh 在处理MOUSE_DOWN事件之前调度，可用于提前处理按下事件。
+     */
+    static readonly onMouseDownCapture: Delegate = new Delegate();
+
     /**@internal */
     protected _stage: Stage;
     /**@internal */
@@ -79,10 +99,9 @@ export class InputManager {
     protected _keyEvent: Event;
 
     private _lastTouchTime: number;
-    private _lastTouchId: number = 0;
 
     /**
-     * @ignore
+     * @ignore @blueprintIgnore
      */
     constructor() {
         this._touches = [];
@@ -107,7 +126,7 @@ export class InputManager {
      */
     static getTouchPos(touchId?: number): Readonly<Point> {
         if (touchId == null)
-            touchId = _inst._lastTouchId;
+            touchId = InputManager.lastTouchId;
 
         return _inst.getTouch(touchId)?.pos || _inst._mouseTouch.pos;
     }
@@ -144,7 +163,7 @@ export class InputManager {
      */
     static cancelClick(touchId?: number): void {
         if (touchId == null)
-            touchId = _inst._lastTouchId;
+            touchId = InputManager.lastTouchId;
         let touch = _inst.getTouch(touchId);
         if (touch)
             touch.clickCancelled = true;
@@ -163,13 +182,15 @@ export class InputManager {
     }
 
     /**
-     * @private
+     * @internal
      * @en Initialization.
      * @zh 初始化。
      */
-    static __init__(stage: Stage, canvas: HTMLCanvasElement): void {
+    static __init__(): void {
         let inst = _inst = new InputManager();
-        inst._stage = stage;
+        inst._stage = ILaya.stage;
+        let canvas = Browser.mainCanvas.source;
+        let passiveOption: AddEventListenerOptions = { passive: false };
 
         canvas.oncontextmenu = () => {
             return false;
@@ -178,60 +199,62 @@ export class InputManager {
             if (!Browser.onIE)
                 (ev.cancelable) && (ev.preventDefault());
             inst.handleMouse(ev, 0);
-        }, { passive: false });
+        }, passiveOption);
         canvas.addEventListener("mouseup", ev => {
             (ev.cancelable) && (ev.preventDefault());
             inst.handleMouse(ev, 1);
-        }, { passive: false });
+        }, passiveOption);
         canvas.addEventListener("mousemove", ev => {
             (ev.cancelable) && (ev.preventDefault());
             inst.handleMouse(ev, 2);
-        }, { passive: false });
+        }, passiveOption);
         canvas.addEventListener("mouseout", ev => {
             inst.handleMouse(ev, 3);
-        }, { passive: false });
+        }, passiveOption);
         // canvas.addEventListener("mouseover", ev => {
         // });
 
         canvas.addEventListener("touchstart", ev => {
-            if (!_isFirstTouch && !InputManager.isTextInputting)
+            if (!_isFirstTouch && !PAL.textInput.target)
                 (ev.cancelable) && (ev.preventDefault());
             inst.handleTouch(ev, 0);
-        }, { passive: false });
+        }, passiveOption);
         canvas.addEventListener("touchend", ev => {
-            if (!_isFirstTouch && !InputManager.isTextInputting)
+            if (!_isFirstTouch && !PAL.textInput.target)
                 (ev.cancelable) && (ev.preventDefault());
             _isFirstTouch = false;
             inst.handleTouch(ev, 1);
-        }, { passive: false });
+        }, passiveOption);
         canvas.addEventListener("touchmove", ev => {
             (ev.cancelable) && (ev.preventDefault());
             inst.handleTouch(ev, 2);
-        }, { passive: false });
+        }, passiveOption);
         canvas.addEventListener("touchcancel", ev => {
             (ev.cancelable) && (ev.preventDefault());
             inst.handleTouch(ev, 3);
-        }, { passive: false });
+        }, passiveOption);
 
         canvas.addEventListener("wheel", ev => {
             inst.handleMouse(ev, 4);
-        }, { passive: false });
+        }, passiveOption);
 
-        canvas.addEventListener("pointerdown", ev => {
-            canvas.setPointerCapture(ev.pointerId);
-        });
-        canvas.addEventListener("pointerup", ev => {
-            canvas.releasePointerCapture(ev.pointerId);
-        }, true);
+        if (typeof (canvas.setPointerCapture) === 'function') {
+            canvas.addEventListener("pointerdown", ev => {
+                canvas.setPointerCapture(ev.pointerId);
+            });
+            canvas.addEventListener("pointerup", ev => {
+                canvas.releasePointerCapture(ev.pointerId);
+            }, true);
+        }
 
-        let document = <Document>Browser.document;
-        document.addEventListener("keydown", ev => {
+        let doc = Browser.document;
+        doc.addEventListener("keydown", ev => {
             inst.handleKeys(ev);
         }, true);
-        document.addEventListener("keypress", ev => {
+        doc.addEventListener("keypress", ev => {
             inst.handleKeys(ev);
         }, true);
-        document.addEventListener("keyup", ev => {
+        doc.addEventListener("keyup", ev => {
             inst.handleKeys(ev);
         }, true);
     }
@@ -247,8 +270,8 @@ export class InputManager {
     handleMouse(ev: MouseEvent | WheelEvent, type: number) {
         this._eventType = type;
         this._nativeEvent = ev;
-        this._lastTouchId = 0;
-        let now = Browser.now();
+        InputManager.lastTouchId = 0;
+        let now = performance.now();
         if (this._lastTouchTime != null && now - this._lastTouchTime < 100)
             return;
 
@@ -256,8 +279,7 @@ export class InputManager {
         let touch: TouchInfo = this._mouseTouch;
 
         _tempPoint.setTo(ev.pageX || ev.clientX, ev.pageY || ev.clientY);
-        if (this._stage._canvasTransform)
-            this._stage._canvasTransform.invertTransformPoint(_tempPoint);
+        this._stage._canvasTransform.invertTransformPoint(_tempPoint);
         InputManager.mouseX = _tempPoint.x;
         InputManager.mouseY = _tempPoint.y;
         let x = _tempPoint.x / this._stage.clientScaleX;
@@ -273,16 +295,20 @@ export class InputManager {
             let iy = Math.round(y);
 
             if (ix != touch.pos.x || iy != touch.pos.y) {
-                this._stage._mouseMoveTime = now;
+                InputManager.lastMouseTime = now;
 
                 touch.pos.setTo(ix, iy);
                 touch.move();
 
                 if (InputManager.mouseEventsEnabled) {
-                    touch.target.bubbleEvent(Event.MOUSE_MOVE, touch.event);
+                    touch.bubble(Event.MOUSE_MOVE);
 
-                    for (let t of touch.downTargets)
+                    for (let t of touch.downTargets) {
+                        touch.event._stopped = false;
                         t.event(Event.MOUSE_DRAG, touch.event);
+                        if (touch.event._stopped)
+                            break;
+                    }
                 }
             }
         }
@@ -297,13 +323,13 @@ export class InputManager {
                 touch.event.button = ev.button;
                 touch.downButton = ev.button;
 
-                if (InputManager.mouseEventsEnabled) {
-                    this.handleFocus();
+                InputManager.onMouseDownCapture.invoke(touch.touchId);
 
+                if (InputManager.mouseEventsEnabled) {
                     if (ev.button == 0)
-                        touch.target?.bubbleEvent(Event.MOUSE_DOWN, touch.event);
+                        touch.bubble(Event.MOUSE_DOWN);
                     else
-                        touch.target?.bubbleEvent(Event.RIGHT_MOUSE_DOWN, touch.event);
+                        touch.bubble(Event.RIGHT_MOUSE_DOWN);
                 }
             }
         }
@@ -315,9 +341,9 @@ export class InputManager {
 
                 if (InputManager.mouseEventsEnabled) {
                     if (ev.button == 0)
-                        touch.target?.bubbleEvent(Event.MOUSE_UP, touch.event);
+                        touch.bubble(Event.MOUSE_UP);
                     else
-                        touch.target?.bubbleEvent(Event.RIGHT_MOUSE_UP, touch.event);
+                        touch.bubble(Event.RIGHT_MOUSE_UP);
 
                     if (touch.moved) {
                         for (let t of touch.downTargets)
@@ -329,16 +355,16 @@ export class InputManager {
                         if (ev.button == 0) {
                             touch.event.isDblClick = touch.clickCount == 2;
 
-                            clickTarget.bubbleEvent(Event.CLICK, touch.event);
+                            touch.bubble(Event.CLICK, clickTarget);
 
                             if (touch.clickCount == 2)
-                                clickTarget.bubbleEvent(Event.DOUBLE_CLICK, touch.event);
+                                touch.bubble(Event.DOUBLE_CLICK, clickTarget);
 
                             touch.event.isDblClick = false;
                         }
                         else {
                             touch.event.isDblClick = touch.clickCount == 2;
-                            clickTarget.bubbleEvent(Event.RIGHT_CLICK, touch.event);
+                            touch.bubble(Event.RIGHT_CLICK, clickTarget);
                             touch.event.isDblClick = false;
                         }
                     }
@@ -350,7 +376,7 @@ export class InputManager {
         else if (type == 4) {
             if (InputManager.mouseEventsEnabled) {
                 touch.event.delta = (<WheelEvent>ev).deltaY * 0.025;
-                touch.target?.bubbleEvent(Event.MOUSE_WHEEL, touch.event);
+                touch.bubble(Event.MOUSE_WHEEL);
                 touch.event.delta = 0;
             }
         }
@@ -367,7 +393,7 @@ export class InputManager {
     handleTouch(ev: TouchEvent, type: number) {
         this._eventType = type;
         this._nativeEvent = ev;
-        this._lastTouchTime = Browser.now();
+        this._lastTouchTime = performance.now();
 
         let touches = ev.changedTouches;
         for (let i = 0; i < touches.length; ++i) {
@@ -379,8 +405,7 @@ export class InputManager {
                 continue;
 
             _tempPoint.setTo(uTouch.pageX, uTouch.pageY);
-            if (this._stage._canvasTransform)
-                this._stage._canvasTransform.invertTransformPoint(_tempPoint);
+            this._stage._canvasTransform.invertTransformPoint(_tempPoint);
             InputManager.mouseX = _tempPoint.x;
             InputManager.mouseY = _tempPoint.y;
             let x = _tempPoint.x / this._stage.clientScaleX;
@@ -392,12 +417,12 @@ export class InputManager {
 
             touch.event.nativeEvent = ev;
             touch.event.touchId = touch.touchId;
-            this._lastTouchId = touch.touchId;
+            InputManager.lastTouchId = touch.touchId;
             if (type == 3 || !InputManager.mouseEventsEnabled)
                 touch.target = this._touchTarget = null;
             else {
                 touch.target = this._touchTarget = this.getNodeUnderPoint(x, y);
-                this._stage._mouseMoveTime = this._lastTouchTime;
+                InputManager.lastMouseTime = this._lastTouchTime;
 
                 let ix = Math.round(x);
                 let iy = Math.round(y);
@@ -410,10 +435,14 @@ export class InputManager {
 
                         if (InputManager.mouseEventsEnabled) {
 
-                            touch.target.bubbleEvent(Event.MOUSE_MOVE, touch.event);
+                            touch.bubble(Event.MOUSE_MOVE);
 
-                            for (let t of touch.downTargets)
+                            for (let t of touch.downTargets) {
+                                touch.event._stopped = false;
                                 t.event(Event.MOUSE_DRAG, touch.event);
+                                if (touch.event._stopped)
+                                    break;
+                            }
                         }
                     }
                 }
@@ -426,9 +455,10 @@ export class InputManager {
                 if (!touch.began) {
                     touch.begin();
 
+                    InputManager.onMouseDownCapture.invoke(touch.touchId);
+
                     if (InputManager.mouseEventsEnabled) {
-                        this.handleFocus();
-                        touch.target?.bubbleEvent(Event.MOUSE_DOWN, touch.event);
+                        touch.bubble(Event.MOUSE_DOWN);
                     }
                 }
             }
@@ -437,7 +467,7 @@ export class InputManager {
                     touch.end();
 
                     if (InputManager.mouseEventsEnabled) {
-                        touch.target?.bubbleEvent(Event.MOUSE_UP, touch.event);
+                        touch.bubble(Event.MOUSE_UP);
 
                         if (touch.moved) {
                             for (let t of touch.downTargets)
@@ -449,10 +479,10 @@ export class InputManager {
                             if (clickTarget != null) {
                                 touch.event.isDblClick = touch.clickCount == 2;
 
-                                clickTarget.bubbleEvent(Event.CLICK, touch.event);
+                                touch.bubble(Event.CLICK, clickTarget);
 
                                 if (touch.clickCount == 2)
-                                    clickTarget.bubbleEvent(Event.DOUBLE_CLICK, touch.event);
+                                    touch.bubble(Event.DOUBLE_CLICK, clickTarget);
 
                                 touch.event.isDblClick = false;
                             }
@@ -482,24 +512,6 @@ export class InputManager {
         return touch;
     }
 
-    private handleFocus() {
-        if (InputManager.isTextInputting
-            && this._stage.focus && (<any>this._stage.focus)["focus"]
-            && !this._stage.focus.contains(this._touchTarget)) {
-            // 从UI Input组件中取得Input引用
-            // _tf 是TextInput的属性
-            let pre_input: any = (<any>this._stage.focus)['_tf'] || this._stage.focus;
-            let new_input = (<any>this._touchTarget)['_tf'] || this._touchTarget;
-
-            // 新的焦点是Input的情况下，不需要blur；
-            // 不过如果是Input和TextArea之间的切换，还是需要重新弹出输入法；
-            if (new_input.nativeInput && new_input.multiline == pre_input.multiline)
-                pre_input['_focusOut']();
-            else
-                pre_input.focus = false;
-        }
-    }
-
     /**
      * @en Handle keys events
      * @param ev Keys events
@@ -522,15 +534,19 @@ export class InputManager {
         }
 
         this._keyEvent.nativeEvent = ev;
+        this._keyEvent._defaultPrevented = false;
 
         if (InputManager.keyEventsEnabled) {
-            let target = (this._stage.focus && (this._stage.focus.event != null) && this._stage.focus.displayedInStage) ? this._stage.focus : this._stage;
+            let target = (this._stage.focus && this._stage.focus.displayedInStage) ? this._stage.focus : this._stage;
             let ct = target;
             while (ct) {
                 ct.event(type, this._keyEvent.setTo(type, ct, target));
                 ct = ct._parent;
             }
         }
+
+        if (this._keyEvent._defaultPrevented)
+            ev.preventDefault();
 
         this._keyEvent.nativeEvent = null;
     }
@@ -565,8 +581,14 @@ export class InputManager {
      * @returns 该点下的sprite，如果没有找到则返回null。
      */
     getSpriteUnderPoint(sp: Sprite, x: number, y: number): Sprite {
+        if ((sp._renderType & SpriteConst.AREA2D) !== 0 && LayaEnv.isPlaying) {
+            (<Area2D>sp).localToView(x, y, Point.TEMP);
+            x = Point.TEMP.x;
+            y = Point.TEMP.y;
+        }
+
         //如果有裁剪，则先判断是否在裁剪范围内
-        let scrollRect = sp._style.scrollRect;
+        let scrollRect = sp._scrollRect;
         if (scrollRect && !sp._getBit(NodeFlags.DISABLE_INNER_CLIPPING)) {
             _tempRect.setTo(scrollRect.x, scrollRect.y, scrollRect.width, scrollRect.height);
             if (!_tempRect.contains(x, y))
@@ -579,12 +601,14 @@ export class InputManager {
             return null;
 
         for (let i = sp._children.length - 1; i > -1; i--) {
-            let child = <Sprite>sp._children[i];
+            let child = sp._children[i];
             let childEditing = editing || child._getBit(NodeFlags.EDITING_NODE);
             //只有接受交互事件的，才进行处理
             if (!child._destroyed
-                && (childEditing ? ((!child.hasHideFlag(HideFlags.HideInHierarchy) || child.mouseThrough) && !child._getBit(NodeFlags.HIDE_BY_EDITOR)) : child._mouseState > 1)
-                && (child._visible || child._getBit(NodeFlags.DISABLE_VISIBILITY))) {
+                && child._nodeType !== 1
+                && (childEditing ? ((!child.hasHideFlag(HideFlags.HideInHierarchy) || child.mouseThrough) && !child._getBit(NodeFlags.HIDE_BY_EDITOR))
+                    : (child._mouseState === 2 || child._mouseState === 0 && child._getBit(NodeFlags.CHECK_INPUT)))
+                && child._struct.enabled) {
                 _tempPoint.setTo(x, y);
                 child.fromParentPoint(_tempPoint);
                 let ret = this.getSpriteUnderPoint(child, _tempPoint.x, _tempPoint.y);
@@ -627,11 +651,11 @@ export class InputManager {
      */
     hitTest(sp: Sprite, x: number, y: number, editing?: boolean): boolean {
         let isHit: boolean = false;
-        if (sp.scrollRect) {
-            x -= sp._style.scrollRect.x;
-            y -= sp._style.scrollRect.y;
+        if (sp._scrollRect) {
+            x -= sp._scrollRect.x;
+            y -= sp._scrollRect.y;
         }
-        let hitArea = sp._style.hitArea;
+        let hitArea = sp._hitArea;
         let mouseThrough = sp.mouseThrough;
         if (editing) {
             hitArea = null;
@@ -647,7 +671,7 @@ export class InputManager {
             if (!mouseThrough)
                 isHit = (hitArea ? hitArea : _tempRect.setTo(0, 0, sp.width, sp.height)).contains(x, y, sp);
             else //如果可穿透，则根据子对象实际大小进行碰撞
-                isHit = sp.getGraphicBounds().contains(x, y);
+                isHit = sp.getGraphicBounds(false, Rectangle.TEMP).contains(x, y);
         }
         return isHit;
     }
@@ -771,6 +795,8 @@ class TouchInfo implements ITouchInfo {
      */
     private downPos: Point;
 
+    private bubbleChain: Array<Node>;
+
     /** 
      * @ignore
      * @en Creates a new instance of the TouchInfo class.
@@ -781,6 +807,7 @@ class TouchInfo implements ITouchInfo {
     constructor(touches: Array<TouchInfo>) {
         this.downPos = new Point();
         this.downTargets = [];
+        this.bubbleChain = [];
         this.event = new Event();
         this.event._touches = touches;
         this.pos = this.event.touchPos;
@@ -815,8 +842,10 @@ class TouchInfo implements ITouchInfo {
     move() {
         this.moved = true;
 
-        if (Math.abs(this.pos.x - this.downPos.x) > InputManager.clickTestThreshold
-            || Math.abs(this.pos.y - this.downPos.y) > InputManager.clickTestThreshold)
+        let ox = Math.abs(this.pos.x - this.downPos.x) * ILaya.stage._canvasTransform.getScaleX();
+        let oy = Math.abs(this.pos.y - this.downPos.y) * ILaya.stage._canvasTransform.getScaleY();
+
+        if (ox > InputManager.clickTestThreshold || oy > InputManager.clickTestThreshold)
             this.clickCancelled = true;
     }
 
@@ -904,5 +933,46 @@ class TouchInfo implements ITouchInfo {
         this.lastRollOver = null;
         this.clickCancelled = false;
         this.downButton = 0;
+    }
+
+    bubble(type: string, target?: Node) {
+        let arr: Array<Node> = this.bubbleChain;
+        arr.length = 0;
+
+        target = target || this.target || ILaya.stage;
+
+        let obj: Node = target;
+        while (obj) {
+            if (obj.activeInHierarchy)
+                arr.push(obj);
+            obj = obj._parent;
+        }
+
+        let evt: Event = this.event;
+        evt._stopped = false;
+
+        for (let obj of arr) {
+            evt.setTo(type, obj, target);
+            obj.event(type, evt);
+            if (evt._stopped) {
+                if (type === Event.MOUSE_DOWN || type === Event.RIGHT_MOUSE_DOWN) {
+                    let i = this.downTargets.indexOf(obj);
+                    if (i != -1)
+                        this.downTargets.splice(i + 1, this.downTargets.length - i - 1);
+                }
+                break;
+            }
+        }
+
+        if (type === Event.MOUSE_UP || type === Event.RIGHT_MOUSE_UP) {
+            for (let obj of this.downTargets) {
+                if (obj && arr.indexOf(obj) == -1) {
+                    evt.setTo(type, obj, target);
+                    obj.event(type, evt);
+                    if (evt && evt._stopped)
+                        break;
+                }
+            }
+        }
     }
 }

@@ -2,19 +2,7 @@ import { Vector3 } from "./Vector3";
 import { Matrix4x4 } from "./Matrix4x4";
 import { Matrix3x3 } from "./Matrix3x3";
 import { MathUtils3D } from "./MathUtils3D";
-import { Vector2 } from "./Vector2";
 import { IClone } from "../utils/IClone";
-
-/**@internal */
-const TEMPVector30 = new Vector3();
-/**@internal */
-const TEMPVector31 = new Vector3();
-/**@internal */
-const TEMPVector32 = new Vector3();
-/**@internal */
-const TEMPVector33 = new Vector3();
-/**@internal */
-const _tempMatrix3x3 = new Matrix3x3();
 
 /**
  * @en The `Quaternion` class is used to create quaternions.
@@ -23,7 +11,7 @@ const _tempMatrix3x3 = new Matrix3x3();
 export class Quaternion implements IClone {
 
     /**@internal */
-    static TEMP = new Quaternion();
+    static readonly TEMP = new Quaternion();
 
     /**
      * @en Default quaternion, read-only.
@@ -107,7 +95,7 @@ export class Quaternion implements IClone {
      * @param out 旋转后的输出四元数
      */
     static rotationAxisAngle(axis: Vector3, rad: number, out: Quaternion): void {
-        const normalAxis = Vector3._tempVector3
+        const normalAxis = Vector3.TEMP
         Vector3.normalize(axis, normalAxis);
         rad *= 0.5;
         const s = Math.sin(rad);
@@ -508,11 +496,11 @@ export class Quaternion implements IClone {
 
         Vector3.transformQuat(Vector3.ForwardRH, this, TEMPVector31/*forwarldRH*/);
 
-        Vector3.transformQuat(Vector3.Up, this, TEMPVector32/*up*/);
-        var upe: Vector3 = TEMPVector32;
+        let upe: Vector3 = TEMPVector32;
+        let angle: Vector3 = TEMPVector33;
 
-        Quaternion.angleTo(Vector3.ZERO, TEMPVector31, TEMPVector33/*angle*/);
-        var angle: Vector3 = TEMPVector33;
+        Vector3.transformQuat(Vector3.Up, this, upe);
+        Quaternion.angleTo(Vector3.ZERO, TEMPVector31, angle);
 
         if (angle.x == Math.PI / 2) {
             angle.y = Quaternion.arcTanAngle(upe.z, upe.x);
@@ -521,11 +509,12 @@ export class Quaternion implements IClone {
             angle.y = Quaternion.arcTanAngle(-upe.z, -upe.x);
             angle.z = 0;
         } else {
-            Matrix4x4.createRotationY(-angle.y, Matrix4x4.TEMPMatrix0);
-            Matrix4x4.createRotationX(-angle.x, Matrix4x4.TEMPMatrix1);
+            Matrix4x4.createRotationY(-angle.y, Matrix4x4.TEMP);
+            Vector3.transformCoordinate(upe, Matrix4x4.TEMP, upe);
 
-            Vector3.transformCoordinate(TEMPVector32, Matrix4x4.TEMPMatrix0, TEMPVector32);
-            Vector3.transformCoordinate(TEMPVector32, Matrix4x4.TEMPMatrix1, TEMPVector32);
+            Matrix4x4.createRotationX(-angle.x, Matrix4x4.TEMP);
+            Vector3.transformCoordinate(upe, Matrix4x4.TEMP, upe);
+
             angle.z = Quaternion.arcTanAngle(upe.y, -upe.x);
         }
 
@@ -613,7 +602,7 @@ export class Quaternion implements IClone {
      * @zh 克隆四元数。
      * @returns 一个与当前四元数值相同的新四元数。
      */
-    clone(): any {
+    clone() {
         var dest: Quaternion = new Quaternion();
         this.cloneTo(dest);
         return dest;
@@ -635,9 +624,9 @@ export class Quaternion implements IClone {
      * @param up The up vector.
      * @param out The output quaternion.
      * @zh 计算旋转观察四元数。
-     * @param	forward 方向
-     * @param	up     上向量
-     * @param	out    输出四元数
+     * @param forward 方向
+     * @param up     上向量
+     * @param out    输出四元数
      */
     static rotationLookAt(forward: Vector3, up: Vector3, out: Quaternion): void {
         Quaternion.lookAt(Vector3.ZERO, forward, up, out);
@@ -650,14 +639,14 @@ export class Quaternion implements IClone {
      * @param up The up vector.
      * @param out The output quaternion.
      * @zh 计算观察四元数（适用于相机和灯光）。
-     * @param	eye    观察者位置
-     * @param	target 目标位置
-     * @param	up     上向量
-     * @param	out    输出四元数
+     * @param eye    观察者位置
+     * @param target 目标位置
+     * @param up     上向量
+     * @param out    输出四元数
      */
     static lookAt(eye: Vector3, target: Vector3, up: Vector3, out: Quaternion): void {
-        Matrix3x3.lookAt(eye, target, up, _tempMatrix3x3);
-        Quaternion.rotationMatrix(_tempMatrix3x3, out);
+        Matrix3x3.lookAt(eye, target, up, Matrix3x3.TEMP);
+        Quaternion.rotationMatrix(Matrix3x3.TEMP, out);
     }
 
     /**
@@ -673,8 +662,8 @@ export class Quaternion implements IClone {
      * @param out 输出四元数
      */
     static forwardLookAt(eye: Vector3, target: Vector3, up: Vector3, out: Quaternion): void {
-        Matrix3x3.forwardLookAt(eye, target, up, _tempMatrix3x3);
-        Quaternion.rotationMatrix(_tempMatrix3x3, out);
+        Matrix3x3.forwardLookAt(eye, target, up, Matrix3x3.TEMP);
+        Quaternion.rotationMatrix(Matrix3x3.TEMP, out);
     }
 
     /**
@@ -692,8 +681,8 @@ export class Quaternion implements IClone {
      * @param value The input quaternion.
      * @param out The output inverse quaternion.
      * @zh 计算四元数的逆四元数。
-     * @param	value 四元数。
-     * @param	out 逆四元数。
+     * @param value 四元数。
+     * @param out 逆四元数。
      */
     static invert(value: Quaternion, out: Quaternion): void {
         var lengthSq: number = value.lengthSquared();
@@ -712,8 +701,8 @@ export class Quaternion implements IClone {
      * @param matrix3x3 The 3x3 rotation matrix.
      * @param out The output quaternion.
      * @zh 通过一个3x3旋转矩阵创建一个四元数。
-     * @param	matrix3x3  3x3矩阵
-     * @param	out        四元数
+     * @param matrix3x3  3x3矩阵
+     * @param out        四元数
      */
     static rotationMatrix(matrix3x3: Matrix3x3, out: Quaternion): void {
         var me: Float32Array = matrix3x3.elements;
@@ -770,3 +759,8 @@ export class Quaternion implements IClone {
         }
     }
 }
+
+const TEMPVector30 = new Vector3();
+const TEMPVector31 = new Vector3();
+const TEMPVector32 = new Vector3();
+const TEMPVector33 = new Vector3();

@@ -239,8 +239,27 @@ export class RenderState {
 	public set stencilTest(value: number) {
 		this._stencilTest = value;
 	}
+
+	/** 模板写入掩码 */
+	protected _stencilWriteMask: number;
+	public get stencilWriteMask(): number {
+		return this._stencilWriteMask;
+	}
+	public set stencilWriteMask(value: number) {
+		this._stencilWriteMask = value;
+	}
+
+	/** 模板读取掩码 */
+	protected _stencilReadMask: number;
+	public get stencilReadMask(): number {
+		return this._stencilReadMask;
+	}
+	public set stencilReadMask(value: number) {
+		this._stencilReadMask = value;
+	}
+
 	/**模板值 一般会在0-255*/
-	private _stencilRef: number;
+	protected _stencilRef: number;
 	public get stencilRef(): number {
 		return this._stencilRef;
 	}
@@ -248,7 +267,7 @@ export class RenderState {
 		this._stencilRef = value;
 	}
 	/**模板设置值 */
-	private _stencilOp: Vector3 = new Vector3();
+	protected _stencilOp: Vector3 = new Vector3();
 	public get stencilOp(): Vector3 {
 		return this._stencilOp;
 	}
@@ -256,7 +275,43 @@ export class RenderState {
 		this._stencilOp = value;
 	}
 
-	protected createObj(){
+	/** 是否开启深度偏移 */
+	protected _depthBias: boolean;
+	public get depthBias(): boolean {
+		return this._depthBias;
+	}
+	public set depthBias(value: boolean) {
+		this._depthBias = value;
+	}
+
+	/** 深度偏移常量 */
+	protected _depthBiasConstant: number;
+	public get depthBiasConstant(): number {
+		return this._depthBiasConstant;
+	}
+	public set depthBiasConstant(value: number) {
+		this._depthBiasConstant = value;
+	}
+
+	/** 深度偏移斜率缩放 */
+	protected _depthBiasSlopeScale: number;
+	public get depthBiasSlopeScale(): number {
+		return this._depthBiasSlopeScale;
+	}
+	public set depthBiasSlopeScale(value: number) {
+		this._depthBiasSlopeScale = value;
+	}
+
+	/** 深度偏移限制值 */
+	protected _depthBiasClamp: number;
+	public get depthBiasClamp(): number {
+		return this._depthBiasClamp;
+	}
+	public set depthBiasClamp(value: number) {
+		this._depthBiasClamp = value;
+	}
+
+	protected createObj() {
 		//native TODO 历史包袱
 	}
 
@@ -278,17 +333,22 @@ export class RenderState {
 		this.blendEquationAlpha = RenderState.BLENDEQUATION_ADD;
 		this.depthTest = RenderState.DEPTHTEST_LEQUAL;
 		this.depthWrite = true;
+		this.stencilWriteMask = 0xFF;
+		this.stencilReadMask = 0xFF;
 		this.stencilRef = 1;
 		this.stencilTest = RenderState.STENCILTEST_OFF;
 		this.stencilWrite = false;
 		this.stencilOp = new Vector3(RenderState.STENCILOP_KEEP, RenderState.STENCILOP_KEEP, RenderState.STENCILOP_REPLACE);
+		this.depthBias = false;
+		this.depthBiasConstant = 0;
+		this.depthBiasSlopeScale = 0;
+		this.depthBiasClamp = 0;
 	}
 
 	/**
 	 * @internal
 	 */
 	setNull() {
-
 		this.cull = null;
 		this.blend = null;
 		this.srcBlend = null;
@@ -302,10 +362,16 @@ export class RenderState {
 		this.blendEquationAlpha = null;
 		this.depthTest = null;
 		this.depthWrite = null;
+		this.stencilWriteMask = null;
+		this.stencilReadMask = null;
 		this.stencilRef = null;
 		this.stencilTest = null;
 		this.stencilWrite = null;
 		this.stencilOp.set(null, null, null);
+		this.depthBias = null;
+		this.depthBiasConstant = null;
+		this.depthBiasSlopeScale = null;
+		this.depthBiasClamp = null;
 	}
 
 	/**
@@ -326,10 +392,16 @@ export class RenderState {
 		dest.blendEquationAlpha = this.blendEquationAlpha;
 		dest.depthTest = this.depthTest;
 		dest.depthWrite = this.depthWrite;
+		dest.stencilWriteMask = this.stencilWriteMask;
+		dest.stencilReadMask = this.stencilReadMask;
 		dest.stencilRef = this.stencilRef;
 		dest.stencilTest = this.stencilTest;
 		dest.stencilWrite = this.stencilWrite;
 		this.stencilOp.cloneTo(dest.stencilOp);
+		dest.depthBias = this.depthBias;
+		dest.depthBiasConstant = this.depthBiasConstant;
+		dest.depthBiasSlopeScale = this.depthBiasSlopeScale;
+		dest.depthBiasClamp = this.depthBiasClamp;
 	}
 
 

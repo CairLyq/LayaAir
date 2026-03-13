@@ -1,7 +1,4 @@
-import { ILaya } from "../../ILaya";
-import {Event} from "../events/Event";
-
-const ITEM_LAYOUT = 4; //callback,target,args,flag(0-deleted,1-normal,2-once)
+const ITEM_LAYOUT = 4; //callback,target,args,flag(0-deleted,1-normal,2-once) 
 /**
  * @en Delegate class for managing and invoking callbacks
  * This class provides functionality to add, remove, and invoke callback functions.
@@ -101,11 +98,11 @@ export class Delegate {
     }
 
     /**
-     * @en Clear all callback functions for a specific target
-     * @param target The target object
-     * @zh 清除指定目标对象的所有回调函数
-     * @param target 目标对象
-     */
+      * @en Clear all callback functions for a specific target
+      * @param target The target object
+      * @zh 清除指定目标对象的所有回调函数
+      * @param target 目标对象
+      */
     public clearForTarget(target: any): void {
         if (!target)
             return;
@@ -156,7 +153,6 @@ export class Delegate {
                     arr[i].call(arr[i + 1], ...args);
             }
             catch (err: any) {
-                ILaya.stage.event(Event.ERROR, err);
                 console.error(err);
             }
             if (arr[i + 3] === 2) {

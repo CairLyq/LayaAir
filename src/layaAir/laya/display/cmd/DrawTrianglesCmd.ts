@@ -1,20 +1,32 @@
 import { Matrix } from "../../maths/Matrix"
-import { Context } from "../../renders/Context"
+import { Vector4 } from "../../maths/Vector4"
 import { Texture } from "../../resource/Texture"
+import { IMeshFactory } from "../mesh/MeshFactory"
 import { ClassUtils } from "../../utils/ClassUtils"
 import { ColorUtils } from "../../utils/ColorUtils"
 import { Pool } from "../../utils/Pool"
+import { VertexStream } from "../../utils/VertexStream"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner"
+import { Rectangle } from "../../maths/Rectangle"
+import { Config } from "../../../Config";
+import { UVClippingUtils } from "../../webgl/utils/UVClippingUtils";
+
+const className = "DrawTrianglesCmd";
 
 /**
  * @en Draw triangles command
  * @zh 绘制三角形命令
  */
-export class DrawTrianglesCmd {
+export class DrawTrianglesCmd implements IGraphicsCmd {
+    /** @internal */
+    _cacheData: any;
+    
     /**
      * @en Identifier for the DrawTrianglesCmd
      * @zh 绘制三角形命令的标识符
      */
-    static ID: string = "DrawTriangles";
+    static readonly ID: string = className;
 
     /**
      * @en The texture to be drawn.
@@ -25,12 +37,12 @@ export class DrawTrianglesCmd {
      * @en X-axis offset.
      * @zh X轴偏移量。
      */
-    x: number;
+    x: number = 0;
     /**
      * @en Y-axis offset.
      * @zh Y轴偏移量。
      */
-    y: number;
+    y: number = 0;
     /**
      * @en Vertex array.
      * @zh 顶点数组。
@@ -56,7 +68,6 @@ export class DrawTrianglesCmd {
      * @zh 透明度值。
      */
     alpha: number;
-    //public var color:String;
     /**
      * @en Blend mode.
      * @zh 混合模式。
@@ -67,6 +78,11 @@ export class DrawTrianglesCmd {
      * @zh 颜色变换。
      */
     color: number | null;
+    /**
+     * @en Mesh factory for creating the mesh.
+     * @zh 用于创建网格的工厂。
+     */
+    mesh: IMeshFactory;
 
     /**
      * @en Create a DrawTrianglesCmd instance
@@ -95,19 +111,42 @@ export class DrawTrianglesCmd {
      * @returns 绘制三角形命令实例
      */
     static create(texture: Texture, x: number, y: number, vertices: Float32Array, uvs: Float32Array, indices: Uint16Array,
-        matrix: Matrix | null, alpha: number, color: string | number, blendMode: string | null): DrawTrianglesCmd {
-        var cmd: DrawTrianglesCmd = Pool.getItemByClass("DrawTrianglesCmd", DrawTrianglesCmd);
+        matrix?: Matrix, alpha?: number, color?: string | number, blendMode?: string): DrawTrianglesCmd {
+        var cmd: DrawTrianglesCmd = Pool.getItemByClass(className, DrawTrianglesCmd);
         cmd.texture = texture;
-        texture._addReference();
+        texture?._addReference();
         cmd.x = x;
         cmd.y = y;
         cmd.vertices = vertices;
         cmd.uvs = uvs;
         cmd.indices = indices;
         cmd.matrix = matrix;
-        cmd.alpha = alpha;
+        cmd.alpha = alpha ?? 1;
         cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
         cmd.blendMode = blendMode;
+        return cmd;
+    }
+
+    /**
+     * @en Create a DrawTrianglesCmd instance using a mesh factory
+     * @param texture The texture to be drawn
+     * @param mesh Mesh factory for creating the mesh
+     * @param color Color transformation
+     * @returns DrawTrianglesCmd instance
+     * @zh 使用网格工厂创建一个绘制三角形命令实例
+     * @param texture 要绘制的纹理
+     * @param mesh 用于创建网格的工厂
+     * @param color 颜色变换
+     * @returns 绘制三角形命令实例
+     */
+    static create2(texture: Texture, mesh: IMeshFactory, color?: string | number): DrawTrianglesCmd {
+        var cmd: DrawTrianglesCmd = Pool.getItemByClass(className, DrawTrianglesCmd);
+        cmd.texture = texture;
+        texture?._addReference();
+        cmd.x = 0;
+        cmd.y = 0;
+        cmd.mesh = mesh;
+        cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
         return cmd;
     }
 
@@ -116,27 +155,70 @@ export class DrawTrianglesCmd {
      * @zh 回收到对象池
      */
     recover(): void {
-        this.texture && this.texture._removeReference();
+        this.texture?._removeReference();
         this.texture = null;
         this.vertices = null;
         this.uvs = null;
         this.indices = null;
         this.matrix = null;
-        Pool.recover("DrawTrianglesCmd", this);
+        this.mesh = null;
+        this._cacheData = null;
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the drawing triangles command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制三角形命令
-     * @param context 渲染上下文  
+     * @param runner 渲染上下文  
      * @param gx 全局X偏移  
      * @param gy 全局Y偏移  
      */
-    run(context: Context, gx: number, gy: number): void {
-        context.drawTriangles(this.texture, this.x + gx, this.y + gy, this.vertices, this.uvs, this.indices, this.matrix, this.alpha, this.blendMode, this.color);
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
+        if (this.mesh) {
+            let vb = VertexStream.pool.take(this.texture);
+            vb.contentRect.setTo(0, 0, runner.sprite.width, runner.sprite.height);
+            if (this.color)
+                vb.color.setABGR(this.color);
+
+            try {
+                this.mesh.onPopulateMesh(vb);
+            } catch (e) {
+                console.error(e);
+            }
+
+            if (this.texture?.uvrect) {
+                if (Config.uvClipMode === "cpu") {
+                    const clippedData = UVClippingUtils.clipTrianglesByUVRange(
+                        vb.getVertices(), vb.getIndices(), vb.getUVs(), this.texture.uvrect, vb.getColors()
+                    );
+                    runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                        clippedData.vertices, clippedData.uvs, clippedData.indices,
+                        this.matrix, this.alpha, this.blendMode, null, clippedData.colors,
+                        null);
+                } else {
+                    runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                        vb.getVertices(), vb.getUVs(), vb.getIndices(),
+                        this.matrix, this.alpha, this.blendMode, null, vb.getColors(),
+                        this.texture.uvrect);
+                }
+            } else {
+                runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                    vb.getVertices(), vb.getUVs(), vb.getIndices(),
+                    this.matrix, this.alpha, this.blendMode, null, vb.getColors(),
+                    null);
+            }
+
+            VertexStream.pool.recover(vb);
+        }
+        else if (this.vertices && this.uvs && this.indices) {
+            // 直接传递顶点数据的路径（无需裁剪处理）
+            runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                this.vertices, this.uvs, this.indices,
+                this.matrix, this.alpha, this.blendMode, this.color);
+        }
     }
 
     /**
@@ -148,28 +230,11 @@ export class DrawTrianglesCmd {
     }
 
     /**
-     * @en Get the boundary points of the triangles
-     * @zh 获取三角形的边界点
+     * @ignore
      */
-    getBoundPoints(): number[] {
-        let vert = this.vertices;
-        var vnum = vert.length;
-        if (vnum < 2) return [];
-        var minx = vert[0];
-        var miny = vert[1];
-        var maxx = minx;
-        var maxy = miny;
-        for (var i = 2; i < vnum;) {
-            var cx = vert[i++];
-            var cy = vert[i++];
-            if (minx > cx) minx = cx;
-            if (miny > cy) miny = cy;
-            if (maxx < cx) maxx = cx;
-            if (maxy < cy) maxy = cy;
-        }
-
-        return [minx, miny, maxx, miny, maxx, maxy, minx, maxy];
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        Rectangle.TEMP.setTo(0, 0, assembler.width, assembler.height).getBoundPoints(assembler.points);
     }
 }
 
-ClassUtils.regClass("DrawTrianglesCmd", DrawTrianglesCmd);
+ClassUtils.regClass(className, DrawTrianglesCmd);

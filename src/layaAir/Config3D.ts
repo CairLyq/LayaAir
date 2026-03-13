@@ -3,6 +3,7 @@ import { Vector3 } from "./laya/maths/Vector3";
 /**
  * @en Config3D class is used to create 3D initialization configuration.
  * @zh Config3D 类用于创建3D初始化配置。
+ * @blueprintable
  */
 export class Config3D {
     /**
@@ -16,12 +17,6 @@ export class Config3D {
      * @zh 是否启用静态合并
      */
     static enableStaticBatch: boolean = true;
-
-    /** 
-     * @en Whether to enable UniformBuffer
-     * @zh 是否启用UniformBuffer
-     */
-    static enableUniformBufferObject = true;
 
     /**
      * @en Set 3D RT resolution multiplier
@@ -67,7 +62,7 @@ export class Config3D {
 
     /**
      * @en Maximum number of morph targets
-     * @zh 最大形变数量
+     * @zh 最大变形目标数量 
      */
     static maxMorphTargetCount: number = 32;
 
@@ -111,8 +106,7 @@ export class Config3D {
 
 
     //----引擎内部使用,不暴露给开发者----
-    /**@internal */
-    static _uniformBlock: boolean;
+
     /**@internal 设置分辨率宽度*/
     static _resoluWidth: number = -1;
     /**@internal 设置分辨率高度*/

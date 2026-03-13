@@ -1,21 +1,24 @@
 import { Point } from "../../maths/Point"
 import { Rectangle } from "../../maths/Rectangle";
-import { Context } from "../../renders/Context"
 import { Texture } from "../../resource/Texture"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { ColorUtils } from "../../utils/ColorUtils";
 import { Pool } from "../../utils/Pool";
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "FillTextureCmd";
 
 /**
  * @en Fill texture command
  * @zh 填充贴图命令
  */
-export class FillTextureCmd {
+export class FillTextureCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the FillTextureCmd
      * @zh 填充贴图命令的标识符
      */
-    static ID: string = "FillTexture";
+    static readonly ID: string = className;
 
     /**
      * @en The texture to be filled.
@@ -26,27 +29,27 @@ export class FillTextureCmd {
      * @en X-axis offset.
      * @zh X轴偏移量。
      */
-    x: number;
+    x: number = 0;
     /**
      * @en Y-axis offset.
      * @zh Y轴偏移量。
      */
-    y: number;
+    y: number = 0;
     /**
      * @en (Optional) Width of the filled area.
      * @zh （可选）填充区域的宽度。
      */
-    width: number;
+    width: number = 1;
     /**
      * @en (Optional) Height of the filled area.
      * @zh （可选）填充区域的高度。
      */
-    height: number;
+    height: number = 1;
     /**
      * @en (Optional) Fill type: repeat|repeat-x|repeat-y|no-repeat
      * @zh （可选）填充类型：repeat|repeat-x|repeat-y|no-repeat
      */
-    type?: string;
+    type: string = "repeat";
     /**
      * @en (Optional) Texture offset
      * @zh （可选）贴图纹理偏移
@@ -57,26 +60,15 @@ export class FillTextureCmd {
      * @en Whether the position and size are percentages
      * @zh 位置和大小是否是百分比
      */
-    percent: boolean;
+    percent: boolean = true;
 
     /**
-     * @en (Optional) Drawing color
-     * @zh （可选）绘图颜色
+     * @en (Optional) Drawing color. The format is ABGR.
+     * @zh （可选）绘图颜色。格式是ABGR。
      */
     color: number = 0xffffffff;
 
     /**
-     * @zh 创建绘制填充贴图的命令实例
-     * @param texture 要填充的纹理
-     * @param x X轴偏移量
-     * @param y Y轴偏移量
-     * @param width 填充区域的宽度
-     * @param height 填充区域的高度
-     * @param type 填充类型
-     * @param offset 贴图纹理偏移
-     * @param color 绘图颜色
-     * @param percent 宽高是否采用百分比
-     * @returns FillTextureCmd实例
      * @en Create a FillTextureCmd instance
      * @param texture The texture to be filled
      * @param x X-axis offset
@@ -86,17 +78,29 @@ export class FillTextureCmd {
      * @param type Fill type
      * @param offset Texture offset
      * @param color Drawing color
-     * @param percent Whether the width and height are percentages?
      * @returns FillTextureCmd instance
+     * @zh 创建绘制填充贴图的命令实例
+     * @param texture 要填充的纹理
+     * @param x X轴偏移量
+     * @param y Y轴偏移量
+     * @param width 填充区域的宽度
+     * @param height 填充区域的高度
+     * @param type 填充类型
+     * @param offset 贴图纹理偏移
+     * @param color 绘图颜色
+     * @returns FillTextureCmd实例
      */
     static create(texture: Texture, x: number, y: number, width: number, height: number, type: string, offset: Point, color: string, percent?: boolean): FillTextureCmd {
-        const cmd: FillTextureCmd = Pool.getItemByClass("FillTextureCmd", FillTextureCmd);
+        if (width == null) width = texture.width;
+        if (height == null) height = texture.height;
+
+        var cmd: FillTextureCmd = Pool.getItemByClass(className, FillTextureCmd);
         cmd.texture = texture;
         texture._addReference();
         cmd.x = x;
         cmd.y = y;
-        cmd.width = width ?? texture.width;
-        cmd.height = height ?? texture.height;
+        cmd.width = width;
+        cmd.height = height;
         cmd.type = type;
         cmd.offset = offset;
         cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
@@ -112,28 +116,41 @@ export class FillTextureCmd {
         this.texture && this.texture._removeReference();
         this.texture = null;
         this.offset = null;
-        Pool.recover("FillTextureCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the fill texture command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制填充贴图命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(context: Context, gx: number, gy: number): void {
-        if (!this.texture) return;
-        if (this.percent && context.sprite) {
-            const  w = context.sprite.width;
-            const  h = context.sprite.height;
-            context.fillTexture(this.texture, this.x * w + gx, this.y * h + gy, this.width * w, this.height * h, this.type, this.offset || Point.EMPTY, this.color);
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
+        if (!this.texture)
+            return;
+
+        if (this.percent && runner.sprite) {
+            let w = runner.sprite.width;
+            let h = runner.sprite.height;
+            runner.fillTexture(this.texture, this.x * w + gx, this.y * h + gy, this.width * w, this.height * h, this.type, this.offset || Point.EMPTY, this.color);
         }
         else
-            context.fillTexture(this.texture, this.x + gx, this.y + gy, this.width, this.height, this.type, this.offset || Point.EMPTY, this.color);
+            runner.fillTexture(this.texture, this.x + gx, this.y + gy, this.width, this.height, this.type, this.offset || Point.EMPTY, this.color);
+    }
+
+    /**
+     * @ignore
+     */
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        let rect = Rectangle.TEMP.setTo(this.x, this.y, this.width, this.height);
+        if (this.percent) {
+            rect.scale(assembler.width, assembler.height);
+        }
+        rect.getBoundPoints(assembler.points);
     }
 
     /**
@@ -145,19 +162,11 @@ export class FillTextureCmd {
     }
 
     /**
-     * @en Get the vertex data of the bounding box
-     * @param sp The sprite that draws the command
-     * @returns Array of vertex data
-     * @zh 获取包围盒的顶点数据
-     * @param sp 绘制命令的精灵对象
-     * @returns 顶点数据数组
+     * @ignore @blueprintIgnore
      */
-    getBoundPoints(sp?: { width: number, height?: number }): number[] {
-        if (this.width && this.height)
-            return Rectangle._getBoundPointS(this.x, this.y, this.width, this.height, this.percent ? sp : null);
-        else
-            return Rectangle._getBoundPointS(this.x, this.y, this.texture.width, this.texture.height);
+    needsLayoutRepaint(): number {
+        return this.percent ? 1 : 0;
     }
 }
 
-ClassUtils.regClass("FillTextureCmd", FillTextureCmd);
+ClassUtils.regClass(className, FillTextureCmd);

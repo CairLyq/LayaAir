@@ -26,6 +26,10 @@ import { Vector4 } from "../../../maths/Vector4";
 import { AnimatorUpdateMode } from "../../../components/AnimatorUpdateMode";
 import { AnimatorStateCondition } from "../../../components/AnimatorStateCondition";
 import { Delegate } from "../../../utils/Delegate";
+import { Browser } from "../../../utils/Browser";
+import { LayaGL } from "../../../layagl/LayaGL";
+import { StatElement } from "../../../layagl/StatisticsContext";
+import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
 
 export type AnimatorParams = { [key: number]: number | boolean };
 
@@ -39,28 +43,22 @@ export class Animator extends Component {
      * @en Culling mode: Always animate.
      * @zh 裁剪模式：始终播放动画。
      */
-    static CULLINGMODE_ALWAYSANIMATE: number = 0;
+    static readonly CULLINGMODE_ALWAYSANIMATE: number = 0;
     /**
      * @en Culling mode: Don't animate when not visible.
      * @zh 裁剪模式：不可见时完全不播放动画。
      */
-    static CULLINGMODE_CULLCOMPLETELY: number = 2;
+    static readonly CULLINGMODE_CULLCOMPLETELY: number = 2;
 
-    /**@internal */
     private _speed: number;
-    /**@internal */
     private _keyframeNodeOwnerMap: any;
-    /**@internal */
     private _keyframeNodeOwners: KeyframeNodeOwner[] = [];
-    /**@internal */
     private _updateMark: number;
-    /**@internal */
     private _controllerLayers: AnimatorControllerLayer[];
-    /**@internal 更新模式*/
+    /** 更新模式*/
     private _updateMode: AnimatorUpdateMode = AnimatorUpdateMode.Normal;
-    /**@internal 降低更新频率调整值*/
+    /** 降低更新频率调整值*/
     private _lowUpdateDelty: number = 20;
-    /**@internal */
     private _animatorParams: AnimatorParams = {};
     // /**@internal */
     // _linkSprites: any;
@@ -87,7 +85,6 @@ export class Animator extends Component {
     _animationNodeWorldMatrixs: Float32Array;
     /**@internal	[NATIVE]*/
     _animationNodeParentIndices: Int16Array;
-    /**@internal */
     private _finishSleep: boolean = false;
 
     private _LateUpdateEvents: Delegate = new Delegate();
@@ -178,6 +175,7 @@ export class Animator extends Component {
     }
 
     /**
+     * @ignore
      * @en The constructor of Animator.
      * @zh 构造方法，创建动画组件。
      */
@@ -190,9 +188,6 @@ export class Animator extends Component {
         this._updateMark = 0;
     }
 
-    /**
-     * @internal
-     */
     private _addKeyframeNodeOwner(clipOwners: KeyframeNodeOwner[], node: KeyframeNode, propertyOwner: any): void {
         var nodeIndex = node._indexInList;
         var fullPath = node.fullPath;
@@ -204,9 +199,36 @@ export class Animator extends Component {
         } else {
             var property = propertyOwner;
             for (var i = 0, n = node.propertyCount; i < n; i++) {
-                property = property[node.getPropertyByIndex(i)];
+                if (mat) {
+                    // 使用 KeyframeNode 的缓存方法，直接获取 shader property ID
+                    const shaderPropId = node.getMaterialPropertyId(i);
+                    const type = node.type;
+                    switch (type) {
+                        case KeyFrameValueType.Color:
+                            const color = property.shaderData.getColor(shaderPropId);
+                            property = new Vector4(color.r, color.g, color.b, color.a);
+                            break;
+                        case KeyFrameValueType.Vector2:
+                            property = property.shaderData.getVector2(shaderPropId);
+                            break;
+                        case KeyFrameValueType.Vector3:
+                            property = property.shaderData.getVector3(shaderPropId);
+                            break;
+                        case KeyFrameValueType.Vector4:
+                            property = property.shaderData.getVector(shaderPropId);
+                            break;
+                        case KeyFrameValueType.Float:
+                            property = property.shaderData.getNumber(shaderPropId);
+                            break;
+                        case KeyFrameValueType.Boolean:
+                            property = property.shaderData.getBool(shaderPropId);
+                            break;
+                    }
+                } else {
+                    property = property[node.getPropertyByIndex(i)];
+                }
                 if (property instanceof Material) {
-                    mat = true
+                    mat = true;
                 }
                 if (!property)
                     break;
@@ -230,7 +252,7 @@ export class Animator extends Component {
             keyframeNodeOwner.type = node.type;
 
             if (property) {//查询成功后赋默认值
-                if (node.type === 0) {
+                if (node.type === KeyFrameValueType.Float || node.type === KeyFrameValueType.Boolean) {
                     keyframeNodeOwner.defaultValue = property;
                 } else {
                     var defaultValue = new property.constructor();
@@ -282,7 +304,7 @@ export class Animator extends Component {
                 if (ownPat === "") {//TODO:直接不存
                     break;
                 } else {
-                    property = property.getChildByName(ownPat);
+                    property = property.getChild(ownPat);
                     if (!property)
                         break;
                 }
@@ -300,9 +322,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _updatePlayer(animatorState: AnimatorState, playState: AnimatorPlayState, elapsedTime: number, islooping: boolean, layerIndex: number): void {
         var clipDuration: number = animatorState._clip!._duration * (animatorState.clipEnd - animatorState.clipStart);
         var lastElapsedTime: number = playState._elapsedTime;
@@ -312,13 +331,14 @@ export class Animator extends Component {
         var normalizedTime: number = elapsedPlaybackTime / clipDuration;//TODO:时候可以都统一为归一化时间
         playState._normalizedTime = normalizedTime;
         var playTime: number = normalizedTime % 1.0;
-        playState._normalizedPlayTime = playTime < 0 ? playTime + 1.0 : playTime;
+        const normalizedPlayTime = playTime < 0 ? playTime + 1.0 : playTime;
+        playState._normalizedPlayTime = normalizedPlayTime;
         playState._duration = clipDuration;
         if (elapsedPlaybackTime >= clipDuration) {
             if (!islooping) {
                 playState._finish = true;
                 playState._elapsedTime = clipDuration;
-                playState._normalizedPlayTime = 1.0;
+                playState._normalizedPlayTime = animatorState.clipEnd;
             } else {
                 let loopNum = Math.floor(elapsedPlaybackTime / clipDuration);
                 let pLoopNum = Math.floor(lastElapsedTime / clipDuration);
@@ -355,7 +375,6 @@ export class Animator extends Component {
     }
 
     /**
-     * @internal
      * @param animatorState 
      * @param playState 
      */
@@ -364,10 +383,18 @@ export class Animator extends Component {
             animatorState._eventExit();//派发播放完成的事件
         }
     }
-
     /**
      * @internal
+     * @param parentState 
+     * @param currentState 
      */
+
+    private _switchState(parentState: AnimatorState, currentState: AnimatorState): void {
+        if (parentState) {
+            parentState._eventSwitch(currentState);
+        }
+    }
+
     private _updateEventScript(stateInfo: AnimatorState, playStateInfo: AnimatorPlayState): void {
         if (!this.owner._getBit(NodeFlags.HAS_SCRIPT))
             return;
@@ -375,21 +402,19 @@ export class Animator extends Component {
         let clip = stateInfo._clip;
         let events = clip!._animationEvents;
         if (!events || 0 == events.length || null == playStateInfo.animatorState) return;
-        let clipDuration = clip!._duration;
-        let time = playStateInfo._normalizedPlayTime * clipDuration;
+        let clipDuration = playStateInfo._duration;
+        let time = playStateInfo.animatorState.clipStart * clipDuration + playStateInfo._normalizedPlayTime * clipDuration;
         let parentPlayTime = playStateInfo._parentPlayTime;
         if (null == parentPlayTime) {
             parentPlayTime = clipDuration * playStateInfo.animatorState.clipStart;
         }
         if (time < parentPlayTime) {
             this._eventScript(events, parentPlayTime, clipDuration * playStateInfo.animatorState.clipEnd);
+            parentPlayTime = clipDuration * playStateInfo.animatorState.clipStart;
         }
         this._eventScript(events, parentPlayTime, time);
         playStateInfo._parentPlayTime = time;
     }
-    /**
-    * @internal
-    */
     private _eventScript(events: AnimationEvent[], parentPlayTime: number, currPlayTime: number) {
         let scripts = this.owner.components;
         for (let i = 0, len = events.length; i < len; i++) {
@@ -410,7 +435,6 @@ export class Animator extends Component {
 
     /**
      * 更新clip数据
-     * @internal
      */
     private _updateClipDatas(animatorState: AnimatorState, addtive: boolean, playStateInfo: AnimatorPlayState, animatorMask: AvatarMask = null): void {
         var clip = animatorState._clip;
@@ -422,9 +446,6 @@ export class Animator extends Component {
         clip!._evaluateClipDatasRealTime(clip!._nodes!, curPlayTime, currentFrameIndices!, addtive, frontPlay, animatorState._realtimeDatas, animatorMask);
     }
 
-    /**
-     * @internal
-     */
     private _applyFloat(defaultValue: number, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: number): number {
         if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
             if (additive) {
@@ -568,6 +589,7 @@ export class Animator extends Component {
 
     private _applyColor(defaultValue: Color, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector4) {
         if (!defaultValue) return null;
+        if (!nodeOwner.defaultValue) nodeOwner.defaultValue = new Vector4(defaultValue.r, defaultValue.g, defaultValue.b, defaultValue.a);
         if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
             if (additive) {
                 defaultValue.r += weight * data.x;
@@ -584,10 +606,10 @@ export class Animator extends Component {
         } else {
             if (isFirstLayer) {
                 if (additive) {
-                    defaultValue.r = nodeOwner.defaultValue.r + data.x;
-                    defaultValue.g = nodeOwner.defaultValue.g + data.y;
-                    defaultValue.b = nodeOwner.defaultValue.b + data.z;
-                    defaultValue.a = nodeOwner.defaultValue.a + data.w;
+                    defaultValue.r = nodeOwner.defaultValue.x + data.x;
+                    defaultValue.g = nodeOwner.defaultValue.y + data.y;
+                    defaultValue.b = nodeOwner.defaultValue.z + data.z;
+                    defaultValue.a = nodeOwner.defaultValue.w + data.w;
                 }
                 else {
                     //data.cloneTo(defaultValue);
@@ -596,25 +618,22 @@ export class Animator extends Component {
 
             } else {
                 if (additive) {
-                    defaultValue.r = nodeOwner.defaultValue.r + weight * (data.x);
-                    defaultValue.g = nodeOwner.defaultValue.g + weight * (data.y);
-                    defaultValue.b = nodeOwner.defaultValue.b + weight * (data.z);
-                    defaultValue.a = nodeOwner.defaultValue.a + weight * (data.w);
+                    defaultValue.r = nodeOwner.defaultValue.x + weight * (data.x);
+                    defaultValue.g = nodeOwner.defaultValue.y + weight * (data.y);
+                    defaultValue.b = nodeOwner.defaultValue.z + weight * (data.z);
+                    defaultValue.a = nodeOwner.defaultValue.w + weight * (data.w);
                 } else {
-                    var defValue: Color = nodeOwner.defaultValue;
-                    defaultValue.r = defValue.r + weight * (data.x - defValue.r);
-                    defaultValue.g = defValue.g + weight * (data.y - defValue.g);
-                    defaultValue.b = defValue.b + weight * (data.z - defValue.b);
-                    defaultValue.a = defValue.a + weight * (data.w - defValue.a);
+                    var defValue: Vector4 = nodeOwner.defaultValue;
+                    defaultValue.r = defValue.x + weight * (data.x - defValue.x);
+                    defaultValue.g = defValue.y + weight * (data.y - defValue.y);
+                    defaultValue.b = defValue.z + weight * (data.z - defValue.z);
+                    defaultValue.a = defValue.w + weight * (data.w - defValue.w);
                 }
             }
         }
         return defaultValue;
     }
 
-    /**
-     * @internal
-     */
     private _applyPositionAndRotationEuler(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector3, out: Vector3): void {
         if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
             if (additive) {
@@ -659,9 +678,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _applyRotation(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, clipRot: Quaternion, localRotation: Quaternion): void {
         if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
             if (additive) {
@@ -695,9 +711,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _applyScale(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, clipSca: Vector3, localScale: Vector3): void {
         if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
             if (additive) {
@@ -734,14 +747,14 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _applyCrossData(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, srcValue: any, desValue: any, crossWeight: number): void {
         var pro: any = nodeOwner.propertyOwner;
         let lastpro;
         if (pro) {
             switch (nodeOwner.type) {
+                case KeyFrameValueType.Boolean:
+                    console.log("Animator:Boolean not support3");
+                    break;
                 case KeyFrameValueType.Float: //Float
                     var proPat: string[] = nodeOwner.property!;
                     var m: number = proPat.length - 1;
@@ -806,10 +819,10 @@ export class Animator extends Component {
                             break;
                     }
                     let v44 = nodeOwner.value as Vector4;
-                    v44.x = srcValue.r + crossWeight * (desValue.r - srcValue.r);
-                    v44.y = srcValue.g + crossWeight * (desValue.g - srcValue.g);
-                    v44.z = srcValue.b + crossWeight * (desValue.b - srcValue.b);
-                    v44.w = srcValue.a + crossWeight * (desValue.a - srcValue.a);
+                    v44.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
+                    v44.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
+                    v44.z = srcValue.z + crossWeight * (desValue.z - srcValue.z);
+                    v44.w = srcValue.w + crossWeight * (desValue.w - srcValue.w);
 
                     nodeOwner.value = v44;
                     lastpro = proPat[m];
@@ -831,8 +844,9 @@ export class Animator extends Component {
                             break;
                     }
                     let v2 = nodeOwner.value as Vector2;
-                    v2.x = srcValue.r + crossWeight * (desValue.r - srcValue.r);
-                    v2.y = srcValue.g + crossWeight * (desValue.g - srcValue.g);
+                    // srcValue和desValue是Vector2类型，使用.x, .y而非.r, .g
+                    v2.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
+                    v2.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
                     nodeOwner.value = v2;
                     lastpro = proPat[m];
                     if (!nodeOwner.isMaterial) {
@@ -856,6 +870,7 @@ export class Animator extends Component {
                     v4.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
                     v4.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
                     v4.z = srcValue.z + crossWeight * (desValue.z - srcValue.z);
+                    v4.w = srcValue.w + crossWeight * (desValue.w - srcValue.w);  // 添加缺失的w分量
                     nodeOwner.value = v4;
                     lastpro = proPat[m];
                     if (!nodeOwner.isMaterial) {
@@ -917,6 +932,19 @@ export class Animator extends Component {
                 let value: string;
                 if (pro) {
                     switch (nodeOwner.type) {
+                        case KeyFrameValueType.Boolean:
+                            var proPat: string[] = nodeOwner.property!;
+                            var m: number = proPat.length - 1;
+                            for (var j: number = 0; j < m; j++) {
+                                pro = pro[proPat[j]];
+                                if (!pro)//属性可能或被置空
+                                    break;
+                            }
+                            let lastBoolPro = proPat[m];
+                            if (!nodeOwner.isMaterial) {
+                                pro && (pro[lastBoolPro] = realtimeDatas[i])
+                            }
+                            break;
                         case KeyFrameValueType.Float: //Float
                             var proPat: string[] = nodeOwner.property!;
                             var m: number = proPat.length - 1;
@@ -1025,7 +1053,14 @@ export class Animator extends Component {
                                     nodeOwner.animatorDataSetCallBack();
                                 }
                             } else {
-                                pro && pro.getColor(value) && (pro as Material).setColor(value, this._applyColor(pro.getColor(value), nodeOwner, additive, weight, isFirstLayer, <Vector4>realtimeDatas[i]));
+                                const color = pro.getColor(value);
+                                if (pro && color) {
+                                    _tempColor.r = color.r;
+                                    _tempColor.g = color.g;
+                                    _tempColor.b = color.b;
+                                    _tempColor.a = color.a;
+                                    (pro as Material).setColor(value, this._applyColor(_tempColor, nodeOwner, additive, weight, isFirstLayer, <Vector4>realtimeDatas[i]));
+                                }
                             }
                             break;
                     }
@@ -1035,9 +1070,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _setCrossClipDatasToNode(controllerLayer: AnimatorControllerLayer, srcState: AnimatorState, destState: AnimatorState, crossWeight: number, isFirstLayer: boolean): void {
         var nodeOwners: KeyframeNodeOwner[] = controllerLayer._crossNodesOwners;
         var ownerCount: number = controllerLayer._crossNodesOwnersCount;
@@ -1072,10 +1104,6 @@ export class Animator extends Component {
 
     }
 
-
-    /**
-     * @internal
-     */
     private _setFixedCrossClipDatasToNode(controllerLayer: AnimatorControllerLayer, destState: AnimatorState, crossWeight: number, isFirstLayer: boolean): void {
         var nodeOwners: KeyframeNodeOwner[] = controllerLayer._crossNodesOwners;
         var ownerCount: number = controllerLayer._crossNodesOwnersCount;
@@ -1100,9 +1128,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _revertDefaultKeyframeNodes(clipStateInfo: AnimatorState): void {
         var nodeOwners: KeyframeNodeOwner[] = clipStateInfo._nodeOwners;
         for (var i: number = 0, n: number = nodeOwners.length; i < n; i++) {
@@ -1112,6 +1137,9 @@ export class Animator extends Component {
                 let value: string;
                 if (pro) {
                     switch (nodeOwner.type) {
+                        case KeyFrameValueType.Boolean:
+                            console.log("Animator:Boolean not support2");
+                            break;
                         case KeyFrameValueType.Float:
                             var proPat: string[] = nodeOwner.property!;
                             var m: number = proPat.length - 1;
@@ -1227,6 +1255,7 @@ export class Animator extends Component {
                                     break;
                             }
                             value = proPat[m];
+                            if (!nodeOwner.defaultValue) break;
                             _tempColor.r = nodeOwner.defaultValue.x;
                             _tempColor.g = nodeOwner.defaultValue.y;
                             _tempColor.b = nodeOwner.defaultValue.z;
@@ -1261,10 +1290,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onEnable(): void {
         for (let i = 0, n = this._controllerLayers.length; i < n; i++) {
             if (this._controllerLayers[i].playOnWake) {
@@ -1274,10 +1299,6 @@ export class Animator extends Component {
         }
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDestroy() {
         if (this._controller) {
             this._controller._removeReference();
@@ -1334,8 +1355,9 @@ export class Animator extends Component {
      * @perfTag PerformanceDefine.T_AnimatorUpdate
      */
     onUpdate(): void {
+        let t = performance.now();
         let timer = this.owner._scene.timer;
-        let delta = timer._delta / 1000.0;//Laya.timer.delta已结包含Laya.timer.scale
+        let delta = timer.delta / 1000.0;//Laya.timer.delta已包含Laya.timer.scale
         delta = this._applyUpdateMode(delta);
         if (this._speed === 0 || delta === 0)//delta为0无需更新,可能造成crossWeight计算值为NaN
             return;
@@ -1390,6 +1412,7 @@ export class Animator extends Component {
 
                             controllerLayer._playType = 0;//完成融合,切换到正常播放状态
                             playStateInfo.currentState = crossState;
+                            this._switchState(animatorState, crossState);
                             crossPlayStateInfo._cloneTo(playStateInfo);
                         }
                     } else {
@@ -1428,6 +1451,7 @@ export class Animator extends Component {
                             this._setClipDatasToNode(crossState, addtive, 1.0, i === 0, controllerLayer);
                             controllerLayer._playType = 0;//完成融合,切换到正常播放状态
                             playStateInfo.currentState = crossState;
+                            this._switchState(animatorState, crossState);
                             crossPlayStateInfo._cloneTo(playStateInfo);
                         } else {
                             this._updateClipDatas(crossState, addtive, crossPlayStateInfo, controllerLayer.avatarMask);
@@ -1441,11 +1465,11 @@ export class Animator extends Component {
         }
         this._LateUpdateEvents.invoke();
         this._LateUpdateEvents.clear();
+        LayaGL.statAgent.recordTimeData(StatElement.T_AnimatorUpdate, performance.now() - t);
     }
 
     /**
      * @internal
-     * @override
      */
     _cloneTo(dest: Animator): void {
         dest.cullingMode = this.cullingMode;
@@ -1458,7 +1482,7 @@ export class Animator extends Component {
                 var state: AnimatorState = animatorStates[j].clone();
                 var cloneLayer: AnimatorControllerLayer = dest.getControllerLayer(i);
                 cloneLayer.addState(state);
-                (j == 0) && (cloneLayer.defaultState = state);
+                (j === 0) && (cloneLayer.defaultState = state);
             }
         }
         dest.controller = this._controller;
@@ -1469,7 +1493,7 @@ export class Animator extends Component {
      * @param layerIndex The layer index.
      * @returns The default animation state.
      * @zh 获取默认动画状态。
-     * @param	layerIndex 层索引。
+     * @param layerIndex 层索引。
      * @return 默认动画状态。
      */
     getDefaultState(layerIndex: number = 0): AnimatorState {
@@ -1482,7 +1506,7 @@ export class Animator extends Component {
      * @param state The animation state to add.
      * @param layerIndex The layer index. 
      * @zh 添加动画状态。
-     * @param	state 动画状态。
+     * @param state 动画状态。
      * @param   layerIndex 层索引。
      */
     addState(state: AnimatorState, layerIndex: number = 0): void {
@@ -1496,7 +1520,7 @@ export class Animator extends Component {
      * @param state The animation state to remove.
      * @param layerIndex The layer index.
      * @zh 移除动画状态。
-     * @param	state 动画状态。
+     * @param state 动画状态。
      * @param   layerIndex 层索引。
      */
     removeState(state: AnimatorState, layerIndex: number = 0): void {
@@ -1538,9 +1562,9 @@ export class Animator extends Component {
      * @param layerIndex The layer index. Defaults to 0.
      * @param normalizedTime The normalized start time of the animation. Defaults to Number.NEGATIVE_INFINITY.
      * @zh 播放动画。
-     * @param	name 如果为null则播放默认动画，否则按名字播放动画片段。
-     * @param	layerIndex 层索引。
-     * @param	normalizedTime 归一化的播放起始时间。
+     * @param name 如果为null则播放默认动画，否则按名字播放动画片段。
+     * @param layerIndex 层索引。
+     * @param normalizedTime 归一化的播放起始时间。
      */
     play(name: string | null = null, layerIndex: number = 0, normalizedTime: number = Number.NEGATIVE_INFINITY): void {
         var controllerLayer: AnimatorControllerLayer = this._controllerLayers[layerIndex];
@@ -1553,8 +1577,10 @@ export class Animator extends Component {
 
 
             var animatorState: AnimatorState = name ? controllerLayer.getAnimatorState(name) : defaultState;
-            if (!animatorState._clip)
+            if (!animatorState || !animatorState._clip) {
+                throw new Error("Animator:must have clip value,please set clip property.");
                 return;
+            }
 
             var clipDuration: number = animatorState._clip!._duration;
             var calclipduration = animatorState._clip!._duration * (animatorState.clipEnd - animatorState.clipStart);
@@ -1570,8 +1596,11 @@ export class Animator extends Component {
                 if (normalizedTime !== Number.NEGATIVE_INFINITY) {
                     playStateInfo._resetPlayState(clipDuration * normalizedTime, calclipduration);
                     controllerLayer._playType = 0;
+                } else {
+                    playStateInfo._resetPlayState(clipDuration * animatorState.clipStart, calclipduration);
                 }
             }
+            this._switchState(curPlayState, animatorState);
             var scripts: AnimatorStateScript[] = animatorState._scripts!;
             animatorState._eventStart(this, layerIndex);
 
@@ -1591,10 +1620,10 @@ export class Animator extends Component {
      * @param layerIndex The layer index. Defaults to 0.
      * @param normalizedTime The normalized start time of the animation. Defaults to Number.NEGATIVE_INFINITY.
      * @zh 在当前动画状态和目标动画状态之间进行融合过渡播放。
-     * @param	name 目标动画状态。
-     * @param	transitionDuration 过渡时间,该值为当前动画状态的归一化时间，值在0.0~1.0之间。
-     * @param	layerIndex 层索引。
-     * @param	normalizedTime 归一化的播放起始时间。
+     * @param name 目标动画状态。
+     * @param transitionDuration 过渡时间,该值为当前动画状态的归一化时间，值在0.0~1.0之间。
+     * @param layerIndex 层索引。
+     * @param normalizedTime 归一化的播放起始时间。
      */
     crossFade(name: string, transitionDuration: number, layerIndex: number = 0, normalizedTime: number = Number.NEGATIVE_INFINITY): void {
         //console.log("name:" + name + "," + "transitionDuration" + transitionDuration + "," + "layerIndex" + layerIndex);
@@ -1780,7 +1809,7 @@ export class Animator extends Component {
      * @param name The name or index of the parameter.
      * @returns The value of the parameter.
      * @zh 获取参数的值。
-     * @param	name 属性的名字或者索引
+     * @param name 属性的名字或者索引
      * @return 属性值
      */
     getParamsvalue(name: number): number | boolean;
@@ -1798,8 +1827,8 @@ export class Animator extends Component {
     /**
      * @deprecated 请使用animator.getControllerLayer(layerIndex).getCurrentPlayState()替换。use animator.getControllerLayer(layerIndex).getCurrentPlayState() instead
      * 获取当前的播放状态。
-     * @param layerIndex 层索引。
-     * @return 动画播放状态。
+     * @param   layerIndex 层索引。
+     * @return  动画播放状态。
      */
     getCurrentAnimatorPlayState(layerIndex: number = 0): AnimatorPlayState {
         return this._controllerLayers[layerIndex]._playStateInfo!;

@@ -1,3 +1,7 @@
+/**
+description
+ Laya引擎实现炫酷激光特效，随机生成和移动激光
+ */
 import { Laya } from "Laya";
 import { Sprite } from "laya/display/Sprite";
 import { Stage } from "laya/display/Stage";
@@ -81,7 +85,7 @@ export class PIXI_Example_23 {
 				laser.scaleY = laser.alpha;
 				if (laser.alpha < 0.01) {
 					this.lasers.splice(i, 1);
-					Laya.stage.removeChild(laser);
+					laser.removeSelf();
 					i--;
 				}
 			}

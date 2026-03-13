@@ -1,15 +1,19 @@
-import { Sprite3D } from "../../../core/Sprite3D";
 import { Bounds } from "../../../math/Bounds";
 import { TextureCube } from "../../../../resource/TextureCube";
 import { Volume } from "../Volume";
 import { VolumeManager } from "../VolumeManager";
-import { ILaya3D } from "../../../../../ILaya3D";
+import { ILaya } from "../../../../../ILaya";
 import { AmbientMode } from "../../../core/scene/AmbientMode";
 import { Color } from "../../../../maths/Color";
 import { Vector3 } from "../../../../maths/Vector3";
 import { Vector4 } from "../../../../maths/Vector4";
 import { Laya3DRender } from "../../../RenderObjs/Laya3DRender";
 import { IReflectionProbeData } from "../../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
+import { ShaderData, ShaderDataType } from "../../../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { LayaGL } from "../../../../layagl/LayaGL";
+import { Shader3D } from "../../../../RenderEngine/RenderShader/Shader3D";
+import { ShaderDefine } from "../../../../RenderDriver/RenderModuleData/Design/ShaderDefine";
+import { CommandUniformMap } from "../../../../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
 
 
 /**
@@ -32,6 +36,41 @@ export enum ReflectionProbeMode {
  * @zh 用于实现反射探针组件
  */
 export class ReflectionProbe extends Volume {
+    /** @internal */
+    static CommandMap: CommandUniformMap;
+    /** @internal */
+    static BlockName: string = "ReflectionProbe";
+    /** @internal */
+    static SHADERDEFINE_GI_IBL: ShaderDefine;
+
+    /** @internal */
+    static IBLTEX: number;
+
+    /** @internal */
+    static IBLROUGHNESSLEVEL: number;
+
+    /** @internal */
+    static AMBIENTSH: number;
+
+    /** @internal */
+    static AMBIENTCOLOR: number;
+
+    /** @internal */
+    static AMBIENTINTENSITY: number;
+
+    /** @internal */
+    static REFLECTIONINTENSITY: number;
+
+
+    /** 反射探针位置 最大、最小值*/
+    /** @internal */
+    static REFLECTIONCUBE_PROBEPOSITION: number;
+    /** @internal */
+    static REFLECTIONCUBE_PROBEBOXMAX: number;
+    /** @internal */
+    static REFLECTIONCUBE_PROBEBOXMIN: number;
+
+
     /**
      * @en Number of reflection probes
      * @zh 反射探针数量
@@ -40,18 +79,58 @@ export class ReflectionProbe extends Volume {
     /**
      * @en Get a globally unique ID
      * @zh 获取一个全局唯一ID
+     * @internal
      */
     static getID(): number {
         return ReflectionProbe.reflectionCount++;
     }
 
+    /** @internal */
+    static init() {
+
+        ReflectionProbe.SHADERDEFINE_GI_IBL = Shader3D.getDefineByName("GI_IBL");
+
+        let unifomrMap = ReflectionProbe.CommandMap = LayaGL.renderDeviceFactory.createGlobalUniformMap(ReflectionProbe.BlockName);
+
+        const addUniform = (name: string, type: number, arrayLength: number = 0) => {
+            let unifomrIndex = Shader3D.propertyNameToID(name);
+            if (arrayLength > 0) {
+                unifomrMap.addShaderUniformArray(unifomrIndex, name, type, arrayLength);
+            }
+            else {
+                unifomrMap.addShaderUniform(unifomrIndex, name, type);
+            }
+            return unifomrIndex;
+        };
+
+        ReflectionProbe.AMBIENTCOLOR = addUniform("u_AmbientColor", ShaderDataType.Vector4);
+
+        ReflectionProbe.AMBIENTSH = addUniform("u_IblSH", ShaderDataType.Vector3, 9);
+
+        ReflectionProbe.IBLTEX = addUniform("u_IBLTex", ShaderDataType.TextureCube);
+
+        ReflectionProbe.IBLROUGHNESSLEVEL = addUniform("u_IBLRoughnessLevel", ShaderDataType.Float);
+
+        ReflectionProbe.AMBIENTINTENSITY = addUniform("u_AmbientIntensity", ShaderDataType.Float);
+
+        ReflectionProbe.REFLECTIONINTENSITY = addUniform("u_ReflectionIntensity", ShaderDataType.Float);
+
+        ReflectionProbe.REFLECTIONCUBE_PROBEPOSITION = addUniform("u_SpecCubeProbePosition", ShaderDataType.Vector3);
+
+        ReflectionProbe.REFLECTIONCUBE_PROBEBOXMAX = addUniform("u_SpecCubeBoxMax", ShaderDataType.Vector3);
+
+        ReflectionProbe.REFLECTIONCUBE_PROBEBOXMIN = addUniform("u_SpecCubeBoxMin", ShaderDataType.Vector3);
+    }
+
+
     /**
      * @en Default HDR decode values
      * @zh 默认的 HDR 解码数据
+     * @internal
      */
     static defaultTextureHDRDecodeValues: Vector4 = new Vector4(1.0, 1.0, 0.0, 0.0);
 
-    /**@internal @protected 探针重要度 */
+    /**@internal 探针重要度 */
     protected _importance: number;
     /**漫反射顔色 */
     private _ambientColor: Color = new Color();
@@ -84,6 +163,14 @@ export class ReflectionProbe extends Volume {
         this._dataModule.updateMark = -1;
     }
 
+    /**
+     * @en The shader data of the reflection probe
+     * @zh 反射探针的着色器数据
+     */
+    get shaderData(): ShaderData {
+        return this._dataModule.shaderData;
+    }
+
 
     /**
      * @en Whether to enable orthogonal reflection
@@ -95,7 +182,7 @@ export class ReflectionProbe extends Volume {
 
     set boxProjection(value: boolean) {
         if (value != this._dataModule.boxProjection) {
-            this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+            this._dataModule.updateMark = ILaya.Scene3D._updateMark;
         }
         this._dataModule.boxProjection = value;
     }
@@ -123,7 +210,7 @@ export class ReflectionProbe extends Volume {
     set ambientIntensity(value: number) {
         if (value == this._dataModule.ambientIntensity) return;
         this._dataModule.ambientIntensity = value;
-        this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+        this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
     /**
@@ -138,12 +225,12 @@ export class ReflectionProbe extends Volume {
         if (value == this._dataModule.reflectionIntensity) return;
         value = Math.max(value, 0.0);
         this._dataModule.reflectionIntensity = value
-        this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+        this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
     _reCaculateBoundBox() {
         super._reCaculateBoundBox();
-        this.owner && this._dataModule.setProbePosition((this.owner as Sprite3D).transform.position);
+        this.owner && this._dataModule.setProbePosition(this.owner.transform.position);
         this.bounds.cloneTo(this._dataModule.bound);
     }
 
@@ -166,7 +253,7 @@ export class ReflectionProbe extends Volume {
     set boundsMax(value: Vector3) {
         super.boundsMax = value;
         if (this.boxProjection)
-            this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+            this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
 
@@ -181,7 +268,7 @@ export class ReflectionProbe extends Volume {
     set boundsMin(value: Vector3) {
         super.boundsMin = value;
         if (this.boxProjection)
-            this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+            this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
 
@@ -190,7 +277,7 @@ export class ReflectionProbe extends Volume {
      * @zh 探针的位置
      */
     get probePosition(): Vector3 {
-        return (this.owner as Sprite3D).transform.position;
+        return this.owner.transform.position;
     }
 
     /**
@@ -206,7 +293,7 @@ export class ReflectionProbe extends Volume {
         value.cloneTo(this._ambientColor);
         this._dataModule.setAmbientColor(this._ambientColor);
         if (this.ambientMode == AmbientMode.SolidColor)
-            this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+            this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
     /**
@@ -219,7 +306,7 @@ export class ReflectionProbe extends Volume {
 
     public set ambientSH(value: Float32Array) {
         if (this.ambientMode == AmbientMode.SphericalHarmonics)
-            this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+            this._dataModule.updateMark = ILaya.Scene3D._updateMark;
         this._ambientSH = value;
         this._dataModule.setAmbientSH(this._ambientSH);
     }
@@ -239,7 +326,7 @@ export class ReflectionProbe extends Volume {
     set ambientMode(value: AmbientMode) {
         if (value == this.ambientMode) return;
         this._dataModule.ambientMode = value;
-        this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+        this._dataModule.updateMark = ILaya.Scene3D._updateMark;
 
     }
 
@@ -261,7 +348,7 @@ export class ReflectionProbe extends Volume {
             value._addReference();
             this._dataModule.iblTex = value._texture;
         }
-        this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+        this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
     /**
@@ -276,23 +363,21 @@ export class ReflectionProbe extends Volume {
         if (value == this._dataModule.iblTexRGBD)
             return;
         this._dataModule.iblTexRGBD = value;
-        this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+        this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
     /**
      * @inheritdoc
-     * @protected
      * @internal
      */
     protected _onEnable(): void {
         super._onEnable();
-        this._dataModule.updateMark = ILaya3D.Scene3D._updateMark;
+        this._dataModule.updateMark = ILaya.Scene3D._updateMark;
     }
 
     /**
      * @inheritdoc
      * @internal
-     * @protected
      */
     protected _onDestroy() {
         this.iblTex = null;

@@ -1,12 +1,16 @@
+/**
+description
+ 实现鼠标长按猩猩图片后缩放效果的交互逻辑
+ */
 import { Laya } from "Laya";
 import { Sprite } from "laya/display/Sprite";
 import { Stage } from "laya/display/Stage";
 import { Event } from "laya/events/Event";
 import { Texture } from "laya/resource/Texture";
 import { Browser } from "laya/utils/Browser";
-import { Ease } from "laya/utils/Ease";
+import { Ease } from "laya/tween/Ease";
 import { Handler } from "laya/utils/Handler";
-import { Tween } from "laya/utils/Tween";
+import { Tween } from "laya/tween/Tween";
 import { Main } from "./../Main";
 
 export class Interaction_Hold {

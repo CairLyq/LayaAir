@@ -2,36 +2,32 @@ import { IShaderInstance } from "../../RenderDriver/DriverDesign/RenderDevice/IS
 import { IDefineDatas } from "../../RenderDriver/RenderModuleData/Design/IDefineDatas";
 import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
 import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
-import { SubShader, UniformMapType } from "../../RenderEngine/RenderShader/SubShader";
+import { SubShader } from "../../RenderEngine/RenderShader/SubShader";
 import { LayaGL } from "../../layagl/LayaGL";
 import { IShaderCompiledObj } from "./ShaderCompile";
 import { ShaderNode } from "./ShaderNode";
-export class ShaderProcessInfo {
+import { UniformProperty } from "../../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
+
+export interface ShaderProcessInfo {
     defineString: string[];
     vs: ShaderNode;
     ps: ShaderNode;
-    attributeMap: { [name: string]: [number, ShaderDataType] };
-    uniformMap: UniformMapType;
+    attributeMap: Record<string, [number, ShaderDataType]>;
+    uniformMap: Map<number, UniformProperty>;
     is2D: boolean;
     //....其他数据
-};
+}
+
+/**
+ * @blueprintIgnore @blueprintIgnoreSubclasses
+ */
 export class ShaderCompileDefineBase {
-    /** @internal */
-    static _defineStrings: Array<string> = [];
-    /** @internal */
-    public _VS: ShaderNode;
-    /** @internal */
-    public _PS: ShaderNode;
-    /** @internal */
+    _VS: ShaderNode;
+    _PS: ShaderNode;
     _defs: Set<string>;
-    /** @internal */
     _validDefine: IDefineDatas;
-
-    /** @internal */
     _owner: SubShader;
-    /** @internal */
     name: string;
-
 
     constructor(owner: any, name: string, compiledObj: IShaderCompiledObj) {
         this._owner = owner;
@@ -40,14 +36,14 @@ export class ShaderCompileDefineBase {
         this._PS = compiledObj.psNode;
         this._defs = compiledObj.defs;
         this._validDefine = LayaGL.unitRenderModuleDataFactory.createDefineDatas();
+
         for (let k of compiledObj.defs)
             this._validDefine.add(Shader3D.getDefineByName(k));
+
+        this._validDefine.add(Shader3D.getDefineByName("VBONEW"));
+        this._validDefine.add(Shader3D.getDefineByName("VBONEI"));
     }
 
-   
-    /**
-     * @internal
-     */
     withCompile(compileDefine: IDefineDatas): IShaderInstance {
         return null;
     }

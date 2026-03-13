@@ -1,6 +1,4 @@
 import { Laya } from "../../../Laya";
-import { BaseRender2DType } from "../../NodeRender2D/BaseRenderNode2D";
-import { IBatch2DRender, RenderManager2D } from "../../NodeRender2D/RenderManager2D";
 import { IRenderElement2D } from "../../RenderDriver/DriverDesign/2DRenderPass/IRenderElement2D";
 import { IBufferState } from "../../RenderDriver/DriverDesign/RenderDevice/IBufferState";
 import { IRenderGeometryElement } from "../../RenderDriver/DriverDesign/RenderDevice/IRenderGeometryElement";
@@ -13,13 +11,14 @@ import { MeshTopology } from "../../RenderEngine/RenderEnum/RenderPologyMode";
 import { SubShader } from "../../RenderEngine/RenderShader/SubShader";
 import { LayaGL } from "../../layagl/LayaGL";
 import { FastSinglelist } from "../../utils/SingletonList";
+import { ShaderDefines2D } from "../../webgl/shader/d2/ShaderDefines2D";
 import { SpineShaderInit } from "../material/SpineShaderInit";
 
 /**
  * @en SpineInstanceBatch used for efficient rendering Spine instances.
  * @zh SpineInstanceBatch 用于高效渲染 Spine 实例。
  */
-export class SpineInstanceBatch implements IBatch2DRender{
+export class SpineInstanceBatch {
     /**
      * @en The instance of SpineInstanceBatch.
      * @zh SpineInstanceBatch 的实例。
@@ -61,7 +60,7 @@ export class SpineInstanceBatch implements IBatch2DRender{
      * @param start 列表中的起始索引。
      * @param length 要处理的元素数量。
      */
-    batchRenderElement(list: FastSinglelist<IRenderElement2D>, start: number, length: number): void {
+    batchRenderElement(list: FastSinglelist<IRenderElement2D>, start: number, length: number , elementCount:number = 1): void {
         let elementArray = list.elements;
         let batchStart = -1;
         for (let i = 0; i < length - 1; i++) {
@@ -170,12 +169,21 @@ export class SpineInstanceBatch implements IBatch2DRender{
                 instanceElement.materialShaderData = element.materialShaderData;
                 instanceElement.value2DShaderData = element.value2DShaderData;
                 instanceElement.renderStateIsBySprite = element.renderStateIsBySprite;
-
+                instanceElement.nodeCommonMap = element.nodeCommonMap;
                 instanceElement.value2DShaderData.addDefine(SpineShaderInit.SPINE_GPU_INSTANCE);
+
             }
 
-            let nMatrixBuffer = shaderData.getBuffer(SpineShaderInit.NMatrix);
-            nMatrixData.set(nMatrixBuffer, instanceCount * 6);    
+            let nMatrix_0= shaderData.getVector3(ShaderDefines2D.UNIFORM_NMATRIX_0);
+            let nMatrix_1 = shaderData.getVector3(ShaderDefines2D.UNIFORM_NMATRIX_1);
+            let nMatrixOffset = instanceCount * 6;
+            nMatrixData[nMatrixOffset] = nMatrix_0.x;
+            nMatrixData[nMatrixOffset + 1] = nMatrix_0.y;
+            nMatrixData[nMatrixOffset + 2] = nMatrix_0.z;
+            nMatrixData[nMatrixOffset + 3] = nMatrix_1.x;
+            nMatrixData[nMatrixOffset + 4] = nMatrix_1.y;
+            nMatrixData[nMatrixOffset + 5] = nMatrix_1.z;
+            // nMatrixData.set(nMatrixBuffer, instanceCount * 6);    
             //simpleAnimationData
             let simpleAnimatorParams = shaderData.getVector(SpineShaderInit.SIMPLE_SIMPLEANIMATORPARAMS);
             let offset: number = instanceCount * 4;
@@ -223,7 +231,7 @@ export class SpineInstanceBatch implements IBatch2DRender{
 
 Laya.addAfterInitCallback(function() {
     SpineInstanceBatch.instance = new SpineInstanceBatch;
-    RenderManager2D.regisBatch(BaseRender2DType.spineSimple,SpineInstanceBatch.instance);
+    //RenderManager2D.regisBatch(BaseRender2DType.spineSimple,SpineInstanceBatch.instance);
 })
 
 export interface SpineInstanceInfo {
@@ -355,31 +363,11 @@ export class SpineInstanceElement2DTool{
         element.value2DShaderData = null;
         element.materialShaderData = null;
         element.subShader = null;
+        element.nodeCommonMap = null;
         let infos = SpineInstanceElement2DTool._instanceBufferInfoMap.get(info.source);
         infos.push(info);
         // element.geometry.clearRenderParams();
     }
-
-    // /**
-    //  * @internal
-    //  */
-    // private static _pool: IRenderElement2D[] = [];
-
-    // static create(): IRenderElement2D {
-    //     let element = this._pool.pop() || LayaGL.render2DRenderPassFactory.createRenderElement2D();
-        // if (!element.geometry) {
-        //     element.geometry = LayaGL.renderDeviceFactory.createRenderGeometryElement(MeshTopology.Triangles,DrawType.DrawElementInstance);
-        // }
-        // return element;
-    // }
-
-    // static recover(element:IRenderElement2D){
-    //     element.value2DShaderData = null;
-    //     element.materialShaderData = null;
-    //     element.subShader = null;
-    //     element.geometry.clearRenderParams();
-    //     this._pool.push(element);
-    // }
 
     /**
      * pool of Buffer

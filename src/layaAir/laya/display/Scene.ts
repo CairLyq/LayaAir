@@ -6,12 +6,28 @@ import { Handler } from "../utils/Handler"
 import { Timer } from "../utils/Timer"
 import { ILaya } from "../../ILaya";
 import { Prefab } from "../resource/HierarchyResource";
-import { NodeFlags } from "../Const";
-import { HierarchyLoader } from "../loaders/HierarchyLoader";
-import { ShaderData } from "../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { CommandUniformMap } from "../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
+import { Scene2DSpecialManager } from "./Scene2DSpecial/Scene2DSpecialManager";
+import { BaseRenderNode2D } from "../NodeRender2D/BaseRenderNode2D";
+import { TransformKind } from "./SpriteConst";
+import { Area2D } from "./Area2D";
+import { IElementComponentManager } from "../components/IScenceComponentManager";
+import { ShaderDataItem, ShaderDataType } from "../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { I2DGlobalRenderData } from "../RenderDriver/RenderModuleData/Design/2D/IRender2DDataHandle";
 import { LayaGL } from "../layagl/LayaGL";
-import { Context } from "../renders/Context";
-import { Render2DSimple } from "../renders/Render2D";
+import { type Scene3D } from "../d3/core/scene/Scene3D";
+import { ProgressCallback } from "../net/BatchProgress";
+import { Camera2D } from "./Scene2DSpecial/Camera2D";
+import { BlendModeHandler } from "../webgl/canvas/BlendMode";
+
+/** @blueprintIgnore */
+export interface ILight2DManager {
+    preRenderUpdate(): void;
+    addRender(node: BaseRenderNode2D): void;
+    removeRender(node: BaseRenderNode2D): void;
+    _getLayerUpdateMark(layer: number): number;
+    _updateShaderDataByLayer(layer: number, shaderData: any): void;
+}
 
 /**
  * @en Scene class, responsible for scene creation, loading, destruction and other functions.
@@ -22,6 +38,9 @@ import { Render2DSimple } from "../renders/Render2D";
  * 可以通过 unDestroyedScenes 属性查看还未被销毁的场景列表。
  */
 export class Scene extends Sprite {
+    static scene2DUniformMap: CommandUniformMap;
+
+    /**创建后，还未被销毁的场景列表，方便查看还未被销毁的场景列表，方便内存管理，本属性只读，请不要直接修改*/
     /**
      * @en List of scenes that have been created but not yet destroyed. This property is read-only, please do not modify it directly.
      * @zh 创建后还未被销毁的场景列表。此属性只读，请不要直接修改。用于方便查看未销毁的场景列表，便于内存管理。
@@ -34,19 +53,39 @@ export class Scene extends Sprite {
     private static _root: Sprite;
     private static _loadPage: Sprite;
 
+    /** 场景组件管理表 */
+    private static componentManagerMap: Map<string, new (scene: Scene) => IElementComponentManager> = new Map();
+
+    /**
+     * 注册场景内的管理器
+     * @param type 管理器类型
+     * @param cla 实例
+     */
+    static regManager(type: string, cla: new (scene: Scene) => IElementComponentManager) {
+        Scene.componentManagerMap.set(type, cla);
+    }
+
+    /** @internal */
+    static __init__() {
+        Camera2D.shaderValueInit();
+
+        let scene2DUniformMap = Scene.scene2DUniformMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("Sprite2DGlobal"); //名称保持一致 //兼容Light2D
+        scene2DUniformMap.addShaderUniform(Camera2D.VIEW2D, "u_view2D", ShaderDataType.Matrix3x3);
+        // scene2DUniformMap.addShaderUniform(BaseRenderNode2D.BASERENDERSIZE, "u_baseRenderSize2D", ShaderDataType.Vector2);
+    }
+
     /**
      * @en Whether to automatically destroy (destroy nodes and used resources) after the scene is closed, default is false
      * @zh 场景被关闭后，是否自动销毁（销毁节点和使用到的资源），默认为 false
      */
     autoDestroyAtClosed: boolean = false;
-    /**@internal */
+
+    /** @internal */
     _idMap?: any;
-    /**
-     * @internal
-     */
-    _scene3D: any;
-
-
+    /** @internal */
+    _scene3D: Scene3D;
+    /** @internal */
+    _area2Ds: Set<Area2D>;
 
     /**
      * @en relative layout component
@@ -59,100 +98,67 @@ export class Scene extends Sprite {
      * @zh 场景时钟
      */
     private _timer: Timer;
-    private _viewCreated: boolean = false;
 
-    private _shaderData: ShaderData;
+    /** @internal */
+    _componentElementDatasMap: any = {};
+    /**@internal */
+    _specialManager: Scene2DSpecialManager;
+    /**@internal */
+    _light2DManager: ILight2DManager;
+    /**@internal */
+    _globalRenderData: I2DGlobalRenderData;
 
-    /** @ignore */
-    constructor(createChildren = true) {
+    constructor() {
         super();
-
+        this._specialManager = new Scene2DSpecialManager();
         this._timer = ILaya.timer;
         this._widget = Widget.EMPTY;
+        this._area2Ds = new Set<Area2D>();
 
         this._scene = this;
-        if (createChildren)
-            this.createChildren();
-        this._shaderData = LayaGL.renderDeviceFactory.createShaderData(null);
+        Scene.componentManagerMap.forEach((val, key) => {
+            this._specialManager.componentElementMap.set(key, new val(this));
+        });
+        this._globalRenderData = LayaGL.render2DRenderPassFactory.create2DGlobalRenderDataHandle();
+        this._globalRenderData.globalShaderData = this._shaderData = this._specialManager._shaderData;
+        this._globalRenderData.renderLayerMask = -1;
+        this._struct.globalRenderData = this._globalRenderData;
+        this._struct.spriteShaderData = this._shaderData;
+        BlendModeHandler.initBlendMode(this._shaderData);
     }
 
-    /**
-     * @ignore
-     * @en Compatible with legacy projects
-     * @zh 兼容老项目
+    /** 
+     * @en The data map of component elements in the scene.
+     * @zh 场景中组件元素的数据映射表。
      */
-    protected createChildren(): void {
+    get componentElementDatasMap(): any {
+        return this._componentElementDatasMap;
+    }
+
+    set componentElementDatasMap(value: any) {
+        this._componentElementDatasMap = value;
+        this._specialManager.componentElementMap.forEach((value, key) => {
+            this._componentElementDatasMap[key] && value.Init(this._componentElementDatasMap[key])
+        });
+    }
+
+    _update() {
+        var delta: number = ILaya.timer.delta * 0.001;
+        this._specialManager.componentElementMap.forEach((value) => {
+            value.update(delta);
+        });
     }
 
     /**
-     * @en Compatible loading mode, load mode setting uimap
-     * @param url The URL of the uimap JSON file.
-     * @zh 兼容加载模式，加载模式设置uimap
-     * @param url url uimapJSON 文件的 URL。
+     * 获得某个组件的管理器
+     * @param type 组件管理类
      */
-    static setUIMap(url: string): void {
-        let uimap = ILaya.loader.getRes(url);
-        if (uimap) {
-            for (let key in uimap) {
-                ILaya.Loader.loadedMap[key + ".scene"] = uimap[key];
-            }
-        } else {
-            throw "请提前加载uimap的json，再使用该接口设置！";
-        }
+    getComponentElementManager(type: string): IElementComponentManager {
+        return this._specialManager.componentElementMap.get(type);
     }
 
     /**
-     * @ignore
-     * @en Load scene view. Used for loading mode. Compatible with old projects.
-     * @param path The scene address.
-     * @zh 装载场景视图。用于加载模式。兼容老项目。
-     * @param path 场景地址。
-     */
-    loadScene(path: string): void {
-        Scene.unDestroyedScenes.add(this);
-        let url: string = path.indexOf(".") > -1 ? path : path + ".scene";
-        let content: Prefab = ILaya.loader.getRes(url);
-        if (content) {
-            if (!this._viewCreated) {
-                content.create({ root: this });
-                this._viewCreated = true;
-                Scene.unDestroyedScenes.add(this);
-            }
-        } else {
-            this._setBit(NodeFlags.NOT_READY, true);
-            ILaya.loader.load(url, null, value => {
-                if (Scene._loadPage) Scene._loadPage.event("progress", value);
-            }).then((content: Prefab) => {
-                if (!content) throw "Can not find scene:" + path;
-                if (!this._viewCreated) {
-                    this.url = url;
-                    Scene.hideLoadingPage();
-
-                    content.create({ root: this });
-                    this._viewCreated = true;
-                    Scene.unDestroyedScenes.add(this);
-                }
-                else
-                    this._setBit(NodeFlags.NOT_READY, false);
-            });
-        }
-    }
-
-    /**
-     * @ignore
-     * @en Create view using view data. Compatible with old projects.
-     * @param view The view data information.
-     * @zh 通过视图数据创建视图。兼容老项目。
-     * @param view 视图数据信息。
-     */
-    createView(view: any): void {
-        if (view && !this._viewCreated) {
-            this._viewCreated = true;
-            HierarchyLoader.legacySceneOrPrefab.createByData(this, view);
-        }
-    }
-
-    /**
+     * @deprecated
      * @en Get the node instance based on the node ID in the IDE.
      * @param id The node ID.
      * @zh 根据IDE内的节点id，获得节点实例。
@@ -166,13 +172,24 @@ export class Scene extends Sprite {
     /**
      * @en Open the scene. Note: If the closed scene has not set autoDestroyAtRemoved=true, resources may not be reclaimed and need to be manually reclaimed.
      * @param closeOther Whether to close other scenes, default is true (optional).
+     * @zh 打开场景。注意：被关闭的场景，如果没有设置autoDestroyAtRemoved=true，则资源可能不能被回收，需要自己手动回收。
+     * @param closeOther 是否关闭其他场景，默认为true（可选）。
+     */
+    open(closeOther?: boolean): void;
+    /**
+     * @en Open the scene. Note: If the closed scene has not set autoDestroyAtRemoved=true, resources may not be reclaimed and need to be manually reclaimed.
+     * @param closeOther Whether to close other scenes, default is true (optional).
      * @param param Parameters for opening the page, will be passed to the onOpened method (optional).
      * @zh 打开场景。注意：被关闭的场景，如果没有设置autoDestroyAtRemoved=true，则资源可能不能被回收，需要自己手动回收。
      * @param closeOther 是否关闭其他场景，默认为true（可选）。
      * @param param 打开页面的参数，会传递给onOpened方法（可选）。
      */
-    open(closeOther: boolean = true, param: any = null): void {
-        if (closeOther) Scene.closeAll();
+    open(closeOther?: boolean, param?: any): void;
+
+    open(closeOther?: boolean, param?: any): void {
+        if (closeOther == null || closeOther)
+            Scene.closeAll();
+
         Scene.root.addChild(this);
         if (this._scene3D)
             ILaya.stage.addChildAt(this._scene3D, 0);
@@ -184,6 +201,7 @@ export class Scene extends Sprite {
      * @param param Parameters.
      * @zh 场景打开完成后调用此方法（如果有弹出动画，则在动画完成后执行）。
      * @param param 参数。
+     * @blueprintEvent
      */
     onOpened(param: any): void {
     }
@@ -213,8 +231,9 @@ export class Scene extends Sprite {
      * @param type If triggered by clicking the default close button, pass the name of the close button, otherwise null.
      * @zh 关闭完成后调用此方法（如果有关闭动画，则在动画完成后执行）。
      * @param type 如果是点击默认关闭按钮触发，则传入关闭按钮的名字(name)，否则为null。
+     * @blueprintEvent
      */
-    onClosed(type: string = null): void {
+    onClosed(type?: string): void {
         //trace("onClosed");
     }
 
@@ -233,41 +252,13 @@ export class Scene extends Sprite {
 
         this._idMap = null;
         Scene.unDestroyedScenes.delete(this);
+
+        this._specialManager.componentElementMap.forEach(element => {
+            element.destroy();
+        });
     }
 
-    /**
-     * @internal
-     * @en Get the width of the scene.
-     * @zh 获取场景的宽度。
-     */
-    get_width(): number {
-        if (this._isWidthSet) return this._width;
-        var max: number = 0;
-        for (var i: number = this.numChildren - 1; i > -1; i--) {
-            var comp: Sprite = (<Sprite>this.getChildAt(i));
-            if (comp._visible) {
-                max = Math.max(comp._x + comp.width * comp.scaleX, max);
-            }
-        }
-        return max;
-    }
 
-    /**
-     * @internal
-     * @en Get the height of the scene.
-     * @zh 获取场景的高度。
-     */
-    get_height(): number {
-        if (this._isHeightSet) return this._height;
-        var max: number = 0;
-        for (var i: number = this.numChildren - 1; i > -1; i--) {
-            var comp: Sprite = (<Sprite>this.getChildAt(i));
-            if (comp._visible) {
-                max = Math.max(comp._y + comp.height * comp.scaleY, max);
-            }
-        }
-        return max;
-    }
 
     /**
      * @en Scene clock
@@ -285,13 +276,8 @@ export class Scene extends Sprite {
      * @en 3D scene instances included in the scene
      * @zh 场景包含的3D场景实例
      */
-    get scene3D() {
+    get scene3D(): Scene3D {
         return this._scene3D;
-    }
-
-
-    get sceneShaderData() {
-        return this._shaderData;
     }
 
     /**
@@ -379,23 +365,46 @@ export class Scene extends Sprite {
     }
 
     /**
-    * @internal
-    * @param ctx 
-    * @param x 
-    * @param y 
-    */
-    render(ctx: Context, x: number, y: number): void {
-        Render2DSimple.rendercontext2D.sceneData = this._shaderData;
-        super.render(ctx, x, y);
-        Render2DSimple.rendercontext2D.sceneData = null;
-
-
+     * @internal
+     * @param ctx 
+     * @param x 
+     * @param y 
+     */
+    render(x: number, y: number): void {
+        this._preRenderUpdate(x, y);
+        for (let area of this._area2Ds) {
+            area.render();
+        }
     }
 
+    setglobalRenderData(uniformIndex: number, type: ShaderDataType, value: ShaderDataItem) {
+        this._shaderData && this._shaderData.setShaderData(uniformIndex, type, value);
+        for (let area2D of this._area2Ds) {
+            area2D._globalShaderData.setShaderData(uniformIndex, type, value);
+        }
+    }
 
-    protected _shouldRefreshLayout(): void {
-        super._shouldRefreshLayout();
-        this.callLater(this._sizeChanged);
+    /**
+     * @internal
+     * @param ctx 
+     * @param x 
+     * @param y 
+     */
+    _preRenderUpdate(x: number, y: number) {
+        //更新2DScene场景数据    
+        this._specialManager._shaderData;
+        if (this._light2DManager)
+            this._light2DManager.preRenderUpdate();
+    }
+
+    /**
+     * @ignore
+     */
+    protected _transChanged(kind: TransformKind): void {
+        super._transChanged(kind);
+
+        if ((kind & TransformKind.Layout) != 0)
+            this.callLater(this._sizeChanged);
     }
 
     protected _sizeChanged(): void {
@@ -403,11 +412,34 @@ export class Scene extends Sprite {
         if (this._widget !== Widget.EMPTY) this._widget.resetLayout();
     }
 
+    protected _onAdded(): void {
+        super._onAdded();
+        // if (LayaEnv.isPlaying)
+        ILaya.stage._scene2Ds.push(this);
+    }
+
+    protected _onRemoved(): void {
+        super._onRemoved();
+        // if (LayaEnv.isPlaying) {
+        let index = ILaya.stage._scene2Ds.indexOf(this);
+        ILaya.stage._scene2Ds.splice(index, 1);
+        // }
+    }
+
     /**
+     * @deprecated
      * @en Repositioning
      * @zh 重新排版
      */
     freshLayout() {
+        this.refreshLayout();
+    }
+
+    /**
+     * @en Repositioning
+     * @zh 重新排版
+     */
+    refreshLayout() {
         if (this._widget != Widget.EMPTY) {
             this._widget.resetLayout();
         }
@@ -421,7 +453,6 @@ export class Scene extends Sprite {
         this._widget === Widget.EMPTY && (this._widget = this.addComponent(Widget));
         return this._widget;
     }
-
     //////////////////////////////////////静态方法//////////////////////////////////////////
 
     /**
@@ -431,7 +462,7 @@ export class Scene extends Sprite {
     static get root(): Sprite {
         let root = Scene._root;
         if (!root) {
-            root = Scene._root = (<Sprite>ILaya.stage.addChild(new Sprite()));
+            root = Scene._root = ILaya.stage.addChild(new Sprite());
             root.name = "root";
             root.mouseThrough = true;
             ILaya.stage.on("resize", null, () => {
@@ -455,35 +486,10 @@ export class Scene extends Sprite {
      * @param complete 加载完成回调，返回场景实例（可选）。
      * @param progress 加载进度回调（可选）。
      */
-    static load(url: string, complete: Handler = null, progress: Handler = null): Promise<Scene> {
-        return ILaya.loader.load(url, null, value => {
-            if (Scene._loadPage) Scene._loadPage.event("progress", value);
-            progress && progress.runWith(value);
-        }).then((content: Prefab) => {
-            if (!content) throw "Can not find scene:" + url;
-
-            let scene: Scene;
-            let errors: Array<any> = [];
-            let ret = content.create(null, errors);
-            if (errors.length > 0)
-                console.warn(`Error loading ${url}: \n${errors.join("\n")}`);
-
-            if (ret instanceof Scene)
-                scene = ret;
-            else if (ret._is3D) {
-                scene = new Scene();
-                scene.left = scene.right = scene.top = scene.bottom = 0;
-                scene._scene3D = ret;
-            }
-            else
-                throw "Not a scene:" + url;
-
-            scene._viewCreated = true;
-            if (scene._scene3D)
-                scene._scene3D._scene2D = scene;
-            Scene.unDestroyedScenes.add(scene);
-            Scene.hideLoadingPage();
-            complete && complete.runWith(scene);
+    static load(url: string, complete: Handler, progress?: Handler): Promise<Scene> {
+        return Scene._load(url, progress ? value => progress.runWith(value) : null).then(scene => {
+            if (complete)
+                complete.runWith(scene);
 
             return scene;
         });
@@ -503,20 +509,82 @@ export class Scene extends Sprite {
      * @param complete 打开完成回调，返回场景实例（可选）。
      * @param progress 加载进度回调（可选）。
      */
-    static open(url: string, closeOther: boolean = true, param: any = null, complete: Handler = null, progress: Handler = null): Promise<Scene> {
-        //兼容处理
-        if (param instanceof Handler) {
-            var temp: any = complete;
-            complete = param;
-            param = temp;
+    static open(url: string, closeOther?: boolean, param?: any, complete?: Handler, progress?: Handler): Promise<Scene>;
+    /**
+     * @en Load and open the scene.
+     * @param url The scene address.
+     * @param closeOther Whether to close other scenes, default is true (optional). Note: If the closed scene has not set autoDestroyAtRemoved=true, resources may not be reclaimed and need to be manually reclaimed.
+     * @param complete Callback function when opening is complete, returns the scene instance (optional).
+     * @param progress Callback function for loading progress (optional).
+     * @zh 加载并打开场景。
+     * @param url 场景地址。
+     * @param closeOther 是否关闭其他场景，默认为true（可选）。注意：被关闭的场景，如果没有设置autoDestroyAtRemoved=true，则资源可能不能被回收，需要自己手动回收。
+     * @param complete 打开完成回调，返回场景实例（可选）。
+     * @param progress 加载进度回调（可选）。
+     */
+    static open(url: string, closeOther?: boolean, complete?: (scene: Scene) => void, progress?: ProgressCallback): Promise<Scene>;
+
+    static open(url: string, closeOther?: boolean, param?: any, complete?: any, progress?: any): Promise<Scene> {
+        if (typeof (complete) === "function") {
+            progress = complete;
+            complete = null;
         }
-        Scene.showLoadingPage();
-        return Scene.load(url, Handler.create(null, this._onSceneLoaded, [closeOther, complete, param]), progress);
+        if (typeof (param) === "function") {
+            complete = param;
+            param = null;
+        }
+
+        if (progress instanceof Handler) {
+            let h = progress;
+            progress = (value: number) => h.runWith(value);
+        }
+
+        return Scene._load(url, progress).then(scene => {
+            scene.open(closeOther, param);
+
+            if (complete instanceof Handler)
+                complete.runWith(scene);
+            else if (complete)
+                complete(scene);
+
+            return scene;
+        });
     }
 
-    private static _onSceneLoaded(closeOther: boolean, complete: Handler, param: any, scene: Scene): void {
-        scene.open(closeOther, param);
-        if (complete) complete.runWith(scene);
+    private static _load(url: string, progress?: ProgressCallback): Promise<Scene> {
+        Scene.showLoadingPage();
+        return ILaya.loader.load(url, null, value => {
+            if (Scene._loadPage) Scene._loadPage.event("progress", value);
+            if (progress)
+                progress(value);
+        }).then((content: Prefab) => {
+            Scene.hideLoadingPage();
+
+            if (!content)
+                throw new Error("Can not find scene:" + url);
+
+            let scene: Scene;
+            let errors: Array<any> = [];
+            let ret = content.create(null, errors);
+            if (errors.length > 0)
+                console.warn(`Error loading ${url}: \n${errors.join("\n")}`);
+
+            if (ret instanceof Scene)
+                scene = ret;
+            else if (ret._nodeType === 1) {
+                scene = new Scene();
+                scene.left = scene.right = scene.top = scene.bottom = 0;
+                scene._scene3D = <Scene3D>ret;
+            }
+            else
+                throw new Error("Not a scene:" + url);
+
+            if (scene._scene3D)
+                scene._scene3D._scene2D = scene;
+            Scene.unDestroyedScenes.add(scene);
+
+            return scene;
+        });
     }
 
     /**

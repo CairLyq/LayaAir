@@ -13,19 +13,6 @@
             ],
             "console": "integratedTerminal",
             "type": "node"
-        },
-        {
-            "args": [
-                "buildSamples"
-            ],
-            "name": "compile",
-            "program": "${workspaceFolder}/node_modules/gulp/bin/gulp.js",
-            "request": "launch",
-            "skipFiles": [
-                "<node_internals>/**"
-            ],
-            "type": "node",
-            "console": "integratedTerminal"
         }
     ]
 }

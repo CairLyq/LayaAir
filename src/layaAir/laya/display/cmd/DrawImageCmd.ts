@@ -1,18 +1,25 @@
-import { Context, IGraphicCMD } from "../../renders/Context"
+import { Rectangle } from "../../maths/Rectangle";
 import { Texture } from "../../resource/Texture"
 import { ColorUtils } from "../../utils/ColorUtils";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "DrawImageCmd";
 
 /**
  * @en Draw image command
  * @zh 绘制图片命令
  */
-export class DrawImageCmd implements IGraphicCMD {
+export class DrawImageCmd implements IGraphicsCmd {
+    /** @internal */
+    _cacheData: any;
+
     /**
      * @en Identifier for the DrawImageCmd
      * @zh 绘制图片命令的标识符
      */
-    static ID: string = "DrawImage";
+    static readonly ID: string = className;
 
     /**
      * @en Texture to be drawn
@@ -65,24 +72,13 @@ export class DrawImageCmd implements IGraphicCMD {
      * @returns 绘制图片命令实例
      */
     static create(texture: Texture, x: number, y: number, width: number, height: number, color: string): DrawImageCmd {
-        if (width == null) width = texture.sourceWidth;
-        if (height == null) height = texture.sourceHeight;
-
-        let wRate = width / texture.sourceWidth;
-        let hRate = height / texture.sourceHeight;
-        width = texture.width * wRate;
-        height = texture.height * hRate;
-
-        x += texture.offsetX * wRate;
-        y += texture.offsetY * hRate;
-
-        var cmd: DrawImageCmd = Pool.getItemByClass("DrawImageCmd", DrawImageCmd);
+        let cmd: DrawImageCmd = Pool.getItemByClass(className, DrawImageCmd);
         cmd.texture = texture;
-        texture._addReference();
-        cmd.x = x;
-        cmd.y = y;
-        cmd.width = width;
-        cmd.height = height;
+        texture && texture._addReference();
+        cmd.x = x ?? 0;
+        cmd.y = y ?? 0;
+        cmd.width = width ?? texture.sourceWidth;
+        cmd.height = height ?? texture.sourceHeight;
         cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
         return cmd;
     }
@@ -94,23 +90,43 @@ export class DrawImageCmd implements IGraphicCMD {
     recover(): void {
         this.texture && this.texture._removeReference();
         this.texture = null;
-        Pool.recover("DrawImageCmd", this);
+        this._cacheData = null;
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the draw image command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制图片命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(context: Context, gx: number, gy: number): void {
-        if (this.texture) {
-            context.drawTexture(this.texture, this.x + gx, this.y + gy, this.width, this.height, this.color);
-        }
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
+        let tex = this.texture;
+        if (!tex)
+            return;
+
+        let x = this.x, y = this.y, w = this.width, h = this.height;
+
+        let wRate = w / tex.sourceWidth;
+        let hRate = h / tex.sourceHeight;
+        w = tex.width * wRate;
+        h = tex.height * hRate;
+
+        x += tex.offsetX * wRate;
+        y += tex.offsetY * hRate;
+
+        runner.drawTexture(this.texture, x + gx, y + gy, w, h, this.color);
+    }
+
+    /**
+     * @ignore
+     */
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        Rectangle.TEMP.setTo(this.x, this.y, this.width, this.height).getBoundPoints(assembler.points);
     }
 
     /**

@@ -3,11 +3,9 @@ import { Component } from "../../components/Component";
 import { Sprite3D } from "../core/Sprite3D";
 import { Transform3D } from "../core/Transform3D";
 import { Event } from "../../events/Event";
-import { Scene3D } from "../core/scene/Scene3D";
 import { IPhysicsManager } from "../../Physics3D/interface/IPhysicsManager";
 import { Physics3DColliderShape } from "./shape/Physics3DColliderShape";
 import { EColliderCapable } from "../../Physics3D/physicsEnum/EColliderCapable";
-import { Node } from "../../display/Node";
 
 /**
  * @en Describes how the physics materials of colliding objects are combined.
@@ -89,19 +87,19 @@ export class PhysicsColliderComponent extends Component {
     protected _eventsArray: string[];
     private _isColliderInit: boolean = false;
 
-    declare owner: Sprite3D;
+    declare readonly owner: Sprite3D;
 
     /**
-     * @en The collider object. Used to access the underlying physics engine's collider object and directly operate on the underlying physics engine's collision characteristics.
-     * @zh 碰撞器对象。用于访问底层物理引擎的碰撞器对象，直接操作底层物理引擎的碰撞特性。
+     * @en The collider object.
+     * @zh 碰撞器对象。
      */
     get collider(): ICollider {
         return this._collider;
     }
 
     /**
-     * @en The restitution coefficient is a key parameter in the physics engine that controls the elasticity of object collisions.
-     * @zh 恢复系数是物理引擎中控制物体碰撞弹性程度的关键参数，在中文物理学术语中也被称为"弹性系数"或"反弹系数"。
+     * @en The restitution of the collider (also known as bounciness).
+     * @zh 碰撞器的弹力（也叫Bounciness）。
      */
     get restitution(): number {
         return this._restitution;
@@ -115,8 +113,8 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @en The friction of the collider defines the friction coefficient of the object's surface, affecting the difficulty of the object sliding on the contact surface. The larger the value, the greater the friction, making it harder for the object to slide.
-     * @zh 碰撞器的摩擦力。用于定义物体表面的摩擦系数，影响物体在接触面上滑动的难易程度。值越大，摩擦力越大，物体越难以滑动。
+     * @en The friction of the collider.
+     * @zh 碰撞器的摩擦力。
      */
     get friction(): number {
         return this._friction;
@@ -133,8 +131,8 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @en The rolling friction of the collider. Controls the resistance of an object as it rolls on a surface, affecting how quickly the object slows down when rolling. The larger the value, the faster the object's roll deceleration.
-     * @zh 碰撞器的滚动摩擦力。用于控制物体在表面上滚动时的阻力，影响物体的滚动减速速率。值越大，物体滚动减速越快。
+     * @en The rolling friction of the collider.
+     * @zh 碰撞器的滚动摩擦力。
      */
     get rollingFriction(): number {
         return this._rollingFriction;
@@ -151,8 +149,8 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @en The dynamic friction of the collider. Defines the friction coefficient of an object when it is already in motion.
-     * @zh 碰撞器的动态摩擦力。定义物体在已经运动状态下的摩擦系数。
+     * @en The dynamic friction of the collider.
+     * @zh 碰撞器的动态摩擦力。
      */
     get dynamicFriction(): number {
         return this._dynamicFriction;
@@ -165,8 +163,8 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @en The static friction of the collider. Defines the friction coefficient of an object when it is stationary, resisting its movement. Typically greater than or equal to dynamic friction.
-     * @zh 碰撞器的静态摩擦力。定义物体在静止状态时抵抗开始移动的摩擦系数。通常大于或等于动态摩擦力。
+     * @en The static friction of the collider.
+     * @zh 碰撞器的静态摩擦力。
      */
     get staticFriction(): number {
         return this._staticFriction;
@@ -211,7 +209,7 @@ export class PhysicsColliderComponent extends Component {
      * - Minimum: The minimum friction coefficient of the two objects is used.
      * - Maximum: The maximum friction coefficient of the two objects is used.
      * - Multiply: The friction coefficients of the two objects are multiplied to get the final friction coefficient.
-     * @zh 恢复系数(弹力)组合模式，用于定义在两个物体发生碰撞时，如何组合它们的恢复系数，以确定最终的反弹效果。
+     * @zh 弹力组合模式，用于定义在两个物体发生碰撞时，如何组合它们的弹力系数，以确定最终的弹力。
      * 值为：
      * - Average（平均值）：两个物体的摩擦系数取平均值。
      * - Minimum（最小值）：使用两个物体摩擦系数中的最小值。
@@ -230,8 +228,8 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @en The collider shape of the physics collider. Used to set the geometric shape used by a physics collider, such as box, sphere, capsule, etc., defining the physical boundaries of an object.
-     * @zh 物理碰撞器的碰撞形状。用于设置物理碰撞器使用的几何形状，如盒体、球体、胶囊体等，用于定义物体的物理边界。
+     * @en The collider shape of the physics collider.
+     * @zh 物理碰撞器的碰撞形状。
      */
     get colliderShape(): Physics3DColliderShape {
         return this._colliderShape;
@@ -250,8 +248,8 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @en The collision group this collider belongs to, used to control which objects can collide with it based on bitwise operations.
-     * @zh 此碰撞器所属的碰撞组，用于控制哪些物体可以与之碰撞，基于位掩码实现。
+     * @en The collision group this collider belongs to.
+     * @zh 此碰撞器所属的碰撞组。
      */
     get collisionGroup(): number {
         return this._collisionGroup;
@@ -308,56 +306,38 @@ export class PhysicsColliderComponent extends Component {
         this.canCollideWith = this._canCollideWith;
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _initCollider() {
         //createCollider
         //Override it
     }
 
-    /**
-     * @internal
-     */
     protected _setEventFilter() {
         // override it
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onAdded(): void {
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onEnable(): void {
         if (!this._isColliderInit) {
             this.initCollider();
             this._isColliderInit = true;
         }
         this.owner.transform.on(Event.TRANSFORM_CHANGED, this, this._onTransformChanged);
-        this._physicsManager = (<Scene3D>this.owner._scene)._physicsManager;
+        this._physicsManager = this.owner._scene._physicsManager;
         //ILaya3D.Physics3D._bullet.btCollisionObject_setContactProcessingThreshold(this._btColliderObject, 0);
         this._collider && (this._collider.componentEnable = true);
         if (this._colliderShape) {
             this._physicsManager.setActiveCollider(this.collider, true);
             this._physicsManager.addCollider(this._collider);
         }
-        this.owner.on(Event._Add_Script, this, this._setEventFilter);
+
+        this.owner.on(Event.UPDATE_PHY_EVENT_FILTER, this, this._setEventFilter);
         this._setEventFilter();
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDisable(): void {
-        (<Sprite3D>this.owner).transform.off(Event.TRANSFORM_CHANGED, this, this._onTransformChanged);
+        this.owner.transform.off(Event.TRANSFORM_CHANGED, this, this._onTransformChanged);
         this._collider && (this._collider.componentEnable = false);
         if (this._colliderShape) {
             this._physicsManager.removeCollider(this._collider);
@@ -365,16 +345,12 @@ export class PhysicsColliderComponent extends Component {
         }
         this._physicsManager = null;
 
-        this.owner.off(Event._Add_Script, this, this._setEventFilter);
+        this.owner.off(Event.UPDATE_PHY_EVENT_FILTER, this, this._setEventFilter);
     }
 
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDestroy() {
-        this._colliderShape && this._colliderShape.destroy();
         this._collider && this._collider.destroy();
+        this._colliderShape && this._colliderShape.destroy();
         this._collider = null;
         this._isColliderInit = false;
         this._colliderShape = null;
@@ -396,8 +372,6 @@ export class PhysicsColliderComponent extends Component {
     }
 
     /**
-     * @inheritDoc
-     * @override
      * @internal
      */
     _cloneTo(dest: PhysicsColliderComponent): void {

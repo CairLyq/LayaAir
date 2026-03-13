@@ -1,17 +1,15 @@
-import { BaseCamera } from "../core/BaseCamera";
 import { ShadowCascadesMode } from "../core/light/ShadowCascadesMode";
 import { ShadowMapFormat, ShadowUtils } from "../core/light/ShadowUtils";
 import { SpotLightCom } from "../core/light/SpotLightCom";
 import { Config3D } from "../../../Config3D";
 import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
-import { UnifromBufferData } from "../../RenderEngine/UniformBufferData";
-import { UniformBufferObject } from "../../RenderEngine/UniformBufferObject";
-import { BufferUsage } from "../../RenderEngine/RenderEnum/BufferTargetType";
-import { DepthCasterData } from "../depthMap/DepthCasterData";
 import { RenderTexture } from "../../resource/RenderTexture";
 import { LayaGL } from "../../layagl/LayaGL";
 import { DirectionLightCom } from "../core/light/DirectionLightCom";
 import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { Scene3D } from "../core/scene/Scene3D";
+import { CommandUniformMap } from "../../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
+import { Config } from "../../../Config";
 
 /**
  * @internal
@@ -19,6 +17,8 @@ import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/Sha
  * @zh ShadowCasterPass 类用于实现阴影渲染管线。
  */
 export class ShadowCasterPass {
+
+    static ShadowUniformMap: CommandUniformMap;
     /** @internal */
     static SHADOW_BIAS: number;
     /** @internal */
@@ -56,48 +56,21 @@ export class ShadowCasterPass {
         ShadowCasterPass.SHADOW_SPOTMAP = Shader3D.propertyNameToID("u_SpotShadowMap");
         ShadowCasterPass.SHADOW_SPOTMATRICES = Shader3D.propertyNameToID("u_SpotViewProjectMatrix");
 
-        const sceneUniformMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("Scene3D");
+        const shadowUniformMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("Shadow");
 
-        if (Config3D._uniformBlock) {
-            sceneUniformMap.addShaderBlockUniform(Shader3D.propertyNameToID(UniformBufferObject.UBONAME_SHADOW), UniformBufferObject.UBONAME_SHADOW, [
-                {
-                    id: ShadowCasterPass.SHADOW_BIAS,
-                    propertyName: "u_ShadowBias",
-                    uniformtype: ShaderDataType.Vector4
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_LIGHT_DIRECTION, "u_ShadowLightDirection", ShaderDataType.Vector3);
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_BIAS, "u_ShadowBias", ShaderDataType.Vector4);
+        shadowUniformMap.addShaderUniformArray(ShadowCasterPass.SHADOW_SPLIT_SPHERES, "u_ShadowSplitSpheres", ShaderDataType.Vector4, 4); //兼容WGSL
+        shadowUniformMap.addShaderUniformArray(ShadowCasterPass.SHADOW_MATRICES, "u_ShadowMatrices", ShaderDataType.Matrix4x4, 4); //兼容WGSL
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_MAP_SIZE, "u_ShadowMapSize", ShaderDataType.Vector4);
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_MAP, "u_ShadowMap", ShaderDataType.Texture2D);
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_PARAMS, "u_ShadowParams", ShaderDataType.Vector4);
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPOTMAP_SIZE, "u_SpotShadowMapSize", ShaderDataType.Vector4);
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPOTMAP, "u_SpotShadowMap", ShaderDataType.Texture2D);
+        shadowUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPOTMATRICES, "u_SpotViewProjectMatrix", ShaderDataType.Matrix4x4);
 
-                },
-                {
-                    id: ShadowCasterPass.SHADOW_LIGHT_DIRECTION,
-                    propertyName: "u_ShadowLightDirection",
-                    uniformtype: ShaderDataType.Vector3
-                }
-            ])
-        } else {
-            sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_BIAS, "u_ShadowBias", ShaderDataType.Vector4);
-            sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_LIGHT_DIRECTION, "u_ShadowLightDirection", ShaderDataType.Vector3);
-        }
-
-        //sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPLIT_SPHERES, "u_ShadowSplitSpheres", ShaderDataType.Vector4);
-        //sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_MATRICES, "u_ShadowMatrices", ShaderDataType.Matrix4x4);
-        //scene和camera的uniformMap必须指明数组长度，因为数组信息不从shader中提取，直接使用map中的信息
-        sceneUniformMap.addShaderUniformArray(ShadowCasterPass.SHADOW_SPLIT_SPHERES, "u_ShadowSplitSpheres", ShaderDataType.Vector4, 4); //兼容WGSL
-        sceneUniformMap.addShaderUniformArray(ShadowCasterPass.SHADOW_MATRICES, "u_ShadowMatrices", ShaderDataType.Matrix4x4, 4); //兼容WGSL
-        sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_MAP_SIZE, "u_ShadowMapSize", ShaderDataType.Vector4);
-        sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_MAP, "u_ShadowMap", ShaderDataType.Texture2D);
-        sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_PARAMS, "u_ShadowParams", ShaderDataType.Vector4);
-        sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPOTMAP_SIZE, "u_SpotShadowMapSize", ShaderDataType.Vector4);
-        sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPOTMAP, "u_SpotShadowMap", ShaderDataType.Texture2D);
-        sceneUniformMap.addShaderUniform(ShadowCasterPass.SHADOW_SPOTMATRICES, "u_SpotViewProjectMatrix", ShaderDataType.Matrix4x4);
-        //sceneUniformMap.addShaderUniform(Shader3D.propertyNameToID(UniformBufferObject.UBONAME_SHADOW), UniformBufferObject.UBONAME_SHADOW);
+        this.ShadowUniformMap = shadowUniformMap;
     }
-
-
-    /** @internal */
-    _castDepthBufferData: UnifromBufferData;
-    _castDepthBufferOBJ: UniformBufferObject;
-
-    _castDepthCameraBufferData: UnifromBufferData;
-    _castDepthCameraBufferOBJ: UniformBufferObject;
 
     /** @internal */
     private _shadowDirectLightMap: RenderTexture;
@@ -109,20 +82,6 @@ export class ShadowCasterPass {
      * @zh 创建  ShadowCasterPass 类的新实例。
      */
     constructor() {
-        if (Config3D._uniformBlock) {
-            this._castDepthBufferData = DepthCasterData.createDepthCasterUniformBlock();
-            this._castDepthBufferOBJ = UniformBufferObject.getBuffer(UniformBufferObject.UBONAME_SHADOW, 0);
-            if (!this._castDepthBufferOBJ) {
-                this._castDepthBufferOBJ = UniformBufferObject.create(UniformBufferObject.UBONAME_SHADOW, BufferUsage.Dynamic, this._castDepthBufferData.getbyteLength(), true);
-            }
-            BaseCamera.createCameraUniformBlock();
-            this._castDepthCameraBufferData = BaseCamera.CameraUBOData.clone();
-            this._castDepthCameraBufferOBJ = UniformBufferObject.getBuffer(UniformBufferObject.UBONAME_CAMERA, 1);
-            if (!this._castDepthCameraBufferOBJ) {
-                this._castDepthCameraBufferOBJ = UniformBufferObject.create(UniformBufferObject.UBONAME_CAMERA, BufferUsage.Dynamic, this._castDepthCameraBufferData.getbyteLength(), false);
-            }
-        }
-
     }
 
     /**

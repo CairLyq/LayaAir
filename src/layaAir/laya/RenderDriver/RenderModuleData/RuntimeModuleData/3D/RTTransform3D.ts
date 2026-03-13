@@ -65,9 +65,9 @@ export class RTTransform3D extends Transform3D {
 
     /**@internal 如果为true 表示自身相对于父节点并无任何改变，将通过这个参数忽略计算*/
     protected _isDefaultMatrix: boolean = false;
-    /**@internal @protected */
+    /**@internal */
     protected _faceInvert: boolean = false;
-    /**@internal @protected */
+    /**@internal */
     protected _frontFaceValue: number = 1;
 
     /**native Share Memory */
@@ -528,8 +528,8 @@ export class RTTransform3D extends Transform3D {
 
     /**
      * 平移变换。
-     * @param 	translation 移动距离。
-     * @param 	isLocal 是否局部空间。
+     * @param translation 移动距离。
+     * @param isLocal 是否局部空间。
      */
     translate(translation: Vector3, isLocal: boolean = true): void {
         if (isLocal) {

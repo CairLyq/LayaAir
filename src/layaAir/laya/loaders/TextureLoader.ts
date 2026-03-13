@@ -6,7 +6,7 @@ import { KTXTextureInfo } from "../RenderEngine/KTXTextureInfo";
 import { TextureDimension } from "../RenderEngine/RenderEnum/TextureDimension";
 import { ClassUtils } from "../utils/ClassUtils";
 import { BaseTexture } from "../resource/BaseTexture";
-import { TextureFormat } from "../RenderEngine/RenderEnum/TextureFormat";
+import { getCompressTextureRenderCapable, TextureFormat } from "../RenderEngine/RenderEnum/TextureFormat";
 import { Browser } from "../utils/Browser";
 import { AssetDb } from "../resource/AssetDb";
 import { Resource } from "../resource/Resource";
@@ -58,15 +58,37 @@ export class Texture2DLoader implements IResourceLoader {
         let ext = task.ext;
         let url = task.url;
         if (meta) {
-            let platform = Browser.platform;
-            let fileIndex = meta.platforms?.[platform] || 0;
-            let fileInfo = meta.files?.[fileIndex] || {};
+            const RGBA = { format: TextureFormat.R8G8B8A8, file: null as string, ext: null as string };
+            let fileInfo = RGBA;
+
+            if (meta.platforms && meta.files) {
+                if (Browser.platform in meta.platforms) {
+                    const fileIndex = meta.platforms[Browser.platform];
+                    fileInfo = meta.files[fileIndex];
+                }
+                let capable = getCompressTextureRenderCapable(fileInfo.format);
+                if (capable && !LayaGL.renderEngine.getCapable(capable)) { // 当前环境是不支持 meta 中设置的压缩纹理格式
+                    const fallback = (meta.files as (typeof fileInfo)[]).find(f => {
+                        // 找到第一个支持的压缩纹理格式
+                        const c = getCompressTextureRenderCapable(f.format);
+                        return LayaGL.renderEngine.getCapable(c);
+                    });
+                    fileInfo = fallback || RGBA;
+                }
+
+                //fallback到RGBA
+                if (fileInfo.file == null) {
+                    const fallback = (meta.files as (typeof fileInfo)[]).find(f => f.ext === ext);
+                    fileInfo = fallback || RGBA;
+                }
+            }
+
             if (fileInfo.file) {
                 url = AssetDb.inst.getSubAssetURL(url, task.uuid, fileInfo.file, fileInfo.ext);
                 ext = fileInfo.ext;
             }
 
-            constructParams = [0, 0, fileInfo.format ?? 1, meta.mipmap, meta.readWrite, meta.sRGB];
+            constructParams = [0, 0, fileInfo.format, meta.mipmap, meta.readWrite, meta.sRGB];
             propertyParams = {
                 wrapModeU: meta.wrapMode,
                 wrapModeV: meta.wrapMode,
@@ -211,10 +233,10 @@ export class RenderTextureLoader implements IResourceLoader {
             let rt = <RenderTexture>task.obsoluteInst;
             if (rt)
                 rt.recreate(data.width, data.height, data.colorFormat, data.depthFormat,
-                    !!data.generateMipmap, data.multiSamples, !!data.generateDepthTexture, !!data.sRGB);
+                    !!data.generateMipmap, data.multiSamples, !!data.generateDepthTexture, !!data.sRGB, !!data.storage);
             else
                 rt = new RenderTexture(data.width, data.height, data.colorFormat, data.depthFormat,
-                    !!data.generateMipmap, data.multiSamples, !!data.generateDepthTexture, !!data.sRGB);
+                    !!data.generateMipmap, data.multiSamples, !!data.generateDepthTexture, !!data.sRGB, !!data.storage);
 
             if (null != data.anisoLevel)
                 rt.anisoLevel = data.anisoLevel;
@@ -233,7 +255,7 @@ export class RenderTextureLoader implements IResourceLoader {
 
 export class VideoTextureLoader implements IResourceLoader {
     load(task: ILoadTask) {
-        let inst = <VideoTexture>task.obsoluteInst || new VideoTexture();
+        let inst = <VideoTexture>task.obsoluteInst || VideoTexture.createInstance();
         inst.source = task.url;
         return Promise.resolve(inst);
     }

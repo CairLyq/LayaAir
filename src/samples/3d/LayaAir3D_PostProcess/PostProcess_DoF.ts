@@ -1,15 +1,19 @@
+/**
+description
+ LayaEngine 3D场景景深后处理效果的实现
+ */
 import { Laya } from "Laya";
 import { Stage } from "laya/display/Stage";
 import { Stat } from "laya/utils/Stat";
 import { Scene3D } from "laya/d3/core/scene/Scene3D";
 import { Camera } from "laya/d3/core/Camera";
 import { CameraMoveScript } from "../../3d/common/CameraMoveScript";
-import { PostProcess } from "laya/d3/component/PostProcess";
 import { Handler } from "laya/utils/Handler";
 import { Shader3D } from "laya/RenderEngine/RenderShader/Shader3D";
-import { GaussianDoF } from "laya/d3/core/render/PostEffect/GaussianDoF";
 import { Scene } from "laya/display/Scene";
 import { DepthTextureMode } from "laya/resource/RenderTexture";
+import { PostProcess } from "laya/d3/core/render/postProcessBase/PostProcess";
+import { GaussianDoF } from "laya/d3/postProcessEffect/GaussianDoF";
 
 export class PostProcessDoF {
 

@@ -34,12 +34,10 @@ export enum LightMode {
  * @zh LightSprite 类用于创建灯光的父类。
  */
 export class Light extends Component {
-    /**@internal 下沉数据集合 */
+    /**下沉数据集合 */
     protected _dataModule: IDirectLightData | ISpotLightData | IPointLightData;
-    /** @internal */
     protected _shadowMode: ShadowMode = ShadowMode.None;
 
-    /** @internal */
     private _isAlternate: boolean = false;
     /** @internal */
     _intensityColor: Vector3;
@@ -61,6 +59,8 @@ export class Light extends Component {
      * @zh 灯光颜色。 
      */
     color: Color;
+
+    declare readonly owner: Sprite3D;
 
     /**
      * @en The light intensity.
@@ -185,8 +185,8 @@ export class Light extends Component {
      * @zh 灯光世界矩阵
      */
     get lightWorldMatrix(): Matrix4x4 {
-        var position = (this.owner as Sprite3D).transform.position;
-        var quaterian = (this.owner as Sprite3D).transform.rotation;
+        var position = this.owner.transform.position;
+        var quaterian = this.owner.transform.rotation;
         Matrix4x4.createAffineTransformation(position, quaterian, Vector3.ONE, this._lightWoldMatrix);
         return this._lightWoldMatrix;
     }
@@ -231,7 +231,7 @@ export class Light extends Component {
     /**@internal */
     _setOwner(node: Sprite3D): void {
         super._setOwner(node);
-        this._dataModule.transform = (this.owner as Sprite3D).transform;
+        this._dataModule.transform = this.owner.transform;
     }
 
     /**@internal */
@@ -240,8 +240,6 @@ export class Light extends Component {
     }
 
     /**
-     * @inheritDoc
-     * @override
      * @internal
      */
     _cloneTo(dest: Light) {
@@ -250,10 +248,6 @@ export class Light extends Component {
         dest.intensity = this.intensity;
         dest.lightmapBakedType = this.lightmapBakedType;
     }
-
-    /**
-     * @internal
-     */
     private _addToScene(): void {
         var scene: Scene3D = <Scene3D>this.owner.scene;
         var maxLightCount: number = Config3D.maxLightCount;
@@ -269,9 +263,6 @@ export class Light extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     private _removeFromScene(): void {
         var scene: Scene3D = <Scene3D>this.owner._scene;
         if (!scene)
@@ -291,30 +282,14 @@ export class Light extends Component {
         }
     }
 
-    /**
-     * @internal
-     */
     protected _addToLightQueue(): void {
     }
 
-    /**
-     * @internal
-     */
     protected _removeFromLightQueue(): void {
     }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onEnable(): void {
         (this.lightmapBakedType !== LightMode.bakeOnly) && (this._addToScene());
     }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDisable(): void {
         (this.lightmapBakedType !== LightMode.bakeOnly) && (this._removeFromScene());
     }

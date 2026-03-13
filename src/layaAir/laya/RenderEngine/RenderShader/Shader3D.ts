@@ -9,8 +9,9 @@ export interface IShaderObjStructor {
     name: string,
     enableInstancing: boolean,
     supportReflectionProbe: boolean,
-    surportVolumetricGI: boolean,
+    supportVolumetricGI: boolean,
     attributeMap: any;
+    shaderType: ShaderFeatureType | string;
     uniformMap: any;
     defaultValue: any;
     shaderPass: Array<any>;
@@ -28,16 +29,20 @@ export interface IShaderpassStructor {
 }
 
 export enum ShaderFeatureType {
-    DEFAULT,
-    D3,
-    D2,
-    PostProcess,
-    Sky,
-    Effect
+    None = -1,
+    Default = 0,
+    D3 = 1,
+    D2_primitive = 2,
+    D2_TextureSV = 3,
+    D2_BaseRenderNode2D = 4,
+    PostProcess = 5,
+    Sky = 6,
+    Effect = 7
 }
 
 /**
- * <code>Shader3D</code> 类用于创建Shader3D。
+ * Shader3D类用于创建Shader3D。
+ * @blueprintIgnore
  */
 export class Shader3D {
     static _configDefineValues: IDefineDatas;
@@ -73,10 +78,22 @@ export class Shader3D {
     static STENCIL_TEST: number;
     /**渲染状态_模板写入 */
     static STENCIL_WRITE: number;
+    /** 渲染状态_模板写入掩码 */
+    static STENCIL_WRITE_MASK: number;
+    /** 渲染状态_模板读取掩码 */
+    static STENCIL_READ_MASK: number;
     /**渲染状态_模板写入值 */
     static STENCIL_Ref: number;
     /**渲染状态_模板写入设置 */
     static STENCIL_Op: number;
+    /**渲染状态_深度偏移 */
+    static DEPTH_BIAS: number;
+    /**渲染状态_深度偏移常量 */
+    static DEPTH_BIAS_CONSTANT: number;
+    /**渲染状态_深度偏移斜率 */
+    static DEPTH_BIAS_SLOPESCALE: number;
+    /**渲染状态_深度偏移限制 */
+    static DEPTH_BIAS_CLAMP: number;
 
     /**shader变量提交周期，自定义。*/
     static PERIOD_CUSTOM: number = 0;
@@ -97,8 +114,6 @@ export class Shader3D {
     static SHADERDEFINE_FLOATTEXTURE: ShaderDefine;
     /**@internal */
     static SHADERDEFINE_FLOATTEXTURE_FIL_LINEAR: ShaderDefine;
-    /**@internal WebGPU等平台坐标系Y翻转 */
-    static SHADERDEFINE_BLITSCREEN_INVERTY: ShaderDefine;
     /**@internal opengl webgl 需要重新映射深度值 */
     static SHADERDEFINE_REMAP_POSITIONZ: ShaderDefine;
     /**@internal 是否支持指定LOD的贴图采样 */
@@ -106,10 +121,11 @@ export class Shader3D {
     /**@internal 是否支持动态中断贴图采样 */
     static SHADERDEFINE_BREAK_TEXTURE_SAMPLE: ShaderDefine;
 
+    /**@internal 是否支持动态中断贴图采样 */
+    static SHADERDEFINE_STORAGEBUFFER: ShaderDefine;
+
     /**@internal */
     static _propertyNameMap: any = {};
-    /**@internal */
-    private static _propertyNameCounter: number = 0;
 
     /**@internal */
     static _preCompileShader: { [key: string]: Shader3D } = {};
@@ -120,19 +136,17 @@ export class Shader3D {
 
     static init() {
         Shader3D._configDefineValues = LayaGL.unitRenderModuleDataFactory.createDefineDatas();
-        Shader3D.SHADERDEFINE_BLITSCREEN_INVERTY = Shader3D.getDefineByName("BLITSCREEN_INVERTY");
         Shader3D.SHADERDEFINE_REMAP_POSITIONZ = Shader3D.getDefineByName("REMAP_Z");
         Shader3D.SHADERDEFINE_LOD_TEXTURE_SAMPLE = Shader3D.getDefineByName("LOD_TEXTURE_SAMPLE");
         Shader3D.SHADERDEFINE_BREAK_TEXTURE_SAMPLE = Shader3D.getDefineByName("BREAK_TEXTURE_SAMPLE");
+
+
         if (LayaGL.renderEngine._remapZ)
             Shader3D._configDefineValues.add(Shader3D.SHADERDEFINE_REMAP_POSITIONZ);
-        if (LayaGL.renderEngine._screenInvertY && false)
-            Shader3D._configDefineValues.add(Shader3D.SHADERDEFINE_BLITSCREEN_INVERTY);
         if (LayaGL.renderEngine._lodTextureSample)
             Shader3D._configDefineValues.add(Shader3D.SHADERDEFINE_LOD_TEXTURE_SAMPLE);
         if (LayaGL.renderEngine._breakTextureSample)
             Shader3D._configDefineValues.add(Shader3D.SHADERDEFINE_BREAK_TEXTURE_SAMPLE);
-
         Shader3D._compileDefineDatas = LayaGL.unitRenderModuleDataFactory.createDefineDatas();
     }
 
@@ -176,12 +190,44 @@ export class Shader3D {
 
     /**
      * 通过宏定义名字编译shader。
-     * @param	shaderName Shader名称。
+     * @param shaderName Shader名称。
      * @param   subShaderIndex 子着色器索引。
      * @param   passIndex  通道索引。
-     * @param	defineNames 宏定义名字集合。
+     * @param defineNames 宏定义名字集合。
+     * @param   nodeCommonMap ubo集合名称集合
      */
-    static compileShaderByDefineNames(shaderName: string, subShaderIndex: number, passIndex: number, defineNames: string[], nodeCommonMap: string[]): boolean {
+    static compileShaderByDefineNames(shaderName: string, subShaderIndex: number, passIndex: number, defineNames: string[], nodeCommonMap: string[], additionMap: string[], is2D: boolean, attributeLocations: number[]): boolean {
+        var shader: Shader3D = Shader3D.find(shaderName);
+        if (shader) {
+            var subShader: SubShader = shader.getSubShaderAt(subShaderIndex);
+            if (subShader) {
+                var pass: ShaderPass = subShader._passes[passIndex];
+                if (pass) {
+                    pass.nodeCommonMap = nodeCommonMap;
+                    pass.additionShaderData = additionMap;
+                    pass.attributeLocations = new Set<number>(attributeLocations);
+                    var compileDefineDatas = Shader3D._compileDefineDatas;
+                    Shader3D._configDefineValues.cloneTo(compileDefineDatas);
+                    for (let n of defineNames)
+                        compileDefineDatas.add(Shader3D.getDefineByName(n));
+                    pass.withCompile(compileDefineDatas, is2D);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 通过宏定义和二进制数据编译shader。
+     * @param shaderName Shader名称。
+     * @param subShaderIndex 子着色器索引。
+     * @param passIndex 通道索引。
+     * @param defineNames 宏定义名字集合。
+     * @param nodeCommonMap ubo集合名称集合
+     * @param cacheBuffer 缓存的shader数据
+     */
+    static compileShaderByBin(shaderName: string, subShaderIndex: number, passIndex: number, defineNames: string[], nodeCommonMap: string[], cacheBuffer: ArrayBuffer) {
         var shader: Shader3D = Shader3D.find(shaderName);
         if (shader) {
             var subShader: SubShader = shader.getSubShaderAt(subShaderIndex);
@@ -190,18 +236,14 @@ export class Shader3D {
                 pass.nodeCommonMap = nodeCommonMap;
                 if (pass) {
                     var compileDefineDatas = Shader3D._compileDefineDatas;
-                    Shader3D._configDefineValues.cloneTo(compileDefineDatas);
+                    compileDefineDatas.clear();
                     for (let n of defineNames)
                         compileDefineDatas.add(Shader3D.getDefineByName(n));
-                    pass.withCompile(compileDefineDatas);
-                    return true;
+                    pass.withComplieByBin(compileDefineDatas, false, cacheBuffer);
                 }
             }
         }
-
-        return false;
     }
-
     /**
      * 添加预编译shader文件，主要是处理宏定义
      */
@@ -211,7 +253,7 @@ export class Shader3D {
 
     /**
      * 获取ShaderCompile3D。
-     * @param	name
+     * @param name
      * @return ShaderCompile3D。
      */
     static find(name: string): Shader3D {
@@ -225,7 +267,9 @@ export class Shader3D {
             console.warn(`${data.name}: uniformMap is empty`);
 
         let shader = Shader3D.add(data.name, data.enableInstancing, data.supportReflectionProbe);
-        shader._surportVolumetricGI = data.surportVolumetricGI;
+        shader._supportVolumetricGI = data.supportVolumetricGI;
+        shader.shaderType = data.shaderType as ShaderFeatureType;
+
         let subshader = new SubShader(data.attributeMap ? data.attributeMap : SubShader.DefaultAttributeMap, data.uniformMap, data.defaultValue);
         shader.addSubShader(subshader);
         let passDataArray = data.shaderPass;
@@ -256,11 +300,11 @@ export class Shader3D {
     /**@internal */
     _supportReflectionProbe: boolean = false;
     /**@internal */
-    _surportVolumetricGI: boolean = false;
+    _supportVolumetricGI: boolean = false;
     /**@internal */
     _subShaders: SubShader[] = [];
 
-    shaderType: ShaderFeatureType;
+    shaderType: ShaderFeatureType = ShaderFeatureType.None;
     /**
      * 名字。
      */
@@ -279,16 +323,18 @@ export class Shader3D {
 
     /**
      * 添加子着色器。
+     * @param subShader 子着色器。
      */
     addSubShader(subShader: SubShader): void {
         this._subShaders.push(subShader);
         subShader._owner = this;
         subShader.moduleData.enableInstance = this._enableInstancing;
+        subShader.moduleData.shaderName = this._name;
     }
 
     /**
      * 在特定索引获取子着色器。
-     * @param	index 索引。
+     * @param index 索引。
      * @return 子着色器。
      */
     getSubShaderAt(index: number): SubShader {

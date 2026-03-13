@@ -1,7 +1,7 @@
+import { UniformProperty } from "../../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
 import { ShaderDataType, ShaderDataItem } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
 import { ISubshaderData } from "../../RenderDriver/RenderModuleData/Design/ISubShaderData";
 import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
-import { UniformBufferParamsType, UnifromBufferData } from "../../RenderEngine/UniformBufferData";
 import { LayaGL } from "../../layagl/LayaGL";
 import { IShaderCompiledObj, ShaderCompile } from "../../webgl/utils/ShaderCompile";
 import { ShaderPass } from "./ShaderPass";
@@ -23,6 +23,9 @@ export class SubShader {
     /**
      * 注册glsl所用到的Uniform
      * 会在生成Uniformmap的时候根据包含的Include文件，添加所需要的uniform因素
+     * @param includeName 
+     * @param uniformMap 
+     * @param defaultValue 
      */
     public static regIncludeBindUnifrom(includeName: string, uniformMap: { [name: string]: ShaderDataType }, defaultValue: { [key: string]: any }) {
         let obj: any = {};
@@ -43,15 +46,13 @@ export class SubShader {
         'a_BoneIndices': [VertexMesh.MESH_BLENDINDICES0, ShaderDataType.Vector4],
         'a_WorldMat': [VertexMesh.MESH_WORLDMATRIX_ROW0, ShaderDataType.Matrix4x4],
         'a_SimpleTextureParams': [VertexMesh.MESH_SIMPLEANIMATOR, ShaderDataType.Vector4],
-        'a_LightmapScaleOffset': [VertexMesh.MESH_LIGHTMAPSCALEOFFSET, ShaderDataType.Vector4]
+        'a_LightmapScaleOffset': [VertexMesh.MESH_LIGHTMAPSCALEOFFSET, ShaderDataType.Vector4],
+        "a_WorldInvertFront": [VertexMesh.MESH_CUSTOME2, ShaderDataType.Vector4],
     }
 
 
     /**@internal */
     _attributeMap: AttributeMapType;
-
-    /**@internal */
-    _uniformMap: UniformMapType;
 
     // todo uniform 相关信息统一用结构体存储？ 合并 value type map
     /**
@@ -63,12 +64,8 @@ export class SubShader {
      * @internal
      * uniform 数据类型
      */
-    readonly _uniformTypeMap: Map<string, ShaderDataType>;
+    readonly _uniformMap: Map<number, UniformProperty>;
 
-    /**@internal */
-    readonly _uniformBufferDataMap: Map<string, UnifromBufferData> = new Map();
-
-    /**@internal */
     _owner: Shader3D;
     /**@internal */
     _flags: any = {};
@@ -79,36 +76,25 @@ export class SubShader {
 
     /**
      * 创建一个 <code>SubShader</code> 实例。
-     * @param	attributeMap  顶点属性表。
-     * @param	uniformMap  uniform属性表。
+     * @param attributeMap  顶点属性表。
+     * @param uniformMap  uniform属性表。
      */
     constructor(attributeMap: { [name: string]: [number, ShaderDataType] } = SubShader.DefaultAttributeMap, uniformMap: UniformMapType = {}, uniformDefaultValue: { [name: string]: ShaderDataItem } = null) {
         this.moduleData = LayaGL.unitRenderModuleDataFactory.createSubShader();
         this._attributeMap = attributeMap;
-        this._uniformMap = uniformMap;
         this._uniformDefaultValue = uniformDefaultValue;
-        this._uniformTypeMap = new Map();
+        this._uniformMap = new Map();
         for (const key in uniformMap) {
             if (typeof uniformMap[key] == "object") {
                 let block = <{ [uniformName: string]: ShaderDataType }>(uniformMap[key]);
-                let blockUniformMap = new Map<string, UniformBufferParamsType>();
                 for (const uniformName in block) {
-                    let uniformType = ShaderDataTypeToUniformBufferType(block[uniformName]);
-                    blockUniformMap.set(uniformName, uniformType);
-
-                    this._uniformTypeMap.set(uniformName, block[uniformName]);
+                    let uniformType = block[uniformName];
+                    this.addUniform(uniformName, uniformType);
                 }
-
-                let blockUniformIndexMap = new Map<number, UniformBufferParamsType>();
-                blockUniformMap.forEach((value, key) => {
-                    blockUniformIndexMap.set(Shader3D.propertyNameToID(key), value);
-                });
-                let blockData = new UnifromBufferData(blockUniformIndexMap);
-                this._uniformBufferDataMap.set(key, blockData);
             }
             else {
                 let unifromType = <ShaderDataType>uniformMap[key];
-                this._uniformTypeMap.set(key, unifromType);
+                this.addUniform(key, unifromType);
                 if (unifromType == ShaderDataType.Texture2D || unifromType == ShaderDataType.TextureCube || unifromType == ShaderDataType.Texture3D || unifromType == ShaderDataType.Texture2DArray) {
                     let textureGammaDefine = Shader3D.getDefineByName(`Gamma_${key}`);
                     let uniformIndex = Shader3D.propertyNameToID(key);
@@ -117,12 +103,37 @@ export class SubShader {
 
             }
         }
+        this.moduleData.setUniformMap(this._uniformMap);
     }
+
+    private addUniform(name: string, type: ShaderDataType) {
+        let uniformName = name;
+        let arrayLength = getArrayLength(name);
+
+        if (arrayLength > 0) {
+            uniformName = name.substring(0, name.lastIndexOf('['));
+        }
+
+        let uniform: UniformProperty = {
+            id: Shader3D.propertyNameToID(uniformName),
+            propertyName: uniformName,
+            uniformtype: type,
+            arrayLength: arrayLength
+        };
+
+        this._uniformMap.set(uniform.id, uniform);
+
+        if (type == ShaderDataType.Texture2D || type == ShaderDataType.TextureCube || type == ShaderDataType.Texture3D || type == ShaderDataType.Texture2DArray) {
+            let textureGammaDefine = Shader3D.getDefineByName(`Gamma_${name}`);
+            LayaGL.renderEngine.addTexGammaDefine(uniform.id, textureGammaDefine);
+        }
+    }
+
 
     /**
      * 添加着色器Pass
      * @param vs 
-     * @param ps 
+     * @param ps
      * @param pipelineMode 渲染管线模式。 
      */
     addShaderPass(vs: string, ps: string, pipelineMode: string = "Forward"): ShaderPass {
@@ -145,9 +156,8 @@ export class SubShader {
                 let bindtypeMap = includeBindInfo["uniformMap"];
                 let bindDefaultValue = includeBindInfo["defaultValue"];
                 for (var i in bindtypeMap) {
-                    if (!this._uniformTypeMap.has(i)) {
-                        this._uniformTypeMap.set(i, bindtypeMap[i]);
-                        this._uniformMap[i] = bindtypeMap[i];
+                    if (!this._uniformMap.has(Shader3D.propertyNameToID(i))) {
+                        this.addUniform(i, bindtypeMap[i]);
                     }
                 }
                 for (var i in bindDefaultValue) {
@@ -161,23 +171,17 @@ export class SubShader {
 
 }
 
-function ShaderDataTypeToUniformBufferType(shaderDataType: ShaderDataType) {
+function getArrayLength(name: string): number {
+    let endPos = name.lastIndexOf(']');
+    let startPos = name.lastIndexOf('[');
 
-    switch (shaderDataType) {
-        case ShaderDataType.Float:
-            return UniformBufferParamsType.Number;
-        case ShaderDataType.Vector2:
-            return UniformBufferParamsType.Vector2;
-        case ShaderDataType.Vector3:
-            return UniformBufferParamsType.Vector3;
-        case ShaderDataType.Vector4:
-        case ShaderDataType.Color:
-            return UniformBufferParamsType.Vector4;
-        case ShaderDataType.Matrix4x4:
-            return UniformBufferParamsType.Matrix4x4;
-        default:
-            throw "ShaderDataType can not be in UniformBuffer.";
+    if (startPos != -1 && endPos == name.length - 1) {
+        let arrayLengthStr = name.slice(startPos + 1, endPos);
+        let arrayLength = parseInt(arrayLengthStr);
+
+        if (!isNaN(arrayLength) && arrayLength > 0) {
+            return arrayLength;
+        }
     }
-
+    return 0;
 }
-

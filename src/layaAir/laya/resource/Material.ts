@@ -1,9 +1,6 @@
 import { Config } from "../../Config";
-import { Config3D } from "../../Config3D";
 import { ILaya } from "../../ILaya";
-import { BufferUsage } from "../RenderEngine/RenderEnum/BufferTargetType";
-import { Shader3D } from "../RenderEngine/RenderShader/Shader3D";
-import { UniformBufferObject } from "../RenderEngine/UniformBufferObject";
+import { Shader3D, ShaderFeatureType } from "../RenderEngine/RenderShader/Shader3D";
 import { LayaGL } from "../layagl/LayaGL";
 import { Color } from "../maths/Color";
 import { Matrix3x3 } from "../maths/Matrix3x3";
@@ -22,6 +19,10 @@ import { ShaderData, ShaderDataDefaultValue, ShaderDataItem, ShaderDataType } fr
 import { RenderState } from "../RenderDriver/RenderModuleData/Design/RenderState";
 import { IDefineDatas } from "../RenderDriver/RenderModuleData/Design/IDefineDatas";
 import { IRenderElement3D } from "../RenderDriver/DriverDesign/3DRenderPass/I3DRenderPass";
+import { UniformProperty } from "../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
+import { IRenderElement2D } from "../RenderDriver/DriverDesign/2DRenderPass/IRenderElement2D";
+import { Texture2D } from "./Texture2D";
+import { LayaEnv } from "../../LayaEnv";
 
 
 /**
@@ -64,43 +65,48 @@ export enum MaterialRenderMode {
 /**
  * @en The Material class is used to create materials.
  * @zh Material 类用于创建材质。
+ * @blueprintIgnoreSubclasses
  */
 export class Material extends Resource implements IClone {
     /** 
      * @en RenderQueue: Opaque
      * @zh 渲染队列：不透明。
      */
-    static RENDERQUEUE_OPAQUE: number = 2000;
+    static readonly RENDERQUEUE_OPAQUE: number = 2000;
     /** 
      * @en RenderQueue: Alpha Testing
      * @zh 渲染队列：阿尔法测试。
      */
-    static RENDERQUEUE_ALPHATEST: number = 2450;
+    static readonly RENDERQUEUE_ALPHATEST: number = 2450;
     /** 
      * @en RenderQueue: Transparent
      * @zh 渲染队列：透明。
      */
-    static RENDERQUEUE_TRANSPARENT: number = 3000;
+    static readonly RENDERQUEUE_TRANSPARENT: number = 3000;
 
     /**
      * @en Shader variables, transparent test values.
      * @zh 着色器变量,透明测试值。
+     * @readonly
      */
     static ALPHATESTVALUE: number;
 
     /**
      * @en Material grade shader macro definition, transparency testing.
      * @zh 材质级着色器宏定义,透明测试。
+     * @readonly
      */
     static SHADERDEFINE_ALPHATEST: ShaderDefine;
     /**
      * @en Material grade shader macro definition, main texture.
      * @zh 材质级着色器宏定义,主贴图。
+     * @readonly
      */
     static SHADERDEFINE_MAINTEXTURE: ShaderDefine;
     /**
      * @en Material grade shader macro definition, additive fog.
      * @zh 材质级着色器宏定义,叠加雾效。
+     * @readonly
      */
     static SHADERDEFINE_ADDTIVEFOG: ShaderDefine;
 
@@ -138,10 +144,16 @@ export class Material extends Resource implements IClone {
         Shader3D.BLEND_EQUATION_ALPHA = Shader3D.propertyNameToID("s_BlendEquationAlpha");
         Shader3D.DEPTH_TEST = Shader3D.propertyNameToID("s_DepthTest");
         Shader3D.DEPTH_WRITE = Shader3D.propertyNameToID("s_DepthWrite");
+        Shader3D.STENCIL_WRITE_MASK = Shader3D.propertyNameToID("s_StencilWriteMask");
+        Shader3D.STENCIL_READ_MASK = Shader3D.propertyNameToID("s_StencilReadMask");
         Shader3D.STENCIL_Ref = Shader3D.propertyNameToID("s_StencilRef");
         Shader3D.STENCIL_TEST = Shader3D.propertyNameToID("s_StencilTest");
         Shader3D.STENCIL_WRITE = Shader3D.propertyNameToID("s_StencilWrite");
         Shader3D.STENCIL_Op = Shader3D.propertyNameToID("s_StencilOp");
+        Shader3D.DEPTH_BIAS = Shader3D.propertyNameToID("s_DepthBias");
+        Shader3D.DEPTH_BIAS_CONSTANT = Shader3D.propertyNameToID("s_DepthBiasConstant");
+        Shader3D.DEPTH_BIAS_SLOPESCALE = Shader3D.propertyNameToID("s_DepthBiasSlopeScale");
+        Shader3D.DEPTH_BIAS_CLAMP = Shader3D.propertyNameToID("s_DepthBiasClamp");
     }
 
     private _matRenderNode: MaterialRenderMode;
@@ -166,25 +178,31 @@ export class Material extends Resource implements IClone {
      * @en Owner element.
      * @zh 所属元素
      */
-    ownerElements: Set<IRenderElement3D> = new Set();
+    ownerElements: Set<IRenderElement3D | IRenderElement2D> = new Set();
 
     /**
      * @internal
      * @param element 
      */
-    _setOwnerElement(element: IRenderElement3D) {
+    _setOwner3DElement(element: IRenderElement3D) {
         this.ownerElements.add(element);
-        element.materialShaderData = this.shaderData;
+        element.materialShaderData = this._shaderValues;
         element.materialRenderQueue = this.renderQueue;
         element.subShader = this._shader.getSubShaderAt(0);
         element.materialId = this.id;
+    }
+
+    _setOwner2DElement(element: IRenderElement2D) {
+        this.ownerElements.add(element);
+        element.materialShaderData = this._shaderValues;
+        element.subShader = this._shader.getSubShaderAt(0);
     }
 
     /**
      * @internal
      * @param element 
      */
-    _removeOwnerElement(element: IRenderElement3D) {
+    _removeOwnerElement(element: IRenderElement3D | IRenderElement2D) {
         this.ownerElements.delete(element);
     }
 
@@ -194,7 +212,7 @@ export class Material extends Resource implements IClone {
      */
     _notifyOwnerElements() {
         this.ownerElements.forEach(element => {
-            this._setOwnerElement(element);
+            (element as IRenderElement3D).materialId ? this._setOwner3DElement(element as IRenderElement3D) : this._setOwner2DElement(element as IRenderElement2D);
         });
     }
 
@@ -460,6 +478,30 @@ export class Material extends Resource implements IClone {
     }
 
     /**
+     * @en Stencil write mask value
+     * @zh 模板写入掩码值
+     */
+    get stencilWriteMask(): number {
+        return this._shaderValues.getInt(Shader3D.STENCIL_WRITE_MASK);
+    }
+
+    set stencilWriteMask(value: number) {
+        this._shaderValues.setInt(Shader3D.STENCIL_WRITE_MASK, value);
+    }
+
+    /**
+     * @en Stencil read mask value
+     * @zh 模板读取掩码值
+     */
+    get stencilReadMask(): number {
+        return this._shaderValues.getInt(Shader3D.STENCIL_READ_MASK);
+    }
+
+    set stencilReadMask(value: number) {
+        this._shaderValues.setInt(Shader3D.STENCIL_READ_MASK, value);
+    }
+
+    /**
      * @en Stencil values
      * @zh 模板值
      */
@@ -481,6 +523,55 @@ export class Material extends Resource implements IClone {
 
     set stencilOp(value: Vector3) {
         this._shaderValues.setVector3(Shader3D.STENCIL_Op, value);
+    }
+
+    /**
+     * @en Whether to enable depth bias.
+     * @zh 是否启用深度偏移。
+     */
+    get depthBias(): boolean {
+        return this._shaderValues.getBool(Shader3D.DEPTH_BIAS);
+    }
+
+    set depthBias(value: boolean) {
+        this._shaderValues.setBool(Shader3D.DEPTH_BIAS, value);
+    }
+
+    /**
+     * @en The depth bias constant.
+     * @zh 深度偏移常量。
+     */
+    get depthBiasConstant(): number {
+        return this._shaderValues.getNumber(Shader3D.DEPTH_BIAS_CONSTANT);
+    }
+
+    set depthBiasConstant(value: number) {
+        this._shaderValues.setNumber(Shader3D.DEPTH_BIAS_CONSTANT, value);
+    }
+
+    /**
+     * @en The depth bias slope scale.
+     * @zh 深度偏移斜率缩放。
+     */
+    get dephtBiasSlopeScale(): number {
+        return this._shaderValues.getNumber(Shader3D.DEPTH_BIAS_SLOPESCALE);
+    }
+
+
+    set dephtBiasSlopeScale(value: number) {
+        this._shaderValues.setNumber(Shader3D.DEPTH_BIAS_SLOPESCALE, value);
+    }
+
+    /**
+     * @en The depth bias clamp.
+     * @zh 深度偏移限制。
+     */
+    get depthBiasClamp(): number {
+        return this._shaderValues.getNumber(Shader3D.DEPTH_BIAS_CLAMP);
+    }
+
+    set depthBiasClamp(value: number) {
+        this._shaderValues.setNumber(Shader3D.DEPTH_BIAS_CLAMP, value);
     }
 
     /**
@@ -599,32 +690,17 @@ export class Material extends Resource implements IClone {
         this.blendEquationAlpha = RenderState.BLENDEQUATION_ADD;
         this.depthTest = RenderState.DEPTHTEST_LEQUAL;
         this.depthWrite = true;
+        this.stencilWriteMask = 0xFF;
+        this.stencilReadMask = 0xFF;
         this.stencilRef = 1;
         this.stencilTest = RenderState.STENCILTEST_OFF;
         this.stencilWrite = false;
         this.stencilOp = new Vector3(RenderState.STENCILOP_KEEP, RenderState.STENCILOP_KEEP, RenderState.STENCILOP_REPLACE);
+        this.depthBias = false;
+        this.depthBiasConstant = 0.0;
+        this.dephtBiasSlopeScale = 0.0;
+        this.depthBiasClamp = 0.0;
         this.destroyedImmediately = Config.destroyResourceImmediatelyDefault;
-    }
-
-    private _bindShaderInfo(shader: Shader3D) {
-        //update UBOData by Shader
-        let subShader = shader.getSubShaderAt(0);//TODO	
-        // ubo
-        let shaderUBODatas = subShader._uniformBufferDataMap;
-        if (!shaderUBODatas)
-            return;
-        for (let key of shaderUBODatas.keys()) {
-            //create data
-            let uboData = shaderUBODatas.get(key).clone();
-            //create UBO
-            let ubo = UniformBufferObject.create(key, BufferUsage.Dynamic, uboData.getbyteLength(), false);
-            this._shaderValues.setUniformBuffer(Shader3D.propertyNameToID(key), ubo);
-            this._shaderValues._addCheckUBO(key, ubo, uboData);
-        }
-    }
-
-    private _releaseUBOData() {
-        this._shaderValues._releaseUBOData();
     }
 
     /**
@@ -632,7 +708,6 @@ export class Material extends Resource implements IClone {
      * @zh 销毁资源。
      */
     protected _disposeResource(): void {
-        this._releaseUBOData();
         this._shaderValues.destroy();
         this._shaderValues = null;
         this.ownerElements.clear();
@@ -653,7 +728,7 @@ export class Material extends Resource implements IClone {
      * @returns uniform属性的映射表。
      */
     effectiveProperty() {
-        return this._shader.getSubShaderAt(0)._uniformTypeMap;
+        return this._shader.getSubShaderAt(0)._uniformMap;
     }
 
     /**
@@ -670,18 +745,13 @@ export class Material extends Resource implements IClone {
             this._shader = Shader3D.find("BLINNPHONG");
         }
 
-        if (Config3D._uniformBlock) {
-            this._releaseUBOData();
-            //bind shader info
-            // todo 清理残留 shader data
-            this._bindShaderInfo(this._shader);
-        }
-
+        this.shaderData.clearDefine();
+        this.shaderData.clearData();
         // set default value
         // todo subShader 选择
         let subShader = this._shader.getSubShaderAt(0);
         let defaultValue = subShader._uniformDefaultValue;
-        let typeMap = subShader._uniformTypeMap;
+        let typeMap = subShader._uniformMap;
         this.applyUniformDefaultValue(typeMap, defaultValue);
         this._notifyOwnerElements();
     }
@@ -689,16 +759,20 @@ export class Material extends Resource implements IClone {
     /**
      * @internal
      */
-    applyUniformDefaultValue(typeMap: Map<string, ShaderDataType>, defaultValue: Record<string, ShaderDataItem>) {
-        typeMap.forEach((type, key) => {
-            if (defaultValue && defaultValue[key] != undefined) {
-                let value = defaultValue[key];
-                this.setShaderData(key, type, value);
-            }
-            else {
-                let value = ShaderDataDefaultValue(type);
-                if (value) {
-                    this.setShaderData(key, type, value);
+    applyUniformDefaultValue(uniformMap: Map<number, UniformProperty>, defaultValue: Record<string, ShaderDataItem>) {
+        uniformMap.forEach((uniform, id) => {
+            if (uniform.arrayLength <= 0) {
+                let type = uniform.uniformtype;
+                let uniformName = uniform.propertyName;
+                if (defaultValue && defaultValue[uniformName] != undefined) {
+                    let value = defaultValue[uniformName];
+                    this.setShaderData(uniformName, type, value);
+                }
+                else {
+                    let value = ShaderDataDefaultValue(type);
+                    if (value) {
+                        this.setShaderData(uniformName, type, value);
+                    }
                 }
             }
         });
@@ -1163,9 +1237,15 @@ export class Material extends Resource implements IClone {
      * @param texture 要设置的纹理。
      */
     setTextureByIndex(uniformIndex: number, texture: BaseTexture) {
-        this.shaderData.setTexture(uniformIndex, texture);
-        if (texture && !texture._texture)//贴图为加载完，需要重设
-            texture.once(Event.READY, this, this.reSetTexture, [uniformIndex, texture]);
+        if (LayaEnv.isConch) {
+            this.shaderData.setTexture(uniformIndex, texture);//加引用
+            if (texture && !texture._texture) {//贴图为加载完，需要重设
+                texture.once(Event.READY, this, this.reSetTexture, [uniformIndex, texture]);
+            }
+        }
+        else {
+            this.shaderData.setTexture(uniformIndex, texture);
+        }
     }
 
     private reSetTexture(uniformIndex: number, texture: BaseTexture) {
@@ -1337,10 +1417,28 @@ export class Material extends Resource implements IClone {
      * @zh 创建当前材质的克隆副本。
      * @returns 一个克隆自当前材质的新材质实例。
      */
-    clone(): any {
+    clone() {
         var dest: Material = new Material();
         this.cloneTo(dest);
         return dest;
+    }
+
+    /**
+     * @blueprintIgnore
+     * @en Checks if the material type matches the expected type.
+     * @param type The expected type.
+     * @zh 检查材质类型是否匹配预期类型。
+     * @param type 预期类型。
+     * @returns 是否匹配。
+     */
+    checkType(type: ShaderFeatureType): boolean {
+        if (this._shader && this._shader.shaderType === ShaderFeatureType.None)
+            return true;
+        let isVaild = this._shader && this._shader.shaderType == type;
+        if (!isVaild) {
+            console.warn("This Renderer expect Material shader type is " + ShaderFeatureType[type] + ", but the Material shader type is " + ShaderFeatureType[this._shader.shaderType] + ".");
+        }
+        return isVaild;
     }
 
     //--------------------------------------------兼容-------------------------------------------------

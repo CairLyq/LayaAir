@@ -1,3 +1,7 @@
+/**
+description
+ 草地渲染器,处理草地实例化绘制和命令缓存管理
+ */
 import { Camera, CameraEventFlags } from "laya/d3/core/Camera";
 import { CommandBuffer } from "laya/d3/core/render/command/CommandBuffer";
 import { DrawMeshInstancedCMD } from "laya/d3/core/render/command/DrawMeshInstancedCMD";
@@ -23,20 +27,35 @@ export class GlassRender{
         this.camera = camera;
     }
 
+    // /**
+    //  * @internal
+    //  */
+    // private creatGrassMesh():Mesh{
+    //     // 生成 单片 grass (一个 三角形)
+    //     var vertexArray: Float32Array  = new Float32Array(3 * 3);
+    //     vertexArray[0] = -0.25;  // p1.x
+    //     vertexArray[3] = 0.25; // p2.x
+    //     vertexArray[7] = 1;     // p3.y
+    //     var indexArray: Uint16Array =  new Uint16Array([2, 1, 0]);
+    //     var vertexDeclaration: VertexDeclaration = VertexMesh.getVertexDeclaration("POSITION");
+    //     //@ts-ignore
+    //     var mesh = PrimitiveMesh._createMesh(vertexDeclaration,vertexArray,indexArray);
+    //     return mesh;
+    // }
 
     /**
      * @internal
      */
-    private creatGrassMesh():Mesh{
+    private creatGrassMesh(): Mesh { //补充Normal通道
         // 生成 单片 grass (一个 三角形)
-        var vertexArray: Float32Array  = new Float32Array(3 * 3);
-        vertexArray[0] = -0.25;  // p1.x
-        vertexArray[3] = 0.25; // p2.x
-        vertexArray[7] = 1;     // p3.y
-        var indexArray: Uint16Array =  new Uint16Array([2, 1, 0]);
-        var vertexDeclaration: VertexDeclaration = VertexMesh.getVertexDeclaration("POSITION");
+        var vertexArray: Float32Array = new Float32Array(6 * 3);
+        vertexArray[0] = -0.25; // p1.x
+        vertexArray[6] = 0.25;  // p2.x
+        vertexArray[13] = 1;    // p3.y
+        var indexArray: Uint16Array = new Uint16Array([2, 1, 0]);
+        var vertexDeclaration: VertexDeclaration = VertexMesh.getVertexDeclaration("POSITION,NORMAL");
         //@ts-ignore
-        var mesh = PrimitiveMesh._createMesh(vertexDeclaration,vertexArray,indexArray);
+        var mesh = PrimitiveMesh._createMesh(vertexDeclaration, vertexArray, indexArray);
         return mesh;
     }
 

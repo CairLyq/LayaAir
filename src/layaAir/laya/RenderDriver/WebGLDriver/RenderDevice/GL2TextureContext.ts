@@ -51,6 +51,12 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         this._glParam.format = null;
         this._glParam.type = null;
         switch (format) {
+            case TextureFormat.Alpha8:
+                // WebGL2 中 ALPHA 格式已被移除，使用 R8 格式（单通道红色，可用于存储 Alpha 数据）
+                this._glParam.internalFormat = gl.R8;
+                this._glParam.format = gl.RED;
+                this._glParam.type = gl.UNSIGNED_BYTE;
+                break;
             case TextureFormat.R8G8B8:
                 this._glParam.internalFormat = useSRGB ? gl.SRGB8 : gl.RGB8;
                 this._glParam.format = gl.RGB;
@@ -284,6 +290,10 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         let singlebyte = 0;
         let bytelength = 0;
         switch (tex.internalFormat) {
+            case gl.R8:
+            case gl.ALPHA:
+                channels = 1;
+                break;
             case gl.SRGB8:
             case gl.RGB8:
             case gl.RGB565:
@@ -997,7 +1007,7 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         return internalTex;
     }
 
-    createRenderTargetInternal(width: number, height: number, colorFormat: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number): WebGLInternalRT {
+    createRenderTargetInternal(width: number, height: number, colorFormat: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number, storage: boolean): WebGLInternalRT {
         let texture = this.createRenderTextureInternal(TextureDimension.Tex2D, width, height, colorFormat, generateMipmap, sRGB);
 
         let renderTarget = new WebGLInternalRT(this._engine, colorFormat, depthStencilFormat, false, texture.mipmap, multiSamples);

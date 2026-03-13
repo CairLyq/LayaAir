@@ -4,7 +4,6 @@ import { Camera, CameraClearFlags, CameraEventFlags } from "../../../d3/core/Cam
 import { ShadowMode } from "../../../d3/core/light/ShadowMode";
 import { RenderContext3D } from "../../../d3/core/render/RenderContext3D";
 import { Scene3D } from "../../../d3/core/scene/Scene3D";
-import { Scene3DShaderDeclaration } from "../../../d3/core/scene/Scene3DShaderDeclaration";
 import { DepthPass } from "../../../d3/depthMap/DepthPass";
 import { ShadowCasterPass } from "../../../d3/shadowMap/ShadowCasterPass";
 import { Vector4 } from "../../../maths/Vector4";
@@ -38,7 +37,8 @@ export class GLESRender3DProcess implements IRender3DProcess {
         this._nativeObj.renderManager = value._nativeObj;
     }
     destroy(): void {
-        this._nativeObj = null;
+        //this._nativeObj = null;
+        this._tempList = null;
         this.renderpass.destroy();
     }
 
@@ -95,7 +95,7 @@ export class GLESRender3DProcess implements IRender3DProcess {
         }
 
         renderpass.setViewPort(viewport);
-        let scissor = Vector4.tempVec4;
+        let scissor = Vector4.TEMP;
         scissor.setValue(viewport.x, viewport.y, viewport.width, viewport.height);
         // todo
         renderpass.setScissor(scissor);
@@ -125,6 +125,7 @@ export class GLESRender3DProcess implements IRender3DProcess {
         this.renderpass.shadowCastPass = enableShadow;
         shadowParams.setValue(0, 0, 0, 0);
         if (enableShadow) {
+            let sceneShaderData = context.sceneData;
             // direction light shadow
             let mainDirectionLight = camera.scene._mainDirectionLight;
             let needDirectionShadow = mainDirectionLight && mainDirectionLight.shadowMode != ShadowMode.None;
@@ -137,7 +138,7 @@ export class GLESRender3DProcess implements IRender3DProcess {
                 let directionShadowMap = Scene3D._shadowCasterPass.getDirectLightShadowMap(mainDirectionLight);
                 this.renderpass.directLightShadowPass.destTarget = directionShadowMap._renderTarget as GLESInternalRT;
                 shadowParams.x = this.renderpass.directLightShadowPass.light.shadowStrength;
-                camera.scene._shaderValues.setTexture(ShadowCasterPass.SHADOW_MAP, directionShadowMap);
+                sceneShaderData.setTexture(ShadowCasterPass.SHADOW_MAP, directionShadowMap);
             }
 
             // spot light shadow
@@ -149,9 +150,9 @@ export class GLESRender3DProcess implements IRender3DProcess {
                 let spotShadowMap = Scene3D._shadowCasterPass.getSpotLightShadowPassData(mainSpotLight);
                 this.renderpass.spotLightShadowPass.destTarget = spotShadowMap._renderTarget as GLESInternalRT;
                 shadowParams.y = this.renderpass.spotLightShadowPass.light.shadowStrength;
-                camera.scene._shaderValues.setTexture(ShadowCasterPass.SHADOW_SPOTMAP, spotShadowMap);
+                sceneShaderData.setTexture(ShadowCasterPass.SHADOW_SPOTMAP, spotShadowMap);
             }
-            camera.scene._shaderValues.setVector(ShadowCasterPass.SHADOW_PARAMS, shadowParams);
+            sceneShaderData.setVector(ShadowCasterPass.SHADOW_PARAMS, shadowParams);
 
             let needBlitOpaque = camera.opaquePass;
             renderpass.enableOpaqueTexture = needBlitOpaque;
@@ -190,38 +191,24 @@ export class GLESRender3DProcess implements IRender3DProcess {
             depthMode |= camera.postProcess.cameraDepthTextureMode;
         }
         if ((depthMode & DepthTextureMode.Depth) != 0) {
-            let needDepthTex = camera.canblitDepth && camera._internalRenderTexture.depthStencilTexture;
-            if (needDepthTex) {
-                camera.depthTexture = camera._cacheDepthTexture.depthStencilTexture;
-                // @ts-ignore
-                Camera.depthPass._depthTexture = camera.depthTexture;
-                camera._shaderValues.setTexture(DepthPass.DEPTHTEXTURE, camera.depthTexture);
-                Camera.depthPass._setupDepthModeShaderValue(DepthTextureMode.Depth, camera);
-                depthMode &= ~DepthTextureMode.Depth;
-            }
-            else {
-                Camera.depthPass.getTarget(camera, DepthTextureMode.Depth, camera.depthTextureFormat);
-                this.renderpass.renderpass.depthTarget = (<RenderTexture>camera.depthTexture)._renderTarget as GLESInternalRT;
-                camera._shaderValues.setTexture(DepthPass.DEPTHTEXTURE, camera.depthTexture);
-            }
+            Camera.depthPass.getTarget(camera, DepthTextureMode.Depth, camera.depthTextureFormat);
+            this.renderpass.renderpass.depthTarget = (<RenderTexture>camera.depthTexture)._renderTarget as GLESInternalRT;
+            Camera.depthPass._setupDepthModeShaderValue(DepthTextureMode.Depth, camera);
         }
         if ((depthMode & DepthTextureMode.DepthNormals) != 0) {
             Camera.depthPass.getTarget(camera, DepthTextureMode.DepthNormals, camera.depthTextureFormat);
             this.renderpass.renderpass.depthNormalTarget = (<RenderTexture>camera.depthNormalTexture)._renderTarget as GLESInternalRT;
             camera._shaderValues.setTexture(DepthPass.DEPTHNORMALSTEXTURE, camera.depthNormalTexture);
+            Camera.depthPass._setupDepthModeShaderValue(DepthTextureMode.DepthNormals, camera);
         }
-
         this.renderpass.renderpass.depthTextureMode = depthMode;
     }
 
     fowardRender(context: GLESRenderContext3D, camera: Camera): void {
-        this.initRenderpass(camera, context);
-
+        Camera.depthPass.cleanUp(camera);
         this.renderDepth(camera);
-
+        this.initRenderpass(camera, context);
         this.renderFowarAddCameraPass(context, this.renderpass);
-
-        Camera.depthPass.cleanUp();
     }
 
     renderFowarAddCameraPass(context: GLESRenderContext3D, renderpass: GLESForwardAddRP): void {

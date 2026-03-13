@@ -6,14 +6,13 @@ const eventPool: Array<Event> = [];
 /**
  * @en The `EventDispatcher` class is the base class for all classes that dispatch events.
  * @zh `EventDispatcher` 类是可调度事件的所有类的基类。
+ * @blueprintable
  */
 export class EventDispatcher {
     /**@private */
     private _events: Record<string, Delegate>;
 
     /**
-     * @internal
-     * @protected
      * @en Start listening to a specific event type.
      * This method is called when a new event listener is added.
      * @param type The event type to listen to.
@@ -41,10 +40,12 @@ export class EventDispatcher {
      * @en Dispatch an event.
      * @param type The type of event.
      * @param data (Optional) Data to pass to the callback. If multiple parameters p1, p2, p3, ... need to be passed, use an array structure such as [p1, p2, p3, ...]. If a single parameter p needs to be passed and p is an array, use a structure such as [p]. For other single parameters p, you can directly pass parameter p.
+     * If data is Event.EMPTY, it means passing an Event object to the callback function. Note that it is not passing Event.TEMP, but an independent Event object.
      * @returns True if there are listeners for this event type, false otherwise.
      * @zh 派发事件。
      * @param type 事件类型。
      * @param data （可选）回调数据。<b>注意：</b>如果是需要传递多个参数 p1,p2,p3,...可以使用数组结构如：[p1,p2,p3,...] ；如果需要回调单个参数 p ，且 p 是一个数组，则需要使用结构如：[p]，其他的单个参数 p ，可以直接传入参数 p。
+     * 特别的，如果data是Event.EMPTY，则表示传递一个Event对象给回调函数，注意，并不是传递Event.TEMP，而是一个独立的Event对象。
      * @returns 此事件类型是否有侦听者，如果有侦听者则值为 true，否则值为 false。
      */
     event(type: string, data?: any): boolean {
@@ -110,7 +111,6 @@ export class EventDispatcher {
         return this;
     }
 
-
     /**
      * @en Register an event listener object with the EventDispatcher object so that the listener receives event notifications. This event listener responds once and is automatically removed after the first call.
      * @param type The type of event.
@@ -122,7 +122,6 @@ export class EventDispatcher {
      * @returns 此 EventDispatcher 对象。
      */
     once(type: string, listener: Function): EventDispatcher;
-
     /**
      * @en Register an event listener object with the EventDispatcher object so that the listener receives event notifications. This event listener responds once and is automatically removed after the first call.
      * @param type The type of event.
@@ -169,14 +168,12 @@ export class EventDispatcher {
      * @en Remove a listener from the EventDispatcher object.
      * @param type The type of event.
      * @param caller The execution scope of the event listener function.
-     * @param listener  (Optional) The listener function.
-     * @param args (Optional) The callback parameters of the event listener function.
+     * @param listener The listener function.
      * @returns This EventDispatcher object.
      * @zh 从 EventDispatcher 对象中删除侦听器。
      * @param type 事件的类型。
      * @param caller 事件侦听函数的执行域。
-     * @param listener （可选）事件侦听函数。
-     * @param args （可选）事件侦听函数的回调参数。
+     * @param listener 事件侦听函数。
      * @returns 此 EventDispatcher 对象。
      */
     off(type: string, caller: any, listener?: Function, args?: any[]): EventDispatcher;
@@ -201,10 +198,15 @@ export class EventDispatcher {
      * @returns 此 EventDispatcher 对象。
      */
     offAll(type?: string): EventDispatcher {
-        if (type == null)
-            this._events = null;
+        if (!this._events)
+            return this;
+
+        if (type == null) {
+            for (let type in this._events)
+                this._events[type].clear();
+        }
         else {
-            let listeners = this._events && this._events[type];
+            let listeners = this._events[type];
             if (listeners)
                 listeners.clear();
         }

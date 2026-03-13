@@ -1,3 +1,7 @@
+/**
+description
+ WebSocket客户端示例，实现基本的连接、发送和接收消息
+ */
 import { Laya } from "Laya";
 import { Event } from "laya/events/Event";
 import { Socket } from "laya/net/Socket";
@@ -16,7 +20,7 @@ export class Network_Socket2 {
 	private connect(): void {
 		this.socket = new Socket();
 		//socket.connect("echo.websocket.org", 80);
-		this.socket.connectByUrl("wss://devxq.layabox.com:17000");
+		this.socket.connectByUrl("wss://echo.websocket.org:443");
 
 		this.output = this.socket.output;
 

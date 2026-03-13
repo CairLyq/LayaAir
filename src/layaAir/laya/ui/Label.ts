@@ -5,6 +5,7 @@ import { UIComponent } from "./UIComponent"
 import { UIUtils } from "./UIUtils"
 import { HideFlags, NodeFlags } from "../Const";
 import { SerializeUtil } from "../loaders/SerializeUtil";
+import { TransformKind } from "../display/SpriteConst";
 
 export type LabelFitContent = "no" | "yes" | "height";
 
@@ -13,6 +14,7 @@ export type LabelFitContent = "no" | "yes" | "height";
  * `change` event is dispatched when the text content changes.
  * @zh Label 类用于创建显示对象以显示文本。
  * `change`事件用于文本内容发生改变后调度。
+ * @blueprintInheritable
  */
 export class Label extends UIComponent {
 
@@ -256,17 +258,15 @@ export class Label extends UIComponent {
     /**
      * @en Sets whether the text content adapts to the container size.
      * Possible values: "yes" (both text width and height adapt), "height" (only text height adapts), "no" (does not adapt).
-     * If a boolean value is provided, true corresponds to "yes" and false corresponds to "no".
      * @zh 设置文本内容是否自适应容器大小
      * 可选值："yes"（文本宽度和高度自适应）、"height"（仅文本高度自适应）、"no"（不自适应）
-     * 如果传入布尔值，则 true 对应 "yes"，false 对应 "no"
      */
     get fitContent(): LabelFitContent {
         return this._fitContent;
     }
 
     set fitContent(value: LabelFitContent) {
-        if (typeof (value) === "boolean")
+        if (typeof (value) === "boolean") //兼容旧版本
             value = value ? "yes" : "no";
         if (this._fitContent != value) {
             if ((value == "yes" || value == "height")
@@ -377,7 +377,7 @@ export class Label extends UIComponent {
 
     /**
      * @en Whether single character rendering is enabled. Enable this if the text content changes frequently, such as an increasing number, to prevent inefficient use of cache.
-     * @zh 是否启用单个字符渲染。如果Textd的内容一直改变，例如是一个增加的数字，就设置这个，防止无效占用缓存 
+     * @zh 是否启用单个字符渲染。如果文字内容一直改变，例如是一个增加的数字，就设置这个，防止无效占用缓存 
      */
     get singleCharRender(): boolean {
         return this._tf.singleCharRender;
@@ -442,19 +442,15 @@ export class Label extends UIComponent {
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    _setWidth(value: number): void {
-        super._setWidth(value);
-        this._tf.width = value;
-    }
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
 
-    /**
-     * @internal
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
-        this._tf.height = value;
+        if ((kind & TransformKind.Width) != 0)
+            this._tf.width = this._width;
+        if ((kind & TransformKind.Height) != 0)
+            this._tf.height = this._height;
     }
 
     protected createChildren(): void {
@@ -465,7 +461,7 @@ export class Label extends UIComponent {
         this._tf.on(Event.CHANGE, () => {
             this.event(Event.CHANGE);
             if (!this._isWidthSet || !this._isHeightSet)
-                this.onCompResize();
+                this._sizeChanged();
         });
         this.addChild(this._tf);
     }
@@ -478,40 +474,19 @@ export class Label extends UIComponent {
         return this._tf.height;
     }
 
-    get_width(): number {
-        if (this._isWidthSet || this._tf.text) return super.get_width();
-        return 0;
-    }
-
     /**
-     * @en Sets the width of the label.
-     * @param value The new width value.
-     * @zh 设置文本标签的宽度。
-     * @param value 新的宽度值。
+     * @ignore
      */
-    set_width(value: number): void {
+    size(width: number, height: number): this {
         if (this._fitContent == "yes" && !this._fitFlag
             && (!this._getBit(NodeFlags.EDITING_NODE) || this._tf.textWidth > 0))
-            return;
-        super.set_width(value);
-    }
+            width = this._width;//锁定了width
 
-    get_height(): number {
-        if (this._isHeightSet || this._tf.text) return super.get_height();
-        return 0;
-    }
-
-    /**
-     * @en Sets the height of the label.
-     * @param value The new height value.
-     * @zh 设置文本标签的高度。
-     * @param value 新的高度值。
-     */
-    set_height(value: number): void {
         if ((this._fitContent == "yes" || this._fitContent == "height") && !this._fitFlag
             && (!this._getBit(NodeFlags.EDITING_NODE) || this._tf.textHeight > 0))
-            return;
-        super.set_height(value);
+            height = this._height;//锁定了height
+
+        return super.size(width, height);
     }
 
     set_dataSource(value: any) {

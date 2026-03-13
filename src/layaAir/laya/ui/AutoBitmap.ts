@@ -4,6 +4,7 @@ import { ILaya } from "../../ILaya";
 import { Draw9GridTextureCmd } from "../display/cmd/Draw9GridTextureCmd";
 import { DrawTextureCmd } from "../display/cmd/DrawTextureCmd";
 import { LayaEnv } from "../../LayaEnv";
+import { SerializeUtil } from "../loaders/SerializeUtil";
 
 /**
  * @en The `AutoBitmap` class is a display object that represents bitmap images or graphics.
@@ -27,7 +28,7 @@ export class AutoBitmap extends Graphics {
     _color: string = "#ffffff";
     /**@internal */
     _offset: any[];
-    private _drawGridCmd: Draw9GridTextureCmd | DrawTextureCmd;
+    private _drawCmd: Draw9GridTextureCmd | DrawTextureCmd;
     uv: number[] = null;
 
     /**
@@ -96,12 +97,15 @@ export class AutoBitmap extends Graphics {
             this._source.off("reload", this, this._setChanged);
         if (value) {
             this._source = value;
-            this._setChanged();
+            if (SerializeUtil.isDeserializing)
+                this._setChanged();
+            else
+                ILaya.timer.runCallLater(this, this.changeSource, true);
             if (!LayaEnv.isPlaying)
                 value.on("reload", this, this._setChanged);
         } else {
             this._source = null;
-            this._setDrawGridCmd(null);
+            this._drawCmd = this.replaceCmd(this._drawCmd, null, true);
         }
     }
 
@@ -138,7 +142,7 @@ export class AutoBitmap extends Graphics {
     protected changeSource(): void {
         this._isChanged = false;
         let source = this._source;
-        if (!source || !source.bitmap || !this._sp)
+        if (!source || !source.bitmap || !this.owner)
             return;
 
         let width = this.width;
@@ -175,21 +179,7 @@ export class AutoBitmap extends Graphics {
             cmd = DrawTextureCmd.create(source, this._offset ? this._offset[0] : 0, this._offset ? this._offset[1] : 0, width, height, null, 1, this._color, null, this.uv)
         else
             cmd = Draw9GridTextureCmd.create(source, 0, 0, width, height, sizeGrid, false, this._color);
-        this._setDrawGridCmd(cmd);
-    }
-
-    /**
-     * @en Due to the possibility of other graphic commands, the original method of directly using clear() cannot be used.
-     * @zh 由于可能有其他的graphic命令，因此不能用原来的直接clear()的方法
-     */
-    private _setDrawGridCmd(newcmd: any) {
-        if (this._drawGridCmd) {
-            this.removeCmd(this._drawGridCmd);
-            this._drawGridCmd.recover();
-        }
-        this._drawGridCmd = newcmd;
-        if (newcmd)
-            this.addCmd(newcmd);
+        this._drawCmd = this.replaceCmd(this._drawCmd, cmd, true);
     }
 
     /**

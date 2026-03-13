@@ -1,3 +1,7 @@
+/**
+description
+ 展示各种缓动动画效果的交互式演示程序
+ */
 import { Laya } from "Laya";
 import { Input } from "laya/display/Input";
 import { Sprite } from "laya/display/Sprite";
@@ -7,9 +11,9 @@ import { Event } from "laya/events/Event";
 import { Box } from "laya/ui/Box";
 import { Label } from "laya/ui/Label";
 import { List } from "laya/ui/List";
-import { Ease } from "laya/utils/Ease";
+import { Ease } from "laya/tween/Ease";
 import { Handler } from "laya/utils/Handler";
-import { Tween } from "laya/utils/Tween";
+import { Tween } from "laya/tween/Tween";
 import { Main } from "./../Main";
 
 export class Tween_EaseFunctionsDemo {

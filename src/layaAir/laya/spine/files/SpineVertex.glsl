@@ -1,6 +1,18 @@
 #if !defined(SpineVertex_lib)
     #define SpineVertex_lib
 
+void transfrom(vec2 pos,vec4 xDir,vec4 yDir,out vec2 outPos){
+    outPos.x=xDir.x*pos.x+xDir.y*pos.y +xDir.z;
+    outPos.y=yDir.x*pos.x+yDir.y*pos.y +yDir.z;
+}
+
+void transfrom_spine(vec2 pos,vec3 xDir,vec3 yDir,out vec2 outPos){
+    // outPos.x = xDir.x*pos.x+xDir.y*pos.y + xDir.z;
+    // outPos.y = - (yDir.x*pos.x+yDir.y*pos.y -yDir.z);
+    outPos.x =  xDir.x * pos.x - yDir.x * pos.y + xDir.z ;
+    outPos.y =  xDir.y * pos.x - yDir.y * pos.y + yDir.z;
+}
+
 #ifdef SPINE_SIMPLE
     uniform vec4 u_SimpleAnimatorParams;
     uniform sampler2D u_SimpleAnimatorTexture;
@@ -21,11 +33,15 @@
         vec4 down = texture2D(u_SimpleAnimatorTexture, uv);
         // vec4 up = vec4(1.0,1.0 ,1.0 ,0.0 );
         // vec4 down = vec4( 1.0,1.0 ,1.0 ,0.0 );
-        float x = pos.x*up.x + pos.y*up.y +up.z;
-        float y = pos.x*down.x + pos.y*down.y +down.z;
-        pos.x=x*weight;
-        pos.y=y*weight;
-        return vec4(pos,0.,1.0);
+        
+        vec2 outPos;
+        transfrom(pos , up , down , outPos);
+        outPos = outPos * weight;
+        // float x = pos.x*up.x + pos.y*up.y +up.z;
+        // float y = pos.x*down.x + pos.y*down.y +down.z;
+        // pos.x=x*weight;
+        // pos.y=y*weight;
+        return vec4(outPos,0.,1.0);
     }
 #endif
 
@@ -35,29 +51,16 @@
         int boneId=int(fboneId);
         vec4 up= u_sBone[boneId*2];
         vec4 down=u_sBone[boneId*2+1];
-        float x = pos.x*up.x + pos.y*up.y +up.z ;
-        float y = pos.x*down.x + pos.y*down.y +down.z;
-        pos.x=x*weight;
-        pos.y=y*weight;
-        return vec4(pos,0.,1.0);
+        vec2 outPos;
+        transfrom(pos , up , down , outPos);
+        // float x = pos.x*up.x + pos.y*up.y +up.z ;
+        // float y = pos.x*down.x + pos.y*down.y +down.z;
+        outPos = outPos * weight;
+        return vec4(outPos,0.,1.0);
     }
 #endif
 
-uniform vec4 u_clipMatDir;
-uniform vec2 u_clipMatPos;// 这个是全局的，不用再应用矩阵了。
-uniform vec2 u_size;
-
-
-// #ifdef GPU_INSTANCE
-//     uniform vec3 a_NMatrix[2];
-// #else
-    uniform vec3 u_NMatrix[2];
-// #endif //GPU_INSTANCE
 uniform vec4 u_color;
-
-varying vec2 vUv;
-varying vec4 vColor;
-varying vec2 v_cliped;
 
 vec4 getSpinePos(){
 
@@ -70,56 +73,95 @@ vec4 getSpinePos(){
 
         float offset = 1.0 / u_SimpleAnimatorTextureSize;
 
-        return getBonePosBake(currentPixelPos,a_BoneId,a_weight,a_pos,offset)
+        return getBonePosBake(currentPixelPos,a_BoneId,a_weight,a_position,offset)
         +getBonePosBake(currentPixelPos,a_PosWeightBoneID_2.w,a_PosWeightBoneID_2.z,a_PosWeightBoneID_2.xy,offset)
         +getBonePosBake(currentPixelPos,a_PosWeightBoneID_3.w,a_PosWeightBoneID_3.z,a_PosWeightBoneID_3.xy,offset)
         +getBonePosBake(currentPixelPos,a_PosWeightBoneID_4.w,a_PosWeightBoneID_4.z,a_PosWeightBoneID_4.xy,offset);
     #else
         #ifdef SPINE_FAST
-            return getBonePos(a_BoneId,a_weight,a_pos)
+            return getBonePos(a_BoneId,a_weight,a_position)
             +getBonePos(a_PosWeightBoneID_2.w,a_PosWeightBoneID_2.z,a_PosWeightBoneID_2.xy)
             +getBonePos(a_PosWeightBoneID_3.w,a_PosWeightBoneID_3.z,a_PosWeightBoneID_3.xy)
             +getBonePos(a_PosWeightBoneID_4.w,a_PosWeightBoneID_4.z,a_PosWeightBoneID_4.xy);
         #endif
         
         #ifdef SPINE_RB
-            return getBonePos(a_BoneId,1.0,a_pos);
+            return getBonePos(a_BoneId,1.0,a_position);
             //return vec4(pos,0.,1.);
         #endif
     #endif // SPINE_SIMPLE
     //spine Texture
-    return vec4(a_pos.x,a_pos.y,0.,1.);
+    return vec4(a_position.x,a_position.y,0.,1.);
 
 }
 
-
-vec2 getClipedInfo(vec2 screenPos){
-    vec2 cliped;
-    float clipw = length(u_clipMatDir.xy);
-    float cliph = length(u_clipMatDir.zw);
-    vec2 clippos = screenPos - u_clipMatPos.xy;	//pos已经应用矩阵了，为了减的有意义，clip的位置也要缩放
-    if(clipw>20000. && cliph>20000.)
-        cliped = vec2(0.5,0.5);
-    else {
-        //clipdir是带缩放的方向，由于上面clippos是在缩放后的空间计算的，所以需要把方向先normalize一下
-        cliped =vec2( dot(clippos,u_clipMatDir.xy)/clipw/clipw, dot(clippos,u_clipMatDir.zw)/cliph/cliph);
-    }
-    return cliped;
-}
-
-vec4 getScreenPos(vec4 pos){
+void getGlobalPos(vec4 pos, out vec2 globalPos){
     #ifdef GPU_INSTANCE
         vec3 down =a_NMatrix_1;
         vec3 up =a_NMatrix_0;
     #else
-        vec3 down =u_NMatrix[1];
-        vec3 up =u_NMatrix[0];
+        vec3 down =u_NMatrix_1;
+        vec3 up =u_NMatrix_0;
     #endif
-    float x=up.x*pos.x+up.y*pos.y+up.z;
-    float y=down.x*pos.x+down.y*pos.y+down.z;
-    v_cliped = getClipedInfo(vec2(x,y));
-    return vec4((x/u_size.x-0.5)*2.0,(0.5-y/u_size.y)*2.0,pos.z,1.0);
+
+    transfrom_spine(pos.xy,up,down,globalPos);
+    // float x=up.x*pos.x+up.y*pos.y+up.z;
+    // float y=down.x*pos.x+down.y*pos.y-down.z;
+    // globalPos = vec2(x,-y);
 }
 
+vec4 getScreenPos(vec4 pos){
+    vec2 globalPos;
+    #ifdef GPU_INSTANCE
+        vec3 down =a_NMatrix_1;
+        vec3 up =a_NMatrix_0;
+    #else
+        vec3 down =u_NMatrix_1;
+        vec3 up =u_NMatrix_0;
+    #endif
+
+    transfrom_spine(pos.xy,up,down,globalPos);
+    // float x=up.x*pos.x+up.y*pos.y+up.z;
+    // float y= -1.0 * (down.x*pos.x+down.y*pos.y-down.z);
+    
+    clip(globalPos); //裁剪
+
+    vec2 viewPos;
+    getViewPos(globalPos,viewPos);
+    vec4 outPos;
+    getProjectPos(viewPos,outPos);
+    return outPos;
+}
+
+void getVertexInfo(vec4 pos, inout vertexInfo info){
+    info.pos = pos.xy;
+    info.color = vec4(1.0);
+    #ifdef COLOR
+        info.color = a_color;
+    #endif
+    info.color *= u_baseRenderColor;
+
+    #ifdef PREMULTIPLYALPHA
+        info.color.rgb = info.color.rgb * info.color.a;
+    #endif
+    
+    #ifdef UV
+        info.uv = a_uv;
+    #endif
+
+    #ifdef LIGHT2D_ENABLE
+        vec2 global;
+        // vec3 stageInv0 = vec3(u_LightAndShadow2DStageMat0.x, u_LightAndShadow2DStageMat0.y, u_LightAndShadow2DStageMat0.z);
+        // vec3 stageInv1 = vec3(u_LightAndShadow2DStageMat1.x, u_LightAndShadow2DStageMat1.y, u_LightAndShadow2DStageMat1.z);
+        // invertMat(stageInv0, stageInv1); //获取stage的逆矩阵
+        getGlobalPos(pos, global); //先获得完整世界变换的位置
+        // transfrom(global, stageInv0, stageInv1, global); //先去除stage变换
+        // transfrom(global, u_LightAndShadow2DSceneInv0, u_LightAndShadow2DSceneInv1, global); //再去除scene变换
+        // transfrom(global, u_LightAndShadow2DStageMat0, u_LightAndShadow2DStageMat1, global); //再恢复stage变换
+        //现在global中的值就和生成光影图时的值一致了，基于这个值生成光影图采样uv坐标
+        info.lightUV.x = (global.x - u_LightAndShadow2DParam.x) / u_LightAndShadow2DParam.z;
+        info.lightUV.y = 1.0 - (global.y - u_LightAndShadow2DParam.y) / u_LightAndShadow2DParam.w;
+    #endif
+}
 
 #endif // SpineVertex_lib

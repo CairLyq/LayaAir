@@ -1,5 +1,6 @@
+import { LayaGL } from "../../../../layagl/LayaGL";
+import { StatElement } from "../../../../layagl/StatisticsContext";
 import { BufferTargetType, BufferUsage } from "../../../../RenderEngine/RenderEnum/BufferTargetType";
-import { GPUEngineStatisticsInfo } from "../../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { WebGLEngine } from "../WebGLEngine";
 import { GLObject } from "./GLObject";
 
@@ -12,6 +13,8 @@ export class GLBuffer extends GLObject {
     //Common Enum
     _glTargetType: BufferTargetType;
     _glBufferUsageType: BufferUsage;
+    private _statistics_M_Buffer: StatElement;
+    private _statistics_RC_Buffer: StatElement;
     //size
     _byteLength: number = 0;
 
@@ -22,7 +25,23 @@ export class GLBuffer extends GLObject {
         this._getGLTarget(this._glTargetType);
         this._getGLUsage(this._glBufferUsageType);
         this._glBuffer = this._gl.createBuffer();
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.RC_GPUBuffer, 1);
+
+        switch (targetType) {
+            case BufferTargetType.ARRAY_BUFFER:
+                this._statistics_M_Buffer = StatElement.M_VertexBuffer;
+                this._statistics_RC_Buffer = StatElement.C_VertexBuffer;
+                break;
+            case BufferTargetType.ELEMENT_ARRAY_BUFFER:
+                this._statistics_M_Buffer = StatElement.M_IndexBuffer;
+                this._statistics_RC_Buffer = StatElement.C_IndexBuffer;
+                break;
+            case BufferTargetType.UNIFORM_BUFFER:
+                this._statistics_M_Buffer = StatElement.M_UBOBuffer;
+                this._statistics_RC_Buffer = StatElement.C_UBOBuffer;
+                break;
+        }
+        LayaGL.statAgent.recordCountData(StatElement.C_GPUBuffer, 1);
+        LayaGL.statAgent.recordCountData(this._statistics_RC_Buffer, 1);
     }
 
     private _getGLUsage(usage: BufferUsage) {
@@ -59,8 +78,9 @@ export class GLBuffer extends GLObject {
     }
 
     private _memorychange(bytelength: number) {
-        this._engine._addStatisticsInfo(GPUEngineStatisticsInfo.M_GPUBuffer, -this._byteLength + bytelength);
-        this._engine._addStatisticsInfo(GPUEngineStatisticsInfo.M_GPUMemory, -this._byteLength + bytelength);
+        LayaGL.statAgent.recordMemoryData(StatElement.M_GPUBuffer, -this._byteLength + bytelength);
+        LayaGL.statAgent.recordMemoryData(StatElement.M_GPUMemory, -this._byteLength + bytelength);
+        LayaGL.statAgent.recordMemoryData(this._statistics_M_Buffer, -this._byteLength + bytelength);
     }
 
     bindBuffer(): boolean {
@@ -91,16 +111,14 @@ export class GLBuffer extends GLObject {
         this._byteLength = srcData;
         gl.bufferData(this._glTarget, this._byteLength, this._glUsage);
         this.unbindBuffer();
+
     }
 
-
-
-
-    setData(srcData: ArrayBuffer | ArrayBufferView, offset: number): void {
+    setData(srcData: ArrayBuffer, offset: number): void {
         let gl = this._gl;
         this.bindBuffer();
-        gl.bufferSubData(this._glTarget, offset, <ArrayBufferView>srcData);
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.C_GeometryBufferUploadCount, 1);
+        gl.bufferSubData(this._glTarget, offset, srcData);
+        LayaGL.statAgent.recordCTData(StatElement.CT_BufferUploadCount, 1);
         this.unbindBuffer();
     }
 
@@ -108,26 +126,42 @@ export class GLBuffer extends GLObject {
         let gl = this._gl;
         this.bindBuffer();
         gl.bufferSubData(this._glTarget, offset, srcData as ArrayBufferView, 0, length);
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.C_GeometryBufferUploadCount, 1);
+        LayaGL.statAgent.recordCTData(StatElement.CT_BufferUploadCount, 1);
         this.unbindBuffer();
     }
 
-
     bindBufferBase(glPointer: number) {
-        if (this._engine._getBindUBOBuffer(glPointer) != this) {
-            const gl = <WebGL2RenderingContext>this._gl;
+        const gl = <WebGL2RenderingContext>this._gl;
+        let bindInfo = this._engine._uboBindingMap[glPointer];
+        if (bindInfo && bindInfo.buffer != this._glBuffer) {
+            if (this._engine._getbindBuffer(this._glTargetType) != this) {
+                this._engine._setbindBuffer(this._glTargetType, this);
+            }
             gl.bindBufferBase(this._glTarget, glPointer, this._glBuffer);
-            this._engine._setBindUBOBuffer(glPointer, this);
+            bindInfo.buffer = this._glBuffer;
+            bindInfo.offset = 0;
+            bindInfo.size = this._byteLength;
         }
     }
 
-
     bindBufferRange(glPointer: number, offset: number, byteCount: number) {
         const gl = <WebGL2RenderingContext>this._gl;
-        gl.bindBufferRange(this._glTarget, glPointer, this._glBuffer, offset, byteCount);
+        let bindInfo = this._engine._uboBindingMap[glPointer];
+        if (bindInfo) {
+            if (bindInfo.buffer != this._glBuffer || bindInfo.offset != offset || bindInfo.size != byteCount) {
+                if (this._engine._getbindBuffer(this._glTargetType) != this) {
+                    this._engine._setbindBuffer(this._glTargetType, this);
+                }
+                gl.bindBufferRange(this._glTarget, glPointer, this._glBuffer, offset, byteCount);
+                bindInfo.buffer = this._glBuffer;
+                bindInfo.offset = offset;
+                bindInfo.size = byteCount;
+            }
+        }
     }
 
     resizeBuffer(dataLength: number) {
+
         this.bindBuffer();
         const gl = this._gl;
         this._byteLength = dataLength;
@@ -137,9 +171,10 @@ export class GLBuffer extends GLObject {
     destroy() {
         super.destroy();
         const gl = this._gl;
-        WebGLEngine.instance._addStatisticsInfo(GPUEngineStatisticsInfo.RC_GPUBuffer, -1);
         gl.deleteBuffer(this._glBuffer);
         this._memorychange(0);
+        LayaGL.statAgent.recordCountData(StatElement.C_GPUBuffer, -1);
+        LayaGL.statAgent.recordCountData(this._statistics_RC_Buffer, -1);
         this._byteLength = 0;
         this._engine = null;
         this._glBuffer = null;

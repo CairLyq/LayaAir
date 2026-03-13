@@ -28,6 +28,7 @@ export class HLODRender extends BaseRender {
     /**@internal */
     _curSubBatchMeshBounds: Bounds[];
 
+    /** @ignore */
     constructor() {
         super();
         this._singleton = false;
@@ -96,8 +97,7 @@ export class HLODRender extends BaseRender {
 
     }
 
-    /**
-     * @override
+    /** 
      * @internal
      * @en Apply the lightmap parameters of the current HLOD element to the shader.
      * @zh 将当前 HLOD 元素的光照图参数应用到着色器上。
@@ -174,7 +174,7 @@ export class HLODRender extends BaseRender {
                 }
                 //sort TODO
                 // let position = context.camera.transform.position;
-                // let oriPisition = (this.owner as Sprite3D)
+                // let oriPisition = this.owner;
                 // hodMesh = hodMesh.sort((a,b)=>{
 
                 //     return 10;

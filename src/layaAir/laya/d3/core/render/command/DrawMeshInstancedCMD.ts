@@ -16,16 +16,18 @@ import { BufferState } from "../../../../webgl/utils/BufferState";
 import { VertexMesh } from "../../../../RenderEngine/RenderShader/VertexMesh";
 import { Laya3DRender } from "../../../RenderObjs/Laya3DRender";
 import { Transform3D } from "../../Transform3D";
-import { DrawElementCMDData } from "../../../../RenderDriver/DriverDesign/3DRenderPass/IRendderCMD";
+import { DrawElementCMDData } from "../../../../RenderDriver/DriverDesign/3DRenderPass/IRender3DCMD";
 import { IRenderElement3D } from "../../../../RenderDriver/DriverDesign/3DRenderPass/I3DRenderPass";
+import { Pool } from "../../../../utils/Pool";
+import { ReflectionProbe } from "../../../component/Volume/reflectionProbe/ReflectionProbe";
 
 /**
  * @en DrawMeshInstancedCMD class for instanced mesh drawing command.
  * @zh DrawMeshInstancedCMD 类，用于实例化网格绘制命令。
  */
 export class DrawMeshInstancedCMD extends Command {
-    /**@internal */
-    private static _pool: DrawMeshInstancedCMD[] = [];
+    private static readonly _pool = Pool.createPool(DrawMeshInstancedCMD);
+
     /**
      * @en Maximum number of draw instances.
      * @zh 设置最大DrawInstance数。
@@ -58,9 +60,9 @@ export class DrawMeshInstancedCMD extends Command {
     static create(mesh: Mesh, subMeshIndex: number, matrixs: Matrix4x4[], material: Material, subShaderIndex: number, instanceProperty: MaterialInstancePropertyBlock, drawnums: number, commandBuffer: CommandBuffer): DrawMeshInstancedCMD {
         var cmd: DrawMeshInstancedCMD;
         if ((matrixs && matrixs.length > DrawMeshInstancedCMD.maxInstanceCount) || drawnums > DrawMeshInstancedCMD.maxInstanceCount) {
-            throw "the number of renderings exceeds the maximum number of merges";
+            throw new Error("the number of renderings exceeds the maximum number of merges");
         }
-        cmd = DrawMeshInstancedCMD._pool.length > 0 ? DrawMeshInstancedCMD._pool.pop() : new DrawMeshInstancedCMD();
+        cmd = DrawMeshInstancedCMD._pool.take();
         cmd._matrixs = matrixs;
         cmd.material = material;
         cmd._subMeshIndex = subMeshIndex;
@@ -68,6 +70,11 @@ export class DrawMeshInstancedCMD extends Command {
         cmd._commandBuffer = commandBuffer;
         cmd._instanceProperty = instanceProperty;
         cmd._drawnums = drawnums;
+
+        if (!cmd._instanceBufferState) {
+            cmd._instanceBufferState = new BufferState();
+        }
+
         cmd.mesh = mesh;
         matrixs && cmd._updateWorldMatrixBuffer();
         cmd._setInstanceBuffer();
@@ -112,7 +119,7 @@ export class DrawMeshInstancedCMD extends Command {
         this._transform = Laya3DRender.Render3DModuleDataFactory.createTransform(null);
         this._instanceRenderElementArray = [];
         this._instanceGeometryArray = [];
-        this._instanceWorldMatrixData = new Float32Array(DrawMeshInstancedCMD.maxInstanceCount * 16);
+        this._instanceWorldMatrixData = new Float32Array(DrawMeshInstancedCMD.maxInstanceCount * 20);
         this._instanceWorldMatrixBuffer = Laya3DRender.renderOBJCreate.createVertexBuffer3D(this._instanceWorldMatrixData.length * 4, BufferUsage.Dynamic, false);
         this._instanceWorldMatrixBuffer.vertexDeclaration = VertexMesh.instanceWorldMatrixDeclaration;
         this._instanceWorldMatrixBuffer.instanceBuffer = true;
@@ -151,7 +158,17 @@ export class DrawMeshInstancedCMD extends Command {
     set mesh(value: Mesh) {
         if (this._mesh == value)
             return;
+
         BaseRender.changeVertexDefine(this._mesh, value, this._render._baseRenderNode.shaderData);
+
+        if (this._mesh) {
+            this._mesh._removeReference();
+        }
+
+        if (value) {
+            value._addReference();
+        }
+
         this._mesh = value;
         if (!this._mesh)
             return;
@@ -159,8 +176,13 @@ export class DrawMeshInstancedCMD extends Command {
         if (this._subMeshIndex == -1) {
             for (let i = 0, n = submeshs.length; i < n; i++) {
                 let element = this._instanceRenderElementArray[i] = this._instanceRenderElementArray[i] ? this._instanceRenderElementArray[i] : new RenderElement();
+
                 let geometry = this._instanceGeometryArray[i] = this._instanceGeometryArray[i] ? this._instanceGeometryArray[i] : new MeshInstanceGeometry(submeshs[i]);
+                geometry.bufferState = this._instanceBufferState;
+                geometry.instanceCount = this._drawnums;
+
                 element.setGeometry(geometry);
+
                 element.transform = this._transform;
                 element.material = this._material;
                 // element.renderSubShader = this._material._shader.getSubShaderAt(this._subShaderIndex);
@@ -168,19 +190,20 @@ export class DrawMeshInstancedCMD extends Command {
                 element.render = this._render;
                 element._renderElementOBJ.owner = this._render._baseRenderNode;
 
-                geometry.bufferState = this._instanceBufferState;
-                geometry.instanceCount = this._drawnums;
+
             }
         } else {
             let element = this._instanceRenderElementArray[0] = this._instanceRenderElementArray[0] ? this._instanceRenderElementArray[0] : new RenderElement();
+
             let geometry = this._instanceGeometryArray[0] = this._instanceGeometryArray[0] ? this._instanceGeometryArray[0] : new MeshInstanceGeometry(submeshs[this._subMeshIndex]);
+            geometry.bufferState = this._instanceBufferState;
+            geometry.instanceCount = this._drawnums;
             element.setGeometry(geometry);
+
             element.transform = this._transform;
             element.material = this._material;
             element.render = this._render;
             //element.renderSubShader = this._material._shader.getSubShaderAt(this._subShaderIndex);
-            geometry.bufferState = this._instanceBufferState;
-            geometry.instanceCount = this._drawnums;
 
             element._renderElementOBJ.owner = this._render._baseRenderNode
 
@@ -194,7 +217,7 @@ export class DrawMeshInstancedCMD extends Command {
     private _setInstanceBuffer(): void {
         let instanceBufferState = this._instanceBufferState;
         let vertexArray: Array<VertexBuffer3D> = [];
-        let meshVertexBuffer = this._mesh._bufferState._vertexBuffers as VertexBuffer3D[];
+        let meshVertexBuffer = this._mesh._bufferState._vertexBuffers;
         meshVertexBuffer.forEach(element => {
             vertexArray.push(element);
         });
@@ -217,11 +240,12 @@ export class DrawMeshInstancedCMD extends Command {
         let worldMatrixData: Float32Array = this._instanceWorldMatrixData;
         let count: number = this._drawnums;
         for (let i = 0; i < count; i++) {
-            worldMatrixData.set(this._matrixs[i].elements, i * 16);
+            worldMatrixData.set(this._matrixs[i].elements, i * 20);
+            // todo invert Y data
         }
         let worldBuffer: VertexBuffer3D = this._instanceWorldMatrixBuffer;
         //worldBuffer.setData();
-        worldBuffer.setData(worldMatrixData.buffer, 0, 0, count * 64);
+        worldBuffer.setData(worldMatrixData.buffer, 0, 0, count * 80);
     }
 
     /**
@@ -281,6 +305,10 @@ export class DrawMeshInstancedCMD extends Command {
      */
     renderUpdateElement(renderElement: RenderElement, context: RenderContext3D): IRenderElement3D {
         let renderObj = renderElement._renderElementOBJ;
+        renderObj.owner.probeReflection = context.scene.sceneReflectionProb._dataModule;
+        renderObj.owner.additionShaderData.set(ReflectionProbe.BlockName, context.scene.sceneReflectionProb.shaderData);
+        renderObj.owner.additionShaderData = renderObj.owner.additionShaderData;
+        renderObj.owner._applyReflection();
         renderObj.isRender = renderElement._geometry._prepareRender(context);
         renderElement._geometry._updateRenderParams(context);
         return renderObj;
@@ -322,9 +350,9 @@ export class DrawMeshInstancedCMD extends Command {
      * @zh 回收命令。
      */
     recover(): void {
-        DrawMeshInstancedCMD._pool.push(this);
+        DrawMeshInstancedCMD._pool.recover(this);
         super.recover();
-        this._material && this._material._removeReference(1);
+        this._material && this._material._removeReference();
         this._material = null;
         this._instanceBufferState.destroy();
         this._instanceBufferState = null;
@@ -332,6 +360,7 @@ export class DrawMeshInstancedCMD extends Command {
         this._instanceRenderElementArray = [];
         delete this._instanceGeometryArray;
         this._instanceGeometryArray = [];
+        this._drawElementCMDData.setRenderelements([]);
         this.mesh = null;
 
     }

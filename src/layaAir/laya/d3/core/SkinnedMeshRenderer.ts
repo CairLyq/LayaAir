@@ -8,7 +8,6 @@ import { Sprite3D } from "./Sprite3D";
 import { RenderContext3D } from "./render/RenderContext3D";
 import { SkinnedMeshSprite3DShaderDeclaration } from "./SkinnedMeshSprite3DShaderDeclaration";
 import { SkinRenderElement } from "./render/SkinRenderElement";
-import { Material } from "../../resource/Material";
 import { BlinnPhongMaterial } from "./material/BlinnPhongMaterial";
 import { Scene3D } from "./scene/Scene3D";
 import { Bounds } from "../math/Bounds";
@@ -17,20 +16,38 @@ import { BoundFrustum } from "../math/BoundFrustum";
 import { Laya3DRender } from "../RenderObjs/Laya3DRender";
 import { Vector4 } from "../../maths/Vector4";
 import { Transform3D } from "./Transform3D";
-import { BaseRenderType, IBaseRenderNode, ISkinRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
+import { BaseRenderType, IBaseRenderNode, IMeshRenderNode, ISkinRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
 import { RenderElement } from "./render/RenderElement";
+import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
+import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { LayaGL } from "../../layagl/LayaGL";
+import { StatElement } from "../../layagl/StatisticsContext";
 /**
  * @en The `SkinnedMeshRenderer` class is used for skinned mesh rendering.
  * @zh `SkinnedMeshRenderer` 类用于蒙皮网格渲染。
  */
 export class SkinnedMeshRenderer extends MeshRenderer {
+    /**
+      * @en Shader variable name for skinned animation.
+      * @zh 着色器变量名，用于蒙皮动画。
+      * @internal
+      */
+    static BONES: number;
+    /**
+     * @internal
+     */
+    static __init__(): void {
+        SkinnedMeshSprite3DShaderDeclaration.SHADERDEFINE_BONE = Shader3D.getDefineByName("BONE");
+        SkinnedMeshSprite3DShaderDeclaration.SHADERDEFINE_SIMPLEBONE = Shader3D.getDefineByName("SIMPLEBONE");
+        const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("SkinSprite3D");
+        SkinnedMeshRenderer.BONES = Shader3D.propertyNameToID("u_Bones");
 
-    declare owner: Sprite3D;
+        // commandUniform.addShaderUniform(SkinnedMeshRenderer.BONES, "u_Bones", ShaderDataType.Buffer);
+        commandUniform.addShaderUniformArray(SkinnedMeshRenderer.BONES, "u_Bones", ShaderDataType.Matrix4x4, 24);
+    }
 
-    /**@internal */
     protected _cacheMesh: Mesh;
 
-    /**@internal */
     protected __bones: Sprite3D[] = [];
 
     /**@internal 不可删  IDE数据在这里*/
@@ -47,18 +64,11 @@ export class SkinnedMeshRenderer extends MeshRenderer {
     _renderElements: RenderElement[];
     /** @internal */
     _skinnedData: any[];
-    /** @internal */
-    private _skinnedDataLoopMarks: Uint32Array;
-    /**@internal */
     protected _localBounds: Bounds;
-    /**@internal */
     protected _cacheRootBone: Sprite3D;
-
-    /**@internal */
     protected _worldParams = new Vector4();
 
-    /**@internal */
-    _baseRenderNode: IBaseRenderNode;
+
     //解决编译bug TODO
     private _ownerSkinRenderNode: ISkinRenderNode;
 
@@ -72,7 +82,7 @@ export class SkinnedMeshRenderer extends MeshRenderer {
 
     set localBounds(value: Bounds) {
         this._localBounds = value;
-        this.boundsChange = true;
+        this._baseRenderNode.boundsChange = true;
         this.geometryBounds = this._localBounds;
     }
 
@@ -89,14 +99,14 @@ export class SkinnedMeshRenderer extends MeshRenderer {
             if (this._cacheRootBone)
                 this._cacheRootBone.transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);
             else
-                (this.owner as Sprite3D).transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);
+                this.owner.transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);
 
             if (value) {
                 value.transform.on(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);
                 this._baseRenderNode.transform = value.transform;
             }
             else {
-                (this.owner as Sprite3D).transform.on(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);
+                this.owner.transform.on(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange);
                 this._baseRenderNode.transform = this.owner.transform;
             }
 
@@ -114,6 +124,8 @@ export class SkinnedMeshRenderer extends MeshRenderer {
         }
         this._baseRenderNode.transform = this.rootBone ? this.rootBone.transform : this.owner.transform;
     }
+
+
 
     /**
      * @en The bones used for skinning.
@@ -141,17 +153,19 @@ export class SkinnedMeshRenderer extends MeshRenderer {
 
     /**
      * override it
-     * @returns 
      */
     protected _createBaseRenderNode(): IBaseRenderNode {
         this._ownerSkinRenderNode = Laya3DRender.Render3DModuleDataFactory.createSkinRenderNode();
         return this._ownerSkinRenderNode;
     }
 
+    protected _getcommonUniformMap(): Array<string> {
+        return ["Sprite3D", "SkinSprite3D"];
+    }
+
     /**
     * @inheritDoc
-    * @internal
-    * @override
+    * @internal 
     */
     _needRender(boundFrustum: BoundFrustum, context: RenderContext3D): boolean {
         if (!Stat.enableSkin)
@@ -161,7 +175,6 @@ export class SkinnedMeshRenderer extends MeshRenderer {
 
     /**
      *@inheritDoc
-     *@override
      *@internal
      */
     _createRenderElement(): RenderElement {
@@ -193,7 +206,7 @@ export class SkinnedMeshRenderer extends MeshRenderer {
                     if (this._cacheRootBone) {
                         renderElement.setTransform(this._cacheRootBone.transform);
                     } else {
-                        renderElement.setTransform((this.owner as Sprite3D)._transform);
+                        renderElement.setTransform(this.owner._transform);
                     }
                     renderElement.render = this;
                 }
@@ -212,12 +225,11 @@ export class SkinnedMeshRenderer extends MeshRenderer {
         this._meshChange = true;
     }
     /**
-    *@inheritDoc
-    *@override
     *@internal
     */
     _onMeshChange(value: Mesh): void {
         this._onSkinMeshChange(value);
+        this._setRenderElements();
         if (!value)
             return;
         this._cacheMesh = (<Mesh>value);
@@ -234,7 +246,6 @@ export class SkinnedMeshRenderer extends MeshRenderer {
             (this._renderElements[i] as SkinRenderElement).setSkinData(subData);
         }
         this._isISkinRenderNode() && this._ownerSkinRenderNode.setSkinnedData(this._skinnedData);
-        this._setRenderElements();
     }
 
     /**
@@ -254,32 +265,28 @@ export class SkinnedMeshRenderer extends MeshRenderer {
     }
 
     protected _statAdd() {
-        Stat.renderNode++;
-        Stat.skinRenderNode++;
+        super._statAdd();
+        LayaGL.statAgent.recordCountData(StatElement.C_SkinnedMeshRenderCount, 1);
     }
 
     protected _statRemove() {
-        Stat.renderNode--;
-        Stat.skinRenderNode--;
+        super._statRemove();
+        LayaGL.statAgent.recordCountData(StatElement.C_SkinnedMeshRenderCount, -1);
     }
 
 
     /**
-     * @perfTag PerformanceDefine.T_SkinBoneUpdate
      * @en Updates the render state of the skinned mesh renderer.
      * @param context The 3D render context.
      * @zh 更新蒙皮网格渲染器的渲染状态。
      * @param context 3D渲染上下文。
      */
     renderUpdate(context: RenderContext3D): void {
+        let t = performance.now();
         super.renderUpdate(context);
         this._isISkinRenderNode() && this._ownerSkinRenderNode.computeSkinnedData();
+        LayaGL.statAgent.recordTimeData(StatElement.T_SkinBoneUpdate, performance.now() - t);
     }
-
-    /**
-     * @override
-     * @param dest 
-     */
     _cloneTo(dest: SkinnedMeshRenderer): void {
         //get common parent
         let getCommomParent = (rootNode: Sprite3D, rootCheckNode: Sprite3D): Sprite3D => {
@@ -312,7 +319,7 @@ export class SkinnedMeshRenderer extends MeshRenderer {
         //rootBone Clone
         var rootBone: Sprite3D = this.rootBone;
         if (rootBone) {
-            let node = cloneHierachFun(this.owner as Sprite3D, this.rootBone as Sprite3D, dest.owner as Sprite3D);
+            let node = cloneHierachFun(this.owner, this.rootBone, dest.owner);
             if (node)
                 dest.rootBone = node;
             else
@@ -324,7 +331,7 @@ export class SkinnedMeshRenderer extends MeshRenderer {
         let n = destBone.length = bones.length;
         for (var i = 0; i < n; i++) {
             let ceckNode = bones[i];
-            destBone[i] = cloneHierachFun(this.owner as Sprite3D, ceckNode, dest.owner as Sprite3D);
+            destBone[i] = cloneHierachFun(this.owner, ceckNode, dest.owner);
         }
         dest.bones = dest.bones;
         //bounds
@@ -333,16 +340,11 @@ export class SkinnedMeshRenderer extends MeshRenderer {
         (dest.localBounds) && (dest.localBounds = dest.localBounds);
         super._cloneTo(dest);
     }
-
-    /**
-     * @internal
-     * @protected
-     */
     protected _onDestroy() {
         if (this._cacheRootBone)
             (!this._cacheRootBone._destroyed) && (this._cacheRootBone.transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange));
         else
-            (this.owner && !this.owner._destroyed) && ((this.owner as Sprite3D).transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange));
+            (this.owner && !this.owner._destroyed) && (this.owner.transform.off(Event.TRANSFORM_CHANGED, this, this._onWorldMatNeedChange));
         super._onDestroy();
     }
 }

@@ -8,6 +8,7 @@ import { UIUtils } from "./UIUtils"
 import { ILaya } from "../../ILaya";
 import { URL } from "../net/URL";
 import { SerializeUtil } from "../loaders/SerializeUtil";
+import { TransformKind } from "../display/SpriteConst";
 
 /**
  * @en The Image class represents a bitmap image or drawing graphics display object.
@@ -16,6 +17,7 @@ import { SerializeUtil } from "../loaders/SerializeUtil";
  *  @zh Image类是用于表示位图图像或绘制图形的显示对象。
  * Image和Clip组件是唯一支持异步加载的两个组件，比如`img.skin = "abc/xxx.png"`，其他UI组件均不支持异步加载。
  * Event.LOADED：资源加载完成后调度。
+ * @blueprintInheritable
  */
 export class Image extends UIComponent {
     protected _skin: string;
@@ -87,7 +89,7 @@ export class Image extends UIComponent {
             this._useSourceSize = true; //重置，因为size会改变
         }
         else
-            this.onCompResize();
+            this._sizeChanged();
     }
 
     /**
@@ -150,23 +152,17 @@ export class Image extends UIComponent {
         if (url) {
             if (this._skinBaseUrl)
                 url = URL.formatURL(url, this._skinBaseUrl);
-            let source = Loader.getRes(url);
+            let source = Loader.getRes(url, Loader.IMAGE);
             if (source) {
                 this.source = source;
                 return Promise.resolve();
             }
             else {
-                //特殊处理，ui/bg目录下的文件不加载
-                if (url && !url.startsWith("ui/bg")) {
-                    let sk = this._skin;
-                    return ILaya.loader.load(url, { type: Loader.IMAGE, group: this._group }).then(tex => {
-                        if (sk == this._skin && !this.destroyed)
-                            this.source = tex;
-                    });
-                }else {
-                    this.source = null;
-                    return Promise.resolve();
-                }
+                let sk = this._skin;
+                return ILaya.loader.load(url, { type: Loader.IMAGE, group: this._group }).then(tex => {
+                    if (sk == this._skin && !this.destroyed)
+                        this.source = tex;
+                });
             }
         }
         else {
@@ -176,23 +172,21 @@ export class Image extends UIComponent {
     }
 
     /**
-     * @internal
+     * @ignore
      */
-    _setWidth(value: number) {
-        super._setWidth(value);
-        this._graphics.width = value;
-        if (!SerializeUtil.isDeserializing)
-            this._useSourceSize = false;
-    }
+    protected _transChanged(kind: TransformKind) {
+        super._transChanged(kind);
 
-    /**
-     * @internal
-     */
-    _setHeight(value: number) {
-        super._setHeight(value);
-        this._graphics.height = value;
-        if (!SerializeUtil.isDeserializing)
-            this._useSourceSize = false;
+        if ((kind & TransformKind.Width) != 0)
+            this._graphics.width = this._width;
+
+        if ((kind & TransformKind.Height) != 0)
+            this._graphics.height = this._height;
+
+        if ((kind & TransformKind.Size) != 0) {
+            if (!SerializeUtil.isDeserializing)
+                this._useSourceSize = false;
+        }
     }
 
     protected measureWidth(): number {
@@ -206,6 +200,7 @@ export class Image extends UIComponent {
     protected createChildren(): void {
         this.setGraphics(new AutoBitmap(), true);
     }
+
     /**
      * @en Set the data source of the object.
      * @param value The data source.
@@ -228,4 +223,9 @@ export class Image extends UIComponent {
         this.destroy(true);
         ILaya.loader.clearRes(this._skin);
     }
+
+    /** @internal @blueprintEvent */
+    Image_bpEvent: {
+        [Event.LOADED]: () => void;
+    };
 }

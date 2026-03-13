@@ -1,11 +1,12 @@
 import { Handler } from "../utils/Handler";
 import { Sprite } from "../display/Sprite";
-import { Tween } from "../utils/Tween";
+import { Tween } from "../tween/Tween";
 import { Component } from "../components/Component";
 
 /**
  * @en Effect plugin base class, managed based on the object pool.
  * @zh 效果插件基类，基于对象池管理。
+ * @blueprintIgnore @blueprintIgnoreSubclasses
  */
 export class EffectBase extends Component {
     /**
@@ -47,19 +48,21 @@ export class EffectBase extends Component {
     protected _comlete: Handler;
     protected _tween: Tween;
 
+    declare readonly owner: Sprite;
+
     protected _onAwake(): void {
-        this.target = this.target || (<Sprite>this.owner);
-        if (this.autoDestroyAtComplete) 
+        this.target = this.target || this.owner;
+        if (this.autoDestroyAtComplete)
             this._comlete = Handler.create(this.target, this.target.destroy, null, false);
-        if (this.eventName) 
+        if (this.eventName)
             this.owner.on(this.eventName, this, this._exeTween);
-        else 
+        else
             this._exeTween();
     }
 
     protected _exeTween(): void {
         this._tween = this._doTween();
-        this._tween.repeat = this.repeat;
+        this._tween.repeat(this.repeat);
     }
 
     protected _doTween(): Tween {

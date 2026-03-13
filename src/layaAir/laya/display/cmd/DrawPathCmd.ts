@@ -1,17 +1,20 @@
-import { Context } from "../../renders/Context"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "DrawPathCmd";
 
 /**
  * @en Draw vector graphics based on the path
  * @zh 根据路径绘制矢量图形
  */
-export class DrawPathCmd {
+export class DrawPathCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the DrawPathCmd
      * @zh 根据路径绘制矢量图形命令的标识符
      */
-    static ID: string = "DrawPath";
+    static readonly ID: string = className;
 
     /**
      * @en The X-axis position to start drawing.
@@ -56,7 +59,7 @@ export class DrawPathCmd {
      * @return DrawPathCmd 实例
      */
     static create(x: number, y: number, paths: any[], brush: any, pen: any): DrawPathCmd {
-        var cmd: DrawPathCmd = Pool.getItemByClass("DrawPathCmd", DrawPathCmd);
+        var cmd: DrawPathCmd = Pool.getItemByClass(className, DrawPathCmd);
         cmd.x = x;
         cmd.y = y;
         cmd.paths = paths;
@@ -73,21 +76,21 @@ export class DrawPathCmd {
         this.paths = null;
         this.brush = null;
         this.pen = null;
-        Pool.recover("DrawPathCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the drawing command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局 X 偏移
      * @param gy 全局 Y 偏移
      */
-    run(context: Context, gx: number, gy: number): void {
-        this.paths && context._drawPath(this.x + gx, this.y + gy, this.paths, this.brush, this.pen);
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
+        this.paths && runner._drawPath(this.x + gx, this.y + gy, this.paths, this.brush, this.pen);
     }
 
     /**
@@ -99,27 +102,22 @@ export class DrawPathCmd {
     }
 
     /**
-     * @en Get the boundary points of the path
-     * @zh 获取路径的边界点
+     * @ignore
      */
-    getBoundPoints(): number[] {
-        let rst: any[] = _tempPoints;
-        rst.length = 0;
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
         let paths = this.paths;
         let len = paths.length;
         for (let i = 0; i < len; i++) {
             let tCMD = paths[i];
             if (tCMD.length > 1) {
-                rst.push(tCMD[1], tCMD[2]);
+                assembler.points.push(tCMD[1], tCMD[2]);
                 if (tCMD.length > 3) {
-                    rst.push(tCMD[3], tCMD[4]);
+                    assembler.points.push(tCMD[3], tCMD[4]);
                 }
             }
         }
-        return rst;
+        assembler.flushPoints(this.x, this.y);
     }
 }
 
-const _tempPoints: any[] = [];
-
-ClassUtils.regClass("DrawPathCmd", DrawPathCmd);
+ClassUtils.regClass(className, DrawPathCmd);

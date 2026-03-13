@@ -14,6 +14,7 @@ import { Viewport } from "../../../maths/Viewport";
 /**
  * @en Used to implement rendering states.
  * @zh 用于实现渲染状态。
+ * @blueprintIgnore
  */
 export class RenderContext3D {
     /**
@@ -163,8 +164,8 @@ export class RenderContext3D {
      * @param height 视口的高度。
      */
     changeViewport(x: number, y: number, width: number, height: number) {
-        Viewport._tempViewport.set(x, y, width, height);
-        this.viewport = Viewport._tempViewport;
+        Viewport.TEMP.set(x, y, width, height);
+        this.viewport = Viewport.TEMP;
     }
 
     /**
@@ -180,8 +181,8 @@ export class RenderContext3D {
      * @param height 裁剪矩形的高度。
      */
     changeScissor(x: number, y: number, width: number, height: number) {
-        Vector4.tempVec4.setValue(x, y, width, height);
-        this.scissor = Vector4.tempVec4;
+        Vector4.TEMP.setValue(x, y, width, height);
+        this.scissor = Vector4.TEMP;
     }
 
     /**

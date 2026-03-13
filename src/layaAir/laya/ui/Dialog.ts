@@ -8,7 +8,7 @@ import { Event } from "../events/Event"
 import { Point } from "../maths/Point"
 import { Rectangle } from "../maths/Rectangle"
 import { Handler } from "../utils/Handler"
-import { Tween } from "../utils/Tween"
+import { Tween } from "../tween/Tween"
 
 /**
  * @en The `Dialog` component is a pop-up dialog box that implements the functionality of popping up, dragging, and modal windows.
@@ -19,38 +19,39 @@ import { Tween } from "../utils/Tween"
  * 可以通过 `UIConfig` 设置弹出框背景透明度，模式窗口点击边缘是否关闭等。
  * 通过设置 `zOrder` 属性，可以更改弹出的层次。
  * 通过设置 `popupEffect` 和 `closeEffect` 可以设置弹出效果和关闭效果，如果不想有任何弹出关闭效果，可以设置前述属性为空。
+ * @blueprintInheritable
  */
 export class Dialog extends View {
     /**
      * @en If a button in the dialog is named `close`, clicking it will close the dialog.
      * @zh 对话框内的某个按钮命名为 `close`，点击此按钮则会关闭对话框。
      */
-    static CLOSE: string = "close";
+    static readonly CLOSE: string = "close";
     /**
      * @en If a button in the dialog is named `cancel`, clicking it will close the dialog.
      * @zh 对话框内的某个按钮命名为 `cancel`，点击此按钮则会关闭对话框。
      */
-    static CANCEL: string = "cancel";
+    static readonly CANCEL: string = "cancel";
     /**
      * @en If a button in the dialog is named `sure`, clicking it will close the dialog.
      * @zh 对话框内的某个按钮命名为 `sure`，点击此按钮则会关闭对话框。
      */
-    static SURE: string = "sure";
+    static readonly SURE: string = "sure";
     /**
      * @en If a button in the dialog is named `no`, clicking it will close the dialog.
      * @zh 对话框内的某个按钮命名为 `no`，点击此按钮则会关闭对话框。
      */
-    static NO: string = "no";
+    static readonly NO: string = "no";
     /**
      * @en If a button in the dialog is named `yes`, clicking it will close the dialog.
      * @zh 对话框内的某个按钮命名为 `yes`，点击此按钮则会关闭对话框。
      */
-    static YES: string = "yes";
+    static readonly YES: string = "yes";
     /**
      * @en If a button in the dialog is named `ok`, clicking it will close the dialog.
      * @zh 对话框内的某个按钮命名为 `ok`，点击此按钮则会关闭对话框。
      */
-    static OK: string = "ok";
+    static readonly OK: string = "ok";
 
     /** 表示对话框管理器。*/
     private static _manager: DialogManager;
@@ -68,6 +69,9 @@ export class Dialog extends View {
         return Dialog._manager = Dialog._manager || new DialogManager();
     }
 
+    /**
+     * @blueprintIgnore
+     */
     static set manager(value: DialogManager) {
         Dialog._manager = value;
     }
@@ -233,7 +237,7 @@ export class Dialog extends View {
 
     /** 提取拖拽区域*/
     protected _dealDragArea(): void {
-        var dragTarget: Sprite = (<Sprite>this.getChildByName("drag"));
+        var dragTarget: Sprite = this.getChild("drag");
         if (dragTarget) {
             this.dragArea = dragTarget._x + "," + dragTarget._y + "," + dragTarget.width + "," + dragTarget.height;
             dragTarget.removeSelf();

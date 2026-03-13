@@ -1,5 +1,6 @@
 
 import { EventDispatcher } from "../events/EventDispatcher";
+import { Vector3 } from "../maths/Vector3";
 import { IClone } from "../utils/IClone";
 import { Animation2DParm } from "./Animation2DParm";
 import { AnimationClip2D } from "./AnimationClip2D";
@@ -13,30 +14,37 @@ import { AnimatorTransition2D } from "./AnimatorTransition2D";
  */
 export class AnimatorState2D extends EventDispatcher implements IClone {
     /**
-     * @internal
      * @en Event triggered when entering the state
      * @zh 进入状态时触发的事件
+     * @blueprintIgnore
      */
     static EVENT_OnStateEnter = "OnStartEnter";
 
     /**
-     * @internal
      * @en Event triggered during state update
      * @zh 状态更新时触发的事件
+     * @blueprintIgnore
      */
     static EVENT_OnStateUpdate = "OnStateUpdate";
 
     /**
-     * @internal
      * @en Event triggered when exiting the state
      * @zh 退出状态时触发的事件
+     * @blueprintIgnore
      */
     static EVENT_OnStateExit = "OnStateExit";
 
     /**
-     * @internal
+     * @en Event triggered when switching to a new state
+     * @zh 切换到新状态时触发的事件
+     * @blueprintIgnore
+     */
+    static EVENT_OnStateSwitch = "OnStateSwitch";
+
+    /**
      * @en Event triggered when the state loops
      * @zh 状态循环时触发的事件
+     * @blueprintIgnore
      */
     static EVENT_OnStateLoop = 'OnStateLoop';
 
@@ -99,7 +107,6 @@ export class AnimatorState2D extends EventDispatcher implements IClone {
     transitions: AnimatorTransition2D[] = [];
 
     /**
-     * @internal
      * @en Priority Transition List.
      * @zh 优先过渡列表。
      */
@@ -109,7 +116,7 @@ export class AnimatorState2D extends EventDispatcher implements IClone {
     _scripts: AnimatorState2DScript[] | null = null;
 
     /**@internal */
-    _realtimeDatas: Array<number | string | boolean> = [];
+    _realtimeDatas: Array<number | string | boolean | Vector3> = [];
 
     /**
      * @en Animation Clip
@@ -167,6 +174,14 @@ export class AnimatorState2D extends EventDispatcher implements IClone {
         if (this._scripts) {
             for (let i = 0, n = this._scripts.length; i < n; i++) {
                 this._scripts[i].onStateExit();
+            }
+        }
+    }
+    _eventSwitch(currentState: AnimatorState2D) {
+        this.event(AnimatorState2D.EVENT_OnStateSwitch, currentState);
+        if (this._scripts) {
+            for (let i = 0, n = this._scripts.length; i < n; i++) {
+                this._scripts[i].onStateSwitch && this._scripts[i].onStateSwitch(currentState);
             }
         }
     }

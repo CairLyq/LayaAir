@@ -10,18 +10,8 @@
     #if defined(SHADOW) || defined(SHADOW_SPOT)
 
 	#ifndef DEPTHPASS
-	    #ifdef ENUNIFORMBLOCK
-uniform ShadowUniformBlock
-{
-    vec4 u_ShadowBias; // x: depth bias, y: normal bias
-    vec3 u_ShadowLightDirection;
-};
-	    #else // ENUNIFORMBLOCK
-uniform vec4 u_ShadowBias; // x: depth bias, y: normal bias
-		#ifdef SHADOW
-uniform vec3 u_ShadowLightDirection;
-		#endif // SHADOW
-	    #endif // ENUNIFORMBLOCK
+
+	    #include "ShadowCommon.glsl"
 
 vec3 applyShadowBias(vec3 positionWS, vec3 normalWS, vec3 lightDirection)
 {
@@ -35,10 +25,6 @@ vec3 applyShadowBias(vec3 positionWS, vec3 normalWS, vec3 lightDirection)
 }
 	#endif // DEPTHPASS
     #endif // SHADOW || SHADOW_SPOT
-
-    #ifdef DEPTHPASS
-	#include "Camera.glsl";
-    #endif // DEPTHPASS
 
 vec4 DepthPositionCS(in vec3 positionWS, in vec3 normalWS)
 {

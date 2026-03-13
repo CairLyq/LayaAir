@@ -7,24 +7,25 @@ import { RenderElement } from "../RenderElement";
 import { Matrix4x4 } from "../../../../maths/Matrix4x4";
 import { Laya3DRender } from "../../../RenderObjs/Laya3DRender";
 import { Transform3D } from "../../Transform3D";
-import { DrawElementCMDData, DrawNodeCMDData } from "../../../../RenderDriver/DriverDesign/3DRenderPass/IRendderCMD";
+import { DrawElementCMDData, DrawNodeCMDData } from "../../../../RenderDriver/DriverDesign/3DRenderPass/IRender3DCMD";
 import { RenderContext3D } from "../RenderContext3D";
+import { Pool } from "../../../../utils/Pool";
+import { Stat } from "../../../../utils/Stat";
+import { LayaGL } from "../../../../layagl/LayaGL";
 
 /**
  * @internal
  * <code>SetShaderDataTextureCMD</code> 类用于创建设置渲染目标指令。
  */
 export class DrawMeshCMD extends Command {
-
-    /**@internal */
-    private static _pool: DrawMeshCMD[] = [];
+    private static readonly _pool = Pool.createPool(DrawMeshCMD);
 
     /**
      * @internal
      */
     static create(mesh: Mesh, matrix: Matrix4x4, material: Material, subMeshIndex: number, subShaderIndex: number, commandBuffer: CommandBuffer): DrawMeshCMD {
         var cmd: DrawMeshCMD;
-        cmd = DrawMeshCMD._pool.length > 0 ? DrawMeshCMD._pool.pop() : new DrawMeshCMD();
+        cmd = DrawMeshCMD._pool.take();
         cmd._matrix = matrix;
         cmd._transform.worldMatrix = cmd._matrix;
         cmd.material = material;
@@ -53,23 +54,23 @@ export class DrawMeshCMD extends Command {
         this._drawRenderCMDDData.subMeshIndex = value;
     }
 
-    /**@internal */
+
     private _subShaderIndex: number;
 
-    /**@internal */
+
     private _mesh: Mesh;
 
-    /**@internal */
-    _renderElemnts: RenderElement[];
+
+    private _renderElemnts: RenderElement[];
 
     /**@internal */
     _meshRender: MeshRenderer;
 
-    /**@internal */
-    _transform: Transform3D;
 
-    /**@internal */
-    _drawRenderCMDDData: DrawNodeCMDData;
+    private _transform: Transform3D;
+
+
+    private _drawRenderCMDDData: DrawNodeCMDData;
 
     constructor() {
         super();
@@ -97,8 +98,8 @@ export class DrawMeshCMD extends Command {
     set mesh(value: Mesh) {
         if (this._mesh == value)
             return;
+        this._meshRender._onMeshChange(value);
         this._mesh = value;
-        this._meshRender._onMeshChange(this._mesh);
         this._renderElemnts = this._meshRender._renderElements;
         this._renderElemnts.forEach(element => {
             element.material = this._material;
@@ -125,6 +126,7 @@ export class DrawMeshCMD extends Command {
     run(): void {
         this._meshRender.sharedMaterial = this.material;
         this._meshRender._baseRenderNode.transform = this._transform;
+        this._meshRender._baseRenderNode.ismoved.setValue(Stat.loopCount, LayaGL.renderEngine._framePassCount);
         this._meshRender.renderUpdate(RenderContext3D._instance);
         // todo scene ibl
         this._meshRender.probReflection = RenderContext3D._instance.scene.sceneReflectionProb;
@@ -139,7 +141,7 @@ export class DrawMeshCMD extends Command {
      * @override
      */
     recover(): void {
-        DrawMeshCMD._pool.push(this);
+        DrawMeshCMD._pool.recover(this);
         super.recover();
         this._material && (this.material = null);
         this._mesh && (this.mesh = null);

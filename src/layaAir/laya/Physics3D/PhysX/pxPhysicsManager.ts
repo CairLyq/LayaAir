@@ -4,6 +4,8 @@ import { HitResult } from "../../d3/physics/HitResult";
 import { PhysicsSettings } from "../../d3/physics/PhysicsSettings";
 import { PhysicsUpdateList } from "../../d3/physics/PhysicsUpdateList";
 import { Event } from "../../events/Event";
+import { LayaGL } from "../../layagl/LayaGL";
+import { StatElement } from "../../layagl/StatisticsContext";
 import { Quaternion } from "../../maths/Quaternion";
 import { Vector3 } from "../../maths/Vector3";
 import { NotImplementedError } from "../../utils/Error";
@@ -18,29 +20,7 @@ import { pxDynamicCollider } from "./Collider/pxDynamicCollider";
 import { pxColliderShape } from "./Shape/pxColliderShape";
 import { pxCollisionTool } from "./pxCollisionTool";
 import { pxPhysicsCreateUtil } from "./pxPhysicsCreateUtil";
-
-
-export enum partFlag {
-
-    eSOLVE_CONTACT = (1 << 0),  // Dynamic中刚体触发碰撞
-    eMODIFY_CONTACTS = (1 << 1),    // Dynamic中刚体碰撞需要修改碰撞
-    eNOTIFY_TOUCH_FOUND = (1 << 2), // 
-    eNOTIFY_TOUCH_PERSISTS = (1 << 3),//
-    eNOTIFY_TOUCH_LOST = (1 << 4),  //
-    eNOTIFY_TOUCH_CCD = (1 << 5),   //
-    eNOTIFY_THRESHOLD_FORCE_FOUND = (1 << 6),   //
-    eNOTIFY_THRESHOLD_FORCE_PERSISTS = (1 << 7),    //
-    eNOTIFY_THRESHOLD_FORCE_LOST = (1 << 8),    //
-    eNOTIFY_CONTACT_POINTS = (1 << 9),  //
-    eDETECT_DISCRETE_CONTACT = (1 << 10),   //
-    eDETECT_CCD_CONTACT = (1 << 11),    //
-    ePRE_SOLVER_VELOCITY = (1 << 12),   //
-    ePOST_SOLVER_VELOCITY = (1 << 13),  //
-    eCONTACT_EVENT_POSE = (1 << 14),    //
-    eNEXT_FREE = (1 << 15),        //!< For internal use only.  //
-    eCONTACT_DEFAULT = eSOLVE_CONTACT | eDETECT_DISCRETE_CONTACT,   // 默认碰撞标志
-    eTRIGGER_DEFAULT = eNOTIFY_TOUCH_FOUND | eNOTIFY_TOUCH_LOST | eDETECT_DISCRETE_CONTACT  // 默认触发标志
-};
+import { pxStatics } from "./pxStatics";
 
 /**
  * @en The `pxPhysicsManager` class is used to implement physics management.
@@ -144,13 +124,13 @@ export class pxPhysicsManager implements IPhysicsManager {
             }
         };
         this.enableCCD = physicsSettings.enableCCD;
-        const pxPhysics = pxPhysicsCreateUtil._pxPhysics;
-        pxPhysicsCreateUtil._physXSimulationCallbackInstance = pxPhysicsCreateUtil._physX.PxSimulationEventCallback.implement(triggerCallback);
-        pxPhysicsCreateUtil._sceneDesc = pxPhysicsCreateUtil._physX.getDefaultSceneDesc(pxPhysics.getTolerancesScale(), 0, pxPhysicsCreateUtil._physXSimulationCallbackInstance);
-        this._pxScene = pxPhysics.createScene(pxPhysicsCreateUtil._sceneDesc);
+        const pxPhysics = pxStatics._physics;
+        pxStatics._physXSimulationCallbackInstance = pxStatics._physX.PxSimulationEventCallback.implement(triggerCallback);
+        pxStatics._sceneDesc = pxStatics._physX.getDefaultSceneDesc(pxPhysics.getTolerancesScale(), 0, pxStatics._physXSimulationCallbackInstance);
+        this._pxScene = pxPhysics.createScene(pxStatics._sceneDesc);
         this.setGravity(this._gravity);
         this._pxcontrollerManager = this._pxScene.createControllerManager();
-        if (pxPhysicsCreateUtil._physXPVD) {
+        if (pxStatics._physXPVD) {
             this._pxScene.setPVDClient();
         }
         this.fixedTime = physicsSettings.fixedTimeStep;
@@ -274,21 +254,21 @@ export class pxPhysicsManager implements IPhysicsManager {
         switch (pxcollider._type) {
             case pxColliderType.StaticCollider:
                 this._pxScene.addActor(pxcollider._pxActor, null);
-                Stat.physics_staticRigidBodyCount++;
+                LayaGL.statAgent.recordCountData(StatElement.C_PhysicaStaticRigidBody, 1);
                 break;
             case pxColliderType.RigidbodyCollider:
                 pxcollider.setWorldTransform(true);
                 this._pxScene.addActor(pxcollider._pxActor, null);
                 if (!(collider as pxDynamicCollider).IsKinematic) {
                     this._dynamicUpdateList.add(collider);
-                    Stat.physics_dynamicRigidBodyCount++;
+                    LayaGL.statAgent.recordCountData(StatElement.C_PhysicaDynamicRigidBody, 1);
                 } else {
-                    Stat.phyiscs_KinematicRigidBodyCount++;
+                    LayaGL.statAgent.recordCountData(StatElement.C_PhysicaKinematicRigidBody, 1);
                 }
                 break;
             case pxColliderType.CharactorCollider:
                 this._addCharactorCollider(collider as pxCharactorCollider);
-                Stat.physics_CharacterControllerCount++;
+                LayaGL.statAgent.recordCountData(StatElement.C_PhysicaCharacterController, 1);
                 break;
         }
         pxcollider._isSimulate = true;
@@ -308,22 +288,22 @@ export class pxPhysicsManager implements IPhysicsManager {
                 if (collider.inPhysicUpdateListIndex !== -1)
                     this._physicsUpdateList.remove(collider);
                 this._pxScene.removeActor(pxcollider._pxActor, true);
-                Stat.physics_staticRigidBodyCount--;
+                LayaGL.statAgent.recordCountData(StatElement.C_PhysicaStaticRigidBody, -1);
                 break;
             case pxColliderType.RigidbodyCollider:    //TODO
                 if (collider.inPhysicUpdateListIndex !== -1)
                     !(collider as pxDynamicCollider).IsKinematic && this._dynamicUpdateList.remove(collider);
                 this._pxScene.removeActor(pxcollider._pxActor, true);
                 if (!(collider as pxDynamicCollider).IsKinematic) {
-                    Stat.physics_dynamicRigidBodyCount--;
+                    LayaGL.statAgent.recordCountData(StatElement.C_PhysicaDynamicRigidBody, -1);
                 } else {
-                    Stat.phyiscs_KinematicRigidBodyCount--;
+                    LayaGL.statAgent.recordCountData(StatElement.C_PhysicaKinematicRigidBody, -1);
                 }
                 break;
             case pxColliderType.CharactorCollider:
                 //TODO:
                 this._removeCharactorCollider(pxcollider as pxCharactorCollider);
-                Stat.physics_CharacterControllerCount--;
+                LayaGL.statAgent.recordCountData(StatElement.C_PhysicaCharacterController, -1);
                 break;
         }
         pxcollider._isSimulate = false;

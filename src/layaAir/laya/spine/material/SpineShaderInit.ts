@@ -2,7 +2,7 @@ import { Shader3D, ShaderFeatureType } from "../../RenderEngine/RenderShader/Sha
 import spineVertex from "../files/SpineVertex.glsl"
 import spineFragment from "../files/SpineFragment.glsl"
 import { LayaGL } from "../../layagl/LayaGL";
-import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { ShaderData, ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
 import spineStandardVS from "../files/SpineStandard.vs"
 import spineStandardFS from "../files/SpineStandard.fs"
 import { SubShader } from "../../RenderEngine/RenderShader/SubShader";
@@ -13,17 +13,13 @@ import { RenderState } from "../../RenderDriver/RenderModuleData/Design/RenderSt
 import { VertexDeclaration } from "../../RenderEngine/VertexDeclaration";
 import { VertexElement } from "../../renders/VertexElement";
 import { VertexElementFormat } from "../../renders/VertexElementFormat";
+import { SpineMeshUtils } from "../mesh/SpineMeshUtils";
+import { Mesh2D } from "../../resource/Mesh2D";
 /**
  * @en SpineShaderInit class handles the initialization and management of Spine shader-related components.
  * @zh SpineShaderInit 类用于处理 Spine 着色器相关组件的初始化和管理。
  */
 export class SpineShaderInit {
-
-    /**
-     * @en Vertex declaration for fast Spine rendering.
-     * @zh 用于快速 Spine 渲染的顶点声明。
-     */
-    static SpineFastVertexDeclaration: VertexDeclaration;
 
     /**
      * @en Vertex declaration for normal Spine rendering.
@@ -32,23 +28,16 @@ export class SpineShaderInit {
     static SpineNormalVertexDeclaration: VertexDeclaration;
 
     /**
-     * @en Vertex declaration for Spine rendering with runtime blending.
-     * @zh 用于运行时混合的 Spine 渲染的顶点声明。
-     */
-    static SpineRBVertexDeclaration: VertexDeclaration;
-
-
-    /**
      * @en Vertex declaration for instance normal matrix.
      * @zh 实例法线矩阵的顶点声明。
      */
-    static instanceNMatrixDeclaration:VertexDeclaration;
-    
+    static instanceNMatrixDeclaration: VertexDeclaration;
+
     /**
      * @en Vertex declaration for instance simple animator.
      * @zh 实例简单动画器的顶点声明。
      */
-    static instanceSimpleAnimatorDeclaration:VertexDeclaration;
+    static instanceSimpleAnimatorDeclaration: VertexDeclaration;
 
     /**
      * @en Set the blend mode for Spine material.
@@ -69,9 +58,11 @@ export class SpineShaderInit {
                 break;
             case 3: //Screen
                 mat.blend = RenderState.BLEND_ENABLE_SEPERATE;
+
                 mat.blendSrcRGB = RenderState.BLENDPARAM_ONE;
-                mat.blendDstRGB = RenderState.BLENDPARAM_ONE_MINUS_SRC_COLOR;
                 mat.blendSrcAlpha = RenderState.BLENDPARAM_ONE;
+                
+                mat.blendDstRGB = RenderState.BLENDPARAM_ONE_MINUS_SRC_COLOR;
                 mat.blendDstAlpha = RenderState.BLENDPARAM_ONE;
                 break;
             case 2://Multiply
@@ -83,8 +74,7 @@ export class SpineShaderInit {
                 break;
             default://nomal
                 mat.blend = RenderState.BLEND_ENABLE_ALL;
-
-                mat.blendSrc = premultipliedAlpha ? RenderState.BLENDPARAM_ONE:RenderState.BLENDPARAM_SRC_ALPHA;
+                mat.blendSrc = premultipliedAlpha ? RenderState.BLENDPARAM_ONE : RenderState.BLENDPARAM_SRC_ALPHA;
                 mat.blendDst = RenderState.BLENDPARAM_ONE_MINUS_SRC_ALPHA;
         }
     }
@@ -110,24 +100,6 @@ export class SpineShaderInit {
      * @zh 骨骼矩阵的属性 ID。
      */
     static BONEMAT: number;
-
-    /**
-     * @en Property ID for normal matrix.
-     * @zh 法线矩阵的属性 ID。
-     */
-    static NMatrix: number;
-
-    /**
-     * @en Property ID for color.
-     * @zh 颜色的属性 ID。
-     */
-    static Color: number;
-
-    /**
-     * @en Property ID for size.
-     * @zh 尺寸的属性 ID。
-     */
-    static Size: number;
 
     /**
      * @internal
@@ -166,28 +138,60 @@ export class SpineShaderInit {
      */
     static SPINE_RB: ShaderDefine;
 
-    /**
-     * @en Shader define for simple Spine rendering.
-     * @zh 简单 Spine 渲染的着色器定义。
-     */
-    static SPINE_SIMPLE:ShaderDefine;
+    static SPINE_UV: ShaderDefine;
+
+    static SPINE_COLOR: ShaderDefine;
+
+    static SPINE_SIMPLE: ShaderDefine;
+
+    static SPINE_TWOCOLORTINT: ShaderDefine;
+
+    static SPINE_COLOR2: ShaderDefine;
 
     /**
      * @en Shader define for GPU instance rendering.
      * @zh GPU 实例渲染的着色器定义。
      */
-    static SPINE_GPU_INSTANCE:ShaderDefine;
+    static SPINE_GPU_INSTANCE: ShaderDefine;
 
-    static SPINE_PREMULTIPLYALPHA:ShaderDefine;
+    static SPINE_PREMULTIPLYALPHA: ShaderDefine;
+
+    /**
+     * @en Change the vertex define for the mesh.
+     * @zh 更改网格的顶点定义。
+     * @param shaderData 着色器数据。
+     * @param mesh 网格。
+     */
+    static changeVertexDefine(shaderData: ShaderData, mesh: Mesh2D) {
+
+        let hasTwoColor = false;
+
+        let vertexBuffers = mesh.vertexBuffers;
+        for (let i = 0; i < vertexBuffers.length; i++) {
+            let vertexBuffer = vertexBuffers[i];
+            let vertexDeclaration = vertexBuffer.vertexDeclaration;
+            let vertexElement = vertexDeclaration.getVertexElementByUsage(11);
+            if (vertexElement) {
+                hasTwoColor = true;
+                break
+            }
+        }
+
+        if (hasTwoColor) {
+            shaderData.addDefine(SpineShaderInit.SPINE_COLOR2);
+        } else {
+            shaderData.removeDefine(SpineShaderInit.SPINE_COLOR2);
+        }
+    }
 
     /**
      * @en TextureSV Mesh Descript.
      * @zh 纹理 Spine 顶点属性描述。
      */
     public static readonly textureSpineAttribute: { [name: string]: [number, ShaderDataType] } = {
-        'a_texcoord': [0, ShaderDataType.Vector2],
+        'a_uv': [0, ShaderDataType.Vector2],
         'a_color': [1, ShaderDataType.Vector4],
-        'a_pos': [2, ShaderDataType.Vector2],
+        'a_position': [2, ShaderDataType.Vector2],
         "a_weight": [3, ShaderDataType.Float],
         "a_BoneId": [4, ShaderDataType.Float],
         'a_PosWeightBoneID_2': [5, ShaderDataType.Vector4],
@@ -203,7 +207,9 @@ export class SpineShaderInit {
 
         'a_NMatrix_0': [8, ShaderDataType.Vector3],
         'a_NMatrix_1': [9, ShaderDataType.Vector3],
-        'a_SimpleTextureParams': [10, ShaderDataType.Vector4]
+        'a_SimpleTextureParams': [10, ShaderDataType.Vector4],
+
+        "a_color2": [11, ShaderDataType.Vector4],
     }
 
 
@@ -215,81 +221,77 @@ export class SpineShaderInit {
         Shader3D.addInclude("SpineVertex.glsl", spineVertex);
         Shader3D.addInclude("SpineFragment.glsl", spineFragment);
         SpineShaderInit.BONEMAT = Shader3D.propertyNameToID("u_sBone");
-        SpineShaderInit.NMatrix = Shader3D.propertyNameToID("u_NMatrix");
-        SpineShaderInit.Color = Shader3D.propertyNameToID("u_color");
-        SpineShaderInit.Size = Shader3D.propertyNameToID("u_size");
         SpineShaderInit.SpineTexture = Shader3D.propertyNameToID("u_spineTexture");
         SpineShaderInit.SPINE_FAST = Shader3D.getDefineByName("SPINE_FAST");
         SpineShaderInit.SPINE_RB = Shader3D.getDefineByName("SPINE_RB");
+        SpineShaderInit.SPINE_UV = Shader3D.getDefineByName("UV");
+        SpineShaderInit.SPINE_COLOR = Shader3D.getDefineByName("COLOR");
         SpineShaderInit.SPINE_PREMULTIPLYALPHA = Shader3D.getDefineByName("PREMULTIPLYALPHA");
-        
+
         SpineShaderInit.SIMPLE_SIMPLEANIMATORPARAMS = Shader3D.propertyNameToID("u_SimpleAnimatorParams");
         SpineShaderInit.SIMPLE_SIMPLEANIMATORTEXTURE = Shader3D.propertyNameToID("u_SimpleAnimatorTexture");
         SpineShaderInit.SIMPLE_SIMPLEANIMATORTEXTURESIZE = Shader3D.propertyNameToID("u_SimpleAnimatorTextureSize");
-        
+
         SpineShaderInit.SPINE_SIMPLE = Shader3D.getDefineByName("SPINE_SIMPLE");
         SpineShaderInit.SPINE_GPU_INSTANCE = Shader3D.getDefineByName("GPU_INSTANCE");
+        SpineShaderInit.SPINE_TWOCOLORTINT = Shader3D.getDefineByName("TWOCOLORTINT");
+        SpineShaderInit.SPINE_COLOR2 = Shader3D.getDefineByName("COLOR2");
 
-        const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("Sprite2D");
-        commandUniform.addShaderUniform(SpineShaderInit.BONEMAT, "u_sBone", ShaderDataType.Buffer);
-        commandUniform.addShaderUniform(SpineShaderInit.NMatrix, "u_NMatrix", ShaderDataType.Buffer);
-        commandUniform.addShaderUniform(SpineShaderInit.Color, "u_color", ShaderDataType.Color);
-        commandUniform.addShaderUniform(SpineShaderInit.Size, "u_size", ShaderDataType.Vector2);
-        
+        const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("Spine2D");
+        commandUniform.addShaderUniformArray(SpineShaderInit.BONEMAT, "u_sBone", ShaderDataType.Vector4, 200);
+        // commandUniform.addShaderUniform(SpineShaderInit.NMatrix, "u_NMatrix", ShaderDataType.Buffer);
+        // commandUniform.addShaderUniform(SpineShaderInit.Color, "u_color", ShaderDataType.Color);
+        // commandUniform.addShaderUniform(SpineShaderInit.Size, "u_size", ShaderDataType.Vector2);
+
         commandUniform.addShaderUniform(SpineShaderInit.SIMPLE_SIMPLEANIMATORPARAMS, "u_SimpleAnimatorParams", ShaderDataType.Vector4);
         commandUniform.addShaderUniform(SpineShaderInit.SIMPLE_SIMPLEANIMATORTEXTURE, "u_SimpleAnimatorTexture", ShaderDataType.Texture2D);
         commandUniform.addShaderUniform(SpineShaderInit.SIMPLE_SIMPLEANIMATORTEXTURESIZE, "u_SimpleAnimatorTextureSize", ShaderDataType.Float);
 
-        //commandUniform.addShaderUniform(SpineShaderInit.SpineTexture, "u_spineTexture", ShaderDataType.Texture2D);
+        // commandUniform.addShaderUniform(SpineShaderInit.SpineTexture, "u_spineTexture", ShaderDataType.Texture2D);
+
         let shader = Shader3D.add("SpineStandard", true, false);
-        shader.shaderType = ShaderFeatureType.D2;
+        shader.shaderType = ShaderFeatureType.D2_BaseRenderNode2D;
         let uniformMap = {
             "u_spineTexture": ShaderDataType.Texture2D
         }
-        let subShader = new SubShader(SpineShaderInit.textureSpineAttribute, uniformMap, {});
+        let subShader = new SubShader(SpineShaderInit.textureSpineAttribute, uniformMap);
         shader.addSubShader(subShader);
         let shadingPass = subShader.addShaderPass(spineStandardVS, spineStandardFS);
 
 
-        SpineShaderInit.SpineFastVertexDeclaration = new VertexDeclaration(88, [
-            new VertexElement(0, VertexElementFormat.Vector2, 0),
-            new VertexElement(8, VertexElementFormat.Vector4, 1),
-            new VertexElement(24, VertexElementFormat.Vector2, 2),
-            new VertexElement(32, VertexElementFormat.Single, 3),
-            new VertexElement(36, VertexElementFormat.Single, 4),
-            new VertexElement(40, VertexElementFormat.Vector4, 5),
-            new VertexElement(56, VertexElementFormat.Vector4, 6),
-            new VertexElement(72, VertexElementFormat.Vector4, 7),
-            // new VertexElement(24, VertexElementFormat.Vector4, 2),
-            // new VertexElement(40, VertexElementFormat.Vector4, 3),
-            // new VertexElement(56, VertexElementFormat.Vector4, 4),
-            // new VertexElement(72, VertexElementFormat.Vector4, 5),
-            // new VertexElement(88, VertexElementFormat.Vector4, 6),
-            // new VertexElement(104, VertexElementFormat.Vector4, 6),
-        ]);
+        // SpineShaderInit.SpineFastVertexDeclaration = new VertexDeclaration(88, [
+        //     new VertexElement(0, VertexElementFormat.Vector2, 0),
+        //     new VertexElement(8, VertexElementFormat.Vector4, 1),
+        //     new VertexElement(24, VertexElementFormat.Vector2, 2),
+        //     new VertexElement(32, VertexElementFormat.Single, 3),
+        //     new VertexElement(36, VertexElementFormat.Single, 4),
+        //     new VertexElement(40, VertexElementFormat.Vector4, 5),
+        //     new VertexElement(56, VertexElementFormat.Vector4, 6),
+        //     new VertexElement(72, VertexElementFormat.Vector4, 7)
+        // ]);
 
-        SpineShaderInit.SpineNormalVertexDeclaration = new VertexDeclaration(32, [
-            new VertexElement(0, VertexElementFormat.Vector2, 0),
-            new VertexElement(8, VertexElementFormat.Vector4, 1),
-            new VertexElement(24, VertexElementFormat.Vector2, 2)
-            // new VertexElement(24, VertexElementFormat.Vector4, 2)
-        ])
+        // SpineShaderInit.SpineRBVertexDeclaration = new VertexDeclaration(36, [
+        //     new VertexElement(0, VertexElementFormat.Vector2, 0),
+        //     new VertexElement(8, VertexElementFormat.Vector4, 1),
+        //     new VertexElement(24, VertexElementFormat.Vector2, 2),
+        //     new VertexElement(32, VertexElementFormat.Single, 4)
+        // ])
 
-        SpineShaderInit.SpineRBVertexDeclaration = new VertexDeclaration(36, [
-            new VertexElement(0, VertexElementFormat.Vector2, 0),
-            new VertexElement(8, VertexElementFormat.Vector4, 1),
-            new VertexElement(24, VertexElementFormat.Vector2, 2),
-            new VertexElement(32, VertexElementFormat.Single, 4),
-            // new VertexElement(36, VertexElementFormat.Single, 4),
-            // new VertexElement(24, VertexElementFormat.Vector4, 2),
-        ])
+        SpineShaderInit.SpineNormalVertexDeclaration = SpineMeshUtils.getVertexDeclaration("UV,COLOR,POSITION,COLOR2");
 
-        SpineShaderInit.instanceNMatrixDeclaration = new VertexDeclaration(24 , [
+        // SpineShaderInit.SpineNormalVertexDeclaration = new VertexDeclaration(32, [
+        //     new VertexElement(0, VertexElementFormat.Vector2, 0),
+        //     new VertexElement(8, VertexElementFormat.Vector4, 1),
+        //     new VertexElement(24, VertexElementFormat.Vector2, 2)
+        // ])
+
+
+        SpineShaderInit.instanceNMatrixDeclaration = new VertexDeclaration(24, [
             new VertexElement(0, VertexElementFormat.Vector3, 8),
             new VertexElement(12, VertexElementFormat.Vector3, 9),
         ])
 
-        SpineShaderInit.instanceSimpleAnimatorDeclaration = new VertexDeclaration(16 , [
+        SpineShaderInit.instanceSimpleAnimatorDeclaration = new VertexDeclaration(16, [
             new VertexElement(0, VertexElementFormat.Vector4, 10),
         ])
     }

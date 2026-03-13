@@ -1,9 +1,14 @@
+/**
+description
+ 使用Laya框架创建并随机分布1000个文本，可选择缓存为静态图像
+ */
 import { Laya } from "Laya";
 import { Sprite } from "laya/display/Sprite";
 import { Stage } from "laya/display/Stage";
 import { Text } from "laya/display/Text";
 import { Stat } from "laya/utils/Stat";
 import { Main } from "./../Main";
+import { Event } from "laya/events/Event";
 
 export class Sprite_Cache {
 	Main: typeof Main = null;
@@ -43,8 +48,7 @@ export class Sprite_Cache {
 		}
 
 		//缓存为静态图像
-		//			textBox.cacheAsBitmap = true;
-
+		// textBox.cacheAs = "bitmap";
 		this.Main.box2D.addChild(textBox);
 	}
 }

@@ -23,13 +23,15 @@ export class SpineWasmVirturalMesh extends SpineMeshBase {
         super(material);
         this._renderElement2D = LayaGL.render2DRenderPassFactory.createRenderElement2D();
         this._renderElement2D.geometry = this.geo;
+        this._renderElement2D.nodeCommonMap = ["BaseRender2D","spine2D"];
     }
 
     /**
-     * @en The vertex declaration for the mesh.
-     * @zh 网格的顶点声明。
+     * @en Destroy the mesh.
+     * @zh 销毁网格。
      */
-    get vertexDeclarition(): VertexDeclaration {
-        return SpineShaderInit.SpineNormalVertexDeclaration;
+    destroy() {
+        super.destroy();
+        this._renderElement2D.destroy();
     }
 }

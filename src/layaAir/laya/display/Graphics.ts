@@ -1,6 +1,6 @@
 import { Sprite } from "./Sprite";
 import { GraphicsBounds } from "./GraphicsBounds";
-import { SpriteConst } from "./SpriteConst";
+import { BaseRender2DType, RepaintFlag, SpriteConst, TransformKind } from "./SpriteConst";
 import { AlphaCmd } from "./cmd/AlphaCmd"
 import { ClipRectCmd } from "./cmd/ClipRectCmd"
 import { Draw9GridTextureCmd } from "./cmd/Draw9GridTextureCmd"
@@ -27,22 +27,18 @@ import { TranslateCmd } from "./cmd/TranslateCmd"
 import { Matrix } from "../maths/Matrix"
 import { Point } from "../maths/Point"
 import { Rectangle } from "../maths/Rectangle"
-import { Context, IGraphicCMD } from "../renders/Context"
 import { Texture } from "../resource/Texture"
 import { Utils } from "../utils/Utils"
-import { VectorGraphManager } from "../utils/VectorGraphManager"
 import { ILaya } from "../../ILaya";
-import { WordText } from "../utils/WordText";
 import { ColorUtils } from "../utils/ColorUtils";
 import type { Material } from "../resource/Material";
 import { DrawEllipseCmd } from "./cmd/DrawEllipseCmd";
 import { DrawRoundRectCmd } from "./cmd/DrawRoundRectCmd";
 import { LayaGL } from "../layagl/LayaGL";
-import { ShaderData, ShaderDataType } from "../RenderDriver/DriverDesign/RenderDevice/ShaderData";
-import { DrawGeoCmd } from "./cmd/DrawGeoCmd";
-import { IRenderGeometryElement } from "../RenderDriver/DriverDesign/RenderDevice/IRenderGeometryElement";
-import { DrawGeosCmd } from "./cmd/DrawGeosCmd";
-
+import { ShaderDataType } from "../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { IGraphicsCmd } from "./IGraphics";
+import { ShaderFeatureType } from "../RenderEngine/RenderShader/Shader3D";
+import { Stat } from "../utils/Stat";
 /**
  * @en The Graphics class is used to create drawing display objects. Graphics can draw multiple bitmaps or vector graphics simultaneously, and can also combine instructions such as save, restore, transform, scale, rotate, translate, alpha, etc. to change the drawing effect.
  * Graphics is stored as a command stream and can be accessed through the cmds property. Graphics is a lighter object than Sprite, and proper use can improve application performance (for example, changing a large number of node drawings to a collection of Graphics commands of one node can reduce the consumption of creating a large number of nodes).
@@ -50,8 +46,8 @@ import { DrawGeosCmd } from "./cmd/DrawGeosCmd";
  * Graphics以命令流方式存储，可以通过cmds属性访问所有命令流。Graphics是比Sprite更轻量级的对象，合理使用能提高应用性能(比如把大量的节点绘图改为一个节点的Graphics命令集合，能减少大量节点创建消耗)。
  */
 export class Graphics {
-
     /**
+     * @internal
      * @en Add global Uniform Data Map
      * @param propertyID The ID of the property
      * @param propertyKey The key of the property
@@ -66,42 +62,48 @@ export class Graphics {
         sceneUniformMap.addShaderUniform(propertyID, propertyKey, uniformtype);
     }
 
-    /**
-     * @deprecated 
-     * @en Global shaderData,deprecated  use Scene ShaderData replace
-     * @zh 全局着色器数据,请使用scene的ShaderData设置全局值
-     */
-    static get globalShaderData(): ShaderData {
-        return null;
-    }
+    /** @readonly */
+    owner: Sprite | null = null;
+    
+    /** @internal 是否优先使用精灵状态 */
+    _useSpriteState: boolean = true;
 
-    /**@internal */
-    _sp: Sprite | null = null;
-    /**@internal */
-    _render: (sprite: Sprite, context: Context, x: number, y: number) => void = this._renderEmpty;
-    private _cmds: IGraphicCMD[] = [];
-    protected _vectorgraphArray: any[] | null = null;
+    /**
+     * @internal
+     * @en Whether to return graphics bounds as the sprite rect, instead of the bounds calculated from the commands.
+     * @zh 是否返回graphics边界为精灵矩形，而不是从命令计算的边界。对于像文本这种情况，可以优化效率。
+     */
+    _useSpriteRect: boolean = false;
+
+    private _cmds: IGraphicsCmd[] = [];
     private _graphicBounds: GraphicsBounds | null = null;
     private _material: Material;
+    /** @internal */
+    _modified: number = -1;
+    /** @internal 需要响应布局变化的cmd计数 */
+    private _layoutRepaintCount: number = 0;
 
-    /**@ignore */
+    /**
+    * @en Whether to use sprite state.
+    * @zh graphics是否优先使用精灵状态。
+    * @blueprintIgnore
+    */
+    public get useSpriteState(): boolean {
+        return this._useSpriteState;
+    }
+
+    public set useSpriteState(value: boolean) {
+        if (this._useSpriteState == value)
+            return;
+        this._useSpriteState = value;
+        this.repaint();
+    }
+
+    /** @internal 是否需要缓存 */
+    needCache: boolean = false;
+    
+    /**@ignore @blueprintIgnore */
     constructor() {
-        this._createData();
-    }
-
-    /**@internal */
-    _createData(): void {
-
-    }
-
-    /**@internal */
-    _clearData(): void {
-
-    }
-
-    /**@internal */
-    _destroyData(): void {
-
     }
 
     /**
@@ -109,79 +111,84 @@ export class Graphics {
      * @zh 销毁此对象。
      */
     destroy(): void {
-        this.clear(true);
-        if (this._graphicBounds) this._graphicBounds.destroy();
-        this._graphicBounds = null;
-        this._vectorgraphArray = null;
-        if (this._sp) {
-            this._sp._renderType = 0;
-            this._sp = null;
+        if (this.owner && this.owner._graphics === this)
+            this.owner.setGraphics(null, false);
+        for (let cmd of this._cmds) {
+            if (!cmd.lock)
+                cmd.recover();
         }
+        this._cmds.length = 0;
         if (this._material) {
             this._material._removeReference();
             this._material = null;
         }
-        this._destroyData();
+        this._graphicBounds && this._graphicBounds.destroy();
+        this._graphicBounds = null;
+        this.owner = null;
     }
 
     /**
      * @en Clear drawing commands.
      * @param recoverCmds Whether to recycle the drawing instruction array. If set to true, the instruction array will be recycled to save memory. It is recommended to set it to true for recycling, but if you manually reference the array, recycling is not recommended.
+     * @param exclude (Optional) Exclude a specific command from being cleared. Default is null.
      * @zh 清空绘制命令。
      * @param recoverCmds 是否回收绘图指令数组。设置为true，则对指令数组进行回收以节省内存开销。建议设置为true进行回收，但如果手动引用了数组，不建议回收。
+     * @param exclude （可选）排除特定命令不被清除。默认为null。
      */
-    clear(recoverCmds: boolean = true): void {
-        //TODO:内存回收all
-        if (recoverCmds) {
-            for (let i = 0, len = this._cmds.length; i < len; i++) {
-                this._cmds[i].recover();
+    clear(recoverCmds?: boolean, exclude?: IGraphicsCmd): void {
+        if (this._cmds.length === 0)
+            return;
+
+        if (recoverCmds || recoverCmds == null) {
+            for (let cmd of this._cmds) {
+                if (!cmd.lock && cmd != exclude)
+                    cmd.recover();
             }
         }
 
-        this._cmds.length = 0;
-        this._render = this._renderEmpty;
-        this._clearData();
-        if (this._sp) {
-            this._sp._renderType &= ~SpriteConst.GRAPHICS;
-        }
-        this._repaint();
-        if (this._vectorgraphArray) {
-            for (let i = 0, len = this._vectorgraphArray.length; i < len; i++) {
-                VectorGraphManager.getInstance().deleteShape(this._vectorgraphArray[i]);
+        if (exclude) {
+            this._cmds[0] = exclude;
+            this._cmds.length = 1;
+            // 重新计算布局重绘计数（只计算exclude）
+            this._layoutRepaintCount = 0;
+            if (exclude.needsLayoutRepaint) {
+                this._layoutRepaintCount = exclude.needsLayoutRepaint();
             }
-            this._vectorgraphArray.length = 0;
         }
+        else {
+            this._cmds.length = 0;
+            this._layoutRepaintCount = 0;
+        }
+
+        this.repaint();
     }
 
-    /** @ignore */
-    _clearBoundsCache(onSizeChanged?: boolean): void {
-        if (this._graphicBounds) {
-            if (!onSizeChanged || this._graphicBounds._affectBySize)
-                this._graphicBounds.reset();
-        }
+    /** @deprecated Use repaint */
+    _repaint(): void {
+        this.repaint();
     }
 
-    /**@private */
-    private _initGraphicBounds(): void {
-        if (!this._graphicBounds) {
-            this._graphicBounds = GraphicsBounds.create();
-            this._graphicBounds._graphics = this;
+    /**
+     * @en Redraw this object.
+     * @zh 重绘此对象。
+     */
+    repaint(): void {
+        this._modified = Stat.loopCount;
+        this._graphicBounds?.reset();
+        if (this.owner) {
+            this.owner._graphicsRenderer._checkDisplay();
+            this.owner.repaint(RepaintFlag.Graphics);
         }
     }
 
     /**
      * @internal
-     * @en Redraw this object.
-     * @zh 重绘此对象。
+     * @en Get the count of commands that need to respond to layout changes.
+     * @zh 获取需要响应布局变化的命令数量。
+     * @returns The count of commands that need layout repaint.
      */
-    _repaint(): void {
-        this._clearBoundsCache();
-        this._sp && this._sp.repaint();
-    }
-
-    /**@internal */
-    _isOnlyOne(): boolean {
-        return this._cmds.length === 1;
+    getLayoutRepaintCount(): number {
+        return this._layoutRepaintCount;
     }
 
     /**
@@ -192,82 +199,142 @@ export class Graphics {
         return this._cmds;
     }
 
-    set cmds(value) {
-        if (this._sp) {
-            this._sp._renderType |= SpriteConst.GRAPHICS;
+    set cmds(value: IGraphicsCmd[]) {
+        if (this._cmds.length > 0) {
+            this._cmds.filter(cmd => !value.includes(cmd)).forEach(cmd => {
+                if (!cmd.lock)
+                    cmd.recover();
+            });
         }
-
+        
+        this._layoutRepaintCount = 0;
+        for (let cmd of value) {
+            if (cmd.needsLayoutRepaint) {
+                this._layoutRepaintCount += cmd.needsLayoutRepaint();
+            }
+        }
+        
         this._cmds = value;
-
-        let len = value.length;
-        this._render = len === 0 ? this._renderEmpty : (len === 1 ? this._renderOne : this._renderAll);
-        this._repaint();
+        this.repaint();
     }
 
     /**
-     * @zh 添加到命令流。
-     * @param cmd 要被添加的命令。
-     * @param index （可选）插入的索引。
      * @en Save to the command stream.
      * @param cmd Add the command to the command stream.
      * @param index (Optional) The index to be inserted.
+     * @zh 添加到命令流。
+     * @param cmd 要被添加的命令。
+     * @param index （可选）插入的索引。
      */
-    addCmd(cmd: any): any {
-        if (cmd == null) {
-            console.warn("null cmd");
-            return;
-        }
+    addCmd<T extends IGraphicsCmd>(cmd: T, index?: number): T {
+        if (cmd == null)
+            throw new Error("null cmd");
 
-        if (this._sp) {
-            this._sp._renderType |= SpriteConst.GRAPHICS;
+        if (index == null || index >= this._cmds.length)
+            this._cmds.push(cmd);
+        else
+            this._cmds.splice(index, 0, cmd);
+        
+        if (cmd.needsLayoutRepaint) {
+            this._layoutRepaintCount += cmd.needsLayoutRepaint();
         }
-        this._cmds.push(cmd);
-        this._render = this._cmds.length === 1 ? this._renderOne : this._renderAll;
-        this._repaint();
+        
+        // this.repaint();
+        this.repaint();
         return cmd;
     }
 
     /**
      * @en Remove a specific command from the command list.
      * @param cmd The command to be removed.
+     * @param recover (Optional) Whether to recycle the command. Default is false.
      * @zh 从命令列表中移除特定的命令。
      * @param cmd 要移除的命令。
+     * @param recover （可选）是否回收命令。默认为false。
      */
-    removeCmd(cmd: any) {
+    removeCmd(cmd: IGraphicsCmd, recover?: boolean) {
         let i = this.cmds.indexOf(cmd);
         if (i != -1) {
             this._cmds.splice(i, 1);
+            
+            if (cmd.needsLayoutRepaint) {
+                this._layoutRepaintCount -= cmd.needsLayoutRepaint();
+            }
+            
+            this.repaint();
+        }
 
-            let len = this._cmds.length;
-            this._render = len === 0 ? this._renderEmpty : (len === 1 ? this._renderOne : this._renderAll);
-            this._repaint();
+        if (recover) {
+            cmd.lock = false;
+            cmd.recover();
         }
     }
 
     /**
+     * @en Replace the command.
+     * @param oldCmd The command to be replaced.
+     * @param newCmd The new command.
+     * @param recover (Optional) Whether to recycle the old command. Default is false.
+     * @zh 替换命令。
+     * @param oldCmd 要被替换的命令。
+     * @param newCmd 新命令。
+     * @param recover （可选）是否回收旧命令。默认为false。
+     */
+    replaceCmd<T extends IGraphicsCmd>(oldCmd: IGraphicsCmd, newCmd: T, recover?: boolean): T {
+        let index = this._cmds.indexOf(oldCmd);
+        
+        if (oldCmd && oldCmd.needsLayoutRepaint) {
+            this._layoutRepaintCount -= oldCmd.needsLayoutRepaint();
+        }
+        
+        if (newCmd != null) {
+            if (index !== -1)
+                this._cmds[index] = newCmd;
+            else
+                this._cmds.push(newCmd);
+            
+            if (newCmd.needsLayoutRepaint) {
+                this._layoutRepaintCount += newCmd.needsLayoutRepaint();
+            }
+            
+            this.repaint();
+        }
+        else if (index != -1) {
+            this._cmds.splice(index, 1);
+            this.repaint();
+        }
+
+        if (oldCmd && recover) {
+            oldCmd.lock = false;
+            oldCmd.recover();
+        }
+
+        return newCmd;
+    }
+
+
+    /**
      * @en Get the position and size information matrix (CPU-intensive, frequent use may cause lag, use sparingly).
-     * @param realSize (Optional) Use the real size of the image, default is false.
      * @returns A Rectangle object composed of position and size.
      * @zh 获取位置及宽高信息矩阵(比较耗CPU，频繁使用会造成卡顿，尽量少用)。
-     * @param realSize （可选）使用图片的真实大小，默认为false。
      * @returns 位置与宽高组成的一个 Rectangle 对象。
      */
-    getBounds(realSize: boolean = false): Rectangle {
-        this._initGraphicBounds();
-        return this._graphicBounds!.getBounds(realSize);
+    getBounds(): Readonly<Rectangle> {
+        if (!this._graphicBounds)
+            this._graphicBounds = GraphicsBounds.create();
+        return this._graphicBounds!.getBounds(this);
     }
 
     /**
      * @en Get the list of endpoints.
-     * @param realSize (Optional) Use the real size of the image, default is false.
      * @returns An array of endpoint coordinates.
      * @zh 获取端点列表。
-     * @param realSize （可选）使用图片的真实大小，默认为false。
      * @returns 端点坐标的数组。
      */
-    getBoundPoints(realSize: boolean = false): any[] {
-        this._initGraphicBounds();
-        return this._graphicBounds!.getBoundPoints(realSize);
+    getBoundPoints(): ReadonlyArray<number> {
+        if (!this._graphicBounds)
+            this._graphicBounds = GraphicsBounds.create();
+        return this._graphicBounds!.getBoundPoints(this);
     }
 
     /**
@@ -279,10 +346,14 @@ export class Graphics {
     }
 
     set material(value: Material) {
+        if (value && !value.checkType(ShaderFeatureType.D2_TextureSV))
+            return;
+
         if (this._material == value)
             return;
         this._material && this._material._removeReference();
         this._material = value;
+        this.repaint();
         if (value != null)
             value._addReference();
     }
@@ -353,29 +424,6 @@ export class Graphics {
         if (!texture) return null;
         return this.addCmd(DrawTexturesCmd.create(texture, pos, colors));
     }
-    /**
-     * @en Draw geometry
-     * @param geo Render geometry element
-     * @param material Material to use for rendering
-     * @zh 绘制几何体
-     * @param geo 渲染几何元素
-     * @param material 用于渲染的材质
-     */
-    drawGeo(geo: IRenderGeometryElement, material: Material) {
-        return this.addCmd(DrawGeoCmd.create(geo, material));
-    }
-
-    /**
-     * @en Draw multiple geometries
-     * @param geo Render geometry element
-     * @param elements Array of [Material, startIndex, count] tuples
-     * @zh 绘制多个几何体
-     * @param geo 渲染几何元素
-     * @param elements [材质, 起始索引, 数量] 元组数组
-     */
-    drawGeos(geo: IRenderGeometryElement, elements: [Material, number, number][]) {
-        return this.addCmd(DrawGeosCmd.create(geo, elements));
-    }
 
     /**
      * @en Draw a group of triangles
@@ -407,16 +455,6 @@ export class Graphics {
     }
 
     /**
-     * @zh 用纹理填充
-     * @param texture 用于填充的纹理
-     * @param x X轴偏移量
-     * @param y Y轴偏移量
-     * @param width （可选）宽度。默认为0。
-     * @param height （可选）高度。默认为0。
-     * @param type （可选）填充类型：'repeat'、'repeat-x'、'repeat-y'或'no-repeat'。默认为'repeat'。
-     * @param offset （可选）贴图纹理偏移。默认为null。
-     * @param color （可选）颜色。默认为null。
-     * @param percent （可选）是否采用百分比。默认为false。
      * @en Fill with texture
      * @param texture The texture to use for filling
      * @param x X-axis offset
@@ -426,7 +464,17 @@ export class Graphics {
      * @param type (Optional) Fill type: 'repeat', 'repeat-x', 'repeat-y', or 'no-repeat'. Default is 'repeat'.
      * @param offset (Optional) Texture offset. Default is null.
      * @param color (Optional) Color. Default is null.
-     * @param percent (Optional) Whether to use percentage. Default is false.
+     * @param percent (Optional) Whether to use percentages. Default is false.
+     * @zh 用纹理填充
+     * @param texture 用于填充的纹理
+     * @param x X轴偏移量
+     * @param y Y轴偏移量
+     * @param width （可选）宽度。默认为0。
+     * @param height （可选）高度。默认为0。
+     * @param type （可选）填充类型：'repeat'、'repeat-x'、'repeat-y'或'no-repeat'。默认为'repeat'。
+     * @param offset （可选）贴图纹理偏移。默认为null。
+     * @param color （可选）颜色。默认为null。
+     * @param percent （可选）是否使用百分比。默认为false。
      */
     fillTexture(texture: Texture, x: number, y: number, width: number = 0, height: number = 0, type: string = "repeat", offset: Point | null = null, color: string = null, percent: boolean = false): FillTextureCmd | null {
         if (texture && texture.bitmap)
@@ -467,7 +515,7 @@ export class Graphics {
      * @param color 定义文本颜色，例如"#ff0000"
      * @param textAlign 文本对齐方式。可选值："left"、"center"、"right"
      */
-    fillText(text: string | WordText, x: number, y: number, font: string, color: string, textAlign: string): FillTextCmd {
+    fillText(text: string, x: number, y: number, font: string, color: string, textAlign: string): FillTextCmd {
         return this.addCmd(FillTextCmd.create(text, x, y, font, color, textAlign, 0, ""));
     }
 
@@ -491,7 +539,7 @@ export class Graphics {
      * @param lineWidth 镶边线条宽度
      * @param borderColor 定义镶边文本颜色
      */
-    fillBorderText(text: string | WordText, x: number, y: number, font: string, fillColor: string, textAlign: string, lineWidth: number, borderColor: string): FillTextCmd {
+    fillBorderText(text: string, x: number, y: number, font: string, fillColor: string, textAlign: string, lineWidth: number, borderColor: string): FillTextCmd {
         return this.addCmd(FillTextCmd.create(text, x, y, font, fillColor, textAlign, lineWidth, borderColor));
     }
 
@@ -513,7 +561,7 @@ export class Graphics {
      * @param lineWidth 线条宽度
      * @param textAlign 文本对齐方式。可选值："left"、"center"、"right"
      */
-    strokeText(text: string | WordText, x: number, y: number, font: string, color: string, lineWidth: number, textAlign: string): FillTextCmd {
+    strokeText(text: string, x: number, y: number, font: string, color: string, lineWidth: number, textAlign: string): FillTextCmd {
         return this.addCmd(FillTextCmd.create(text, x, y, font, null, textAlign, lineWidth, color));
     }
 
@@ -606,7 +654,7 @@ export class Graphics {
      * @param color 新的颜色
      */
     replaceTextColor(color: string): void {
-        this._repaint();
+        this.repaint();
         let cmds = this._cmds;
         for (let i = cmds.length - 1; i > -1; i--) {
             let cmd = cmds[i];
@@ -637,48 +685,20 @@ export class Graphics {
      * @param width （可选）显示图片的宽度，设置为0表示使用图片默认宽度。默认为null。
      * @param height （可选）显示图片的高度，设置为0表示使用图片默认高度。默认为null。
      * @param complete （可选）加载完成回调
+     * @blueprintIgnore
      */
     loadImage(url: string, x: number = 0, y: number = 0, width: number = null, height: number = null, complete: Function | null = null): void {
         let tex: Texture = ILaya.loader.getRes(url);
         if (tex) {
             this.drawImage(tex, x, y, width, height);
-            complete && complete.call(this._sp);
+            complete && complete.call(this.owner);
         }
         else {
             ILaya.loader.load(url).then((tex: Texture) => {
                 this.drawImage(tex, x, y, width, height);
-                complete && complete.call(this._sp);
+                complete && complete.call(this.owner);
             });
         }
-    }
-
-    /**
-     * @internal
-     */
-    _renderEmpty(sprite: Sprite, context: Context, x: number, y: number): void {
-    }
-
-    /**
-     * @internal
-     */
-    _renderAll(sprite: Sprite, context: Context, x: number, y: number): void {
-        context.sprite = sprite;
-        context._material = this._material;
-        var cmds = this._cmds!;
-        for (let i = 0, n = cmds.length; i < n; i++) {
-            cmds[i].run(context, x, y);
-        }
-        context._material = null;
-    }
-
-    /**
-     * @internal
-     */
-    _renderOne(sprite: Sprite, context: Context, x: number, y: number): void {
-        context.sprite = sprite;
-        context._material = this._material;
-        this._cmds[0].run(context, x, y);
-        context._material = null;
     }
 
     /**
@@ -811,9 +831,10 @@ export class Graphics {
      * @param fillColor 填充颜色，或者填充绘图的渐变对象
      * @param lineColor （可选）边框颜色，或者填充绘图的渐变对象。默认为null。
      * @param lineWidth （可选）边框宽度。默认为1。
+     * @param percent （可选）位置和大小是否是百分比值
      */
-    drawCircle(x: number, y: number, radius: number, fillColor: any, lineColor: any = null, lineWidth: number = 1): DrawCircleCmd {
-        return this.addCmd(DrawCircleCmd.create(x, y, radius, fillColor, lineColor, lineWidth));
+    drawCircle(x: number, y: number, radius: number, fillColor: any, lineColor: any = null, lineWidth: number = 1, percent?: boolean): DrawCircleCmd {
+        return this.addCmd(DrawCircleCmd.create(x, y, radius, fillColor, lineColor, lineWidth, percent));
     }
 
     /**

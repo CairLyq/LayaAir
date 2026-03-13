@@ -1,5 +1,4 @@
 import { RenderClearFlag } from "../../../RenderEngine/RenderEnum/RenderClearFlag";
-import { RenderPassStatisticsInfo } from "../../../RenderEngine/RenderEnum/RenderStatInfo";
 import { BaseCamera } from "../../../d3/core/BaseCamera";
 import { ShadowCascadesMode } from "../../../d3/core/light/ShadowCascadesMode";
 import { ShadowMode } from "../../../d3/core/light/ShadowMode";
@@ -9,13 +8,14 @@ import { Scene3DShaderDeclaration } from "../../../d3/core/scene/Scene3DShaderDe
 import { Plane } from "../../../d3/math/Plane";
 import { ShadowCasterPass } from "../../../d3/shadowMap/ShadowCasterPass";
 import { ShadowCullInfo, ShadowSliceData } from "../../../d3/shadowMap/ShadowSliceData";
+import { LayaGL } from "../../../layagl/LayaGL";
+import { StatElement } from "../../../layagl/StatisticsContext";
 import { Color } from "../../../maths/Color";
 import { MathUtils3D } from "../../../maths/MathUtils3D";
 import { Matrix4x4 } from "../../../maths/Matrix4x4";
 import { Vector3 } from "../../../maths/Vector3";
 import { Vector4 } from "../../../maths/Vector4";
 import { Viewport } from "../../../maths/Viewport";
-import { Stat } from "../../../utils/Stat";
 import { RenderCullUtil } from "../../DriverCommon/RenderCullUtil";
 import { RenderListQueue } from "../../DriverCommon/RenderListQueue";
 import { WebBaseRenderNode } from "../../RenderModuleData/WebModuleData/3D/WebBaseRenderNode";
@@ -85,7 +85,7 @@ export class WebGLDirectLightShadowRP {
 
     set light(value: WebDirectLight) {
         this._light = value;
-        var lightWorld: Matrix4x4 = Matrix4x4.TEMPMatrix0;
+        var lightWorld: Matrix4x4 = Matrix4x4.TEMP;
         var lightWorldE: Float32Array = lightWorld.elements;
         var lightUp: Vector3 = this._lightup;
         var lightSide: Vector3 = this._lightSide;
@@ -139,7 +139,7 @@ export class WebGLDirectLightShadowRP {
         var boundSpheres: Float32Array = this._splitBoundSpheres;
         ShadowUtils.getCascadesSplitDistance(this._light.shadowTwoCascadeSplits, this._light._shadowFourCascadeSplits, cameraNear, shadowFar, this.camera.fieldOfView * MathUtils3D.Deg2Rad, this.camera.aspectRatio, this.shadowCastMode, splitDistance);
         ShadowUtils.getCameraFrustumPlanes(this.camera._projectViewMatrix, frustumPlanes);
-        var forward: Vector3 = Vector3._tempVector3;
+        var forward: Vector3 = Vector3.TEMP;
         this.camera.transform.getForward(forward);
         Vector3.normalize(forward, forward);
         for (var i: number = 0; i < this._cascadeCount; i++) {
@@ -159,13 +159,14 @@ export class WebGLDirectLightShadowRP {
      * @param count
      */
     render(context: WebGLRenderContext3D, list: WebBaseRenderNode[], count: number): void {
-        var shaderValues: WebGLShaderData = context.sceneData;
+        let shaderValues: WebGLShaderData = context.sceneData;
         context.pipelineMode = "ShadowCaster";
         var shadowMap = this.destTarget
         context.setRenderTarget(shadowMap, RenderClearFlag.Depth);
         context.setClearData(RenderClearFlag.Depth, Color.BLACK, 1, 0);
 
         let originCameraData = context.cameraData;
+        let originInvertY = context.invertY;
 
         //需要把shadowmap clear Depth;
         for (var i: number = 0, n: number = this._cascadeCount; i < n; i++) {
@@ -181,9 +182,10 @@ export class WebGLDirectLightShadowRP {
             //cull
             var time = performance.now();//T_ShadowMapCull Stat
             RenderCullUtil.cullDirectLightShadow(shadowCullInfo, list, count, this._renderQueue, context);
-            Stat.renderPassStatArray[RenderPassStatisticsInfo.T_ShadowMapCull] += (performance.now() - time);//Stat
+            LayaGL.statAgent.recordTimeData(StatElement.T_CullShadow, performance.now() - time);
 
             context.cameraData = sliceData.cameraShaderValue as WebGLShaderData;
+            context.invertY = false;
             context.cameraUpdateMask++;
 
             var resolution: number = sliceData.resolution;
@@ -192,43 +194,28 @@ export class WebGLDirectLightShadowRP {
 
 
             if (this._renderQueue.elements.length > 0) {// if one cascade have anything to render.
-                Viewport._tempViewport.set(offsetX, offsetY, resolution, resolution);
-                Vector4.tempVec4.setValue(offsetX + 1, offsetY + 1, resolution - 2, resolution - 2);
-                context.setViewPort(Viewport._tempViewport);
-                context.setScissor(Vector4.tempVec4);
+                Viewport.TEMP.set(offsetX, offsetY, resolution, resolution);
+                Vector4.TEMP.setValue(offsetX + 1, offsetY + 1, resolution - 2, resolution - 2);
+                context.setViewPort(Viewport.TEMP);
+                context.setScissor(Vector4.TEMP);
             }
             else {
-                Viewport._tempViewport.set(offsetX, offsetY, resolution, resolution);
-                context.setViewPort(Viewport._tempViewport);
-                Vector4.tempVec4.setValue(offsetX, offsetY, resolution, resolution);
-                context.setScissor(Vector4.tempVec4);
-            }
-
-            if (sliceData.cameraUBO && sliceData.cameraUBData) {
-                sliceData.cameraUBO.setDataByUniformBufferData(sliceData.cameraUBData);
+                Viewport.TEMP.set(offsetX, offsetY, resolution, resolution);
+                context.setViewPort(Viewport.TEMP);
+                Vector4.TEMP.setValue(offsetX, offsetY, resolution, resolution);
+                context.setScissor(Vector4.TEMP);
             }
 
             context.setClearData(RenderClearFlag.Depth, Color.BLACK, 1, 0);
             this._renderQueue.renderQueue(context);
-            Stat.shadowMapDrawCall += this._renderQueue.elements.length;
+            LayaGL.statAgent.recordCTData(StatElement.CT_ShadowDrawCall, this._renderQueue.elements.length);
             this._applyCasterPassCommandBuffer(context);
         }
         this._applyRenderData(context.sceneData, context.cameraData);
         this._renderQueue._batch.recoverData();
         context.cameraData = originCameraData;
+        context.invertY = originInvertY;
         context.cameraUpdateMask++;
-    }
-
-
-    destroy() {
-        for (var i = 0; i < this._shadowSliceDatas.length; i++) {
-            this._shadowSliceDatas[i].destroy();
-        }
-        this._renderQueue.destroy();
-        this._cascadesSplitDistance = null;
-        this._frustumPlanes = null;
-        this._shadowMatrices = null;
-        this._splitBoundSpheres = null;
     }
 
     /**
@@ -305,10 +292,23 @@ export class WebGLDirectLightShadowRP {
     private _setupShadowCasterShaderValues(shaderValues: WebGLShaderData, shadowSliceData: ShadowSliceData, LightParam: Vector3, shadowBias: Vector4): void {
         shaderValues.setVector(ShadowCasterPass.SHADOW_BIAS, shadowBias);
         shaderValues.setVector3(ShadowCasterPass.SHADOW_LIGHT_DIRECTION, LightParam);
+
         var cameraSV: WebGLShaderData = shadowSliceData.cameraShaderValue as WebGLShaderData;//TODO:should optimization with shader upload.
         cameraSV.setMatrix4x4(BaseCamera.VIEWMATRIX, shadowSliceData.viewMatrix);
         cameraSV.setMatrix4x4(BaseCamera.PROJECTMATRIX, shadowSliceData.projectionMatrix);
         cameraSV.setMatrix4x4(BaseCamera.VIEWPROJECTMATRIX, shadowSliceData.viewProjectMatrix);
         shaderValues.setMatrix4x4(BaseCamera.VIEWPROJECTMATRIX, shadowSliceData.viewProjectMatrix);
+    }
+
+    destroy() {
+
+        for (var i = 0; i < this._shadowSliceDatas.length; i++) {
+            this._shadowSliceDatas[i].destroy();
+        }
+        this._renderQueue.destroy();
+        this._cascadesSplitDistance = null;
+        this._frustumPlanes = null;
+        this._shadowMatrices = null;
+        this._splitBoundSpheres = null;
     }
 }

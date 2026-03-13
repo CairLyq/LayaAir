@@ -1,10 +1,13 @@
+/**
+description
+ LayaAir 3D场景LOD演示，通过垂直滑动条控制相机位置和方向
+ */
 import { Laya } from "Laya";
 import { Camera } from "laya/d3/core/Camera";
 import { Scene3D } from "laya/d3/core/scene/Scene3D";
 import { Scene } from "laya/display/Scene";
 import { Stage } from "laya/display/Stage";
 import { Vector3 } from "laya/maths/Vector3";
-import { PrefabImpl } from "laya/resource/PrefabImpl";
 import { VSlider } from "laya/ui/VSlider";
 import { Handler } from "laya/utils/Handler";
 import { Stat } from "laya/utils/Stat";
@@ -38,7 +41,7 @@ export class LodDemo {
     }
 
     addUI(): void {
-        Laya.loader.load("res/ui/vscroll.png").then(()=>{
+        Laya.loader.load("res/ui/vscroll.png").then(() => {
             this.placeVSlider();
         });
         Laya.timer.frameLoop(1, this, this.update);
@@ -55,7 +58,7 @@ export class LodDemo {
 
     private placeVSlider(): void {
         this.vs = new VSlider();
-        this.scene.addChild(this.vs);
+        Laya.stage.addChild(this.vs);
         this.vs.skin = "res/ui/vscroll.png";
         this.vs.height = 500;
         this.vs.right = 100;

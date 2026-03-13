@@ -1,17 +1,20 @@
-import { Context, IGraphicCMD } from "../../renders/Context"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { Pool } from "../../utils/Pool"
+import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
+
+const className = "DrawLinesCmd";
 
 /**
  * @en Draw continuous curves command
  * @zh 绘制连续曲线命令
  */
-export class DrawLinesCmd implements IGraphicCMD {
+export class DrawLinesCmd implements IGraphicsCmd {
     /**
      * @en Identifier for the DrawLinesCmd
      * @zh 绘制连续曲线命令的标识符
      */
-    static ID: string = "DrawLines";
+    static readonly ID: string = className;
 
     /**
      * @en X-axis position to start drawing
@@ -56,7 +59,7 @@ export class DrawLinesCmd implements IGraphicCMD {
      * @returns DrawLinesCmd 实例
      */
     static create(x: number, y: number, points: any[], lineColor: any, lineWidth: number): DrawLinesCmd {
-        var cmd: DrawLinesCmd = Pool.getItemByClass("DrawLinesCmd", DrawLinesCmd);
+        var cmd: DrawLinesCmd = Pool.getItemByClass(className, DrawLinesCmd);
         //TODO 线段需要缓存
         cmd.x = x;
         cmd.y = y;
@@ -73,22 +76,30 @@ export class DrawLinesCmd implements IGraphicCMD {
     recover(): void {
         this.points = null;
         this.lineColor = null;
-        Pool.recover("DrawLinesCmd", this);
+        Pool.recover(className, this);
     }
 
     /**
      * @en Execute the draw continuous lines command
-     * @param context The rendering context
+     * @param runner The rendering context
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制连续曲线命令
-     * @param context 渲染上下文
+     * @param runner 渲染上下文
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(context: Context, gx: number, gy: number): void {
+    run(runner: GraphicsRunner, gx: number, gy: number): void {
         let offset = (this.lineWidth < 1 || this.lineWidth % 2 === 0) ? 0 : 0.5;
-        this.points && context._drawLines(this.x + offset + gx, this.y + offset + gy, this.points, this.lineColor, this.lineWidth, 0);
+        this.points && runner._drawLines(this.x + offset + gx, this.y + offset + gy, this.points, this.lineColor, this.lineWidth, 0);
+    }
+
+    /**
+     * @ignore
+     */
+    getBounds(assembler: IGraphicsBoundsAssembler): void {
+        assembler.points.push(...this.points);
+        assembler.flushPoints(this.x, this.y);
     }
 
     /**
@@ -98,7 +109,7 @@ export class DrawLinesCmd implements IGraphicCMD {
     get cmdID(): string {
         return DrawLinesCmd.ID;
     }
-
 }
 
-ClassUtils.regClass("DrawLinesCmd", DrawLinesCmd);
+
+ClassUtils.regClass(className, DrawLinesCmd);

@@ -6,6 +6,7 @@ import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
 import { LayaGL } from "../../layagl/LayaGL";
 import { ShaderDefine } from "../../RenderDriver/RenderModuleData/Design/ShaderDefine";
 import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { Config3D } from "../../../Config3D";
 
 
 /**
@@ -27,34 +28,6 @@ export class RenderableSprite3D extends Sprite3D {
 	static LIGHTMAP_DIRECTION: number;
 	/**拾取颜色。*/
 	static PICKCOLOR: number;
-
-
-	/** 反射探针位置 最大、最小值*/
-	static REFLECTIONCUBE_PROBEPOSITION: number;
-	static REFLECTIONCUBE_PROBEBOXMAX: number;
-	static REFLECTIONCUBE_PROBEBOXMIN: number;
-
-	/** volumetric GI */
-
-	static VOLUMETRICGI_PROBECOUNTS: number;
-	static VOLUMETRICGI_PROBESTEPS: number;
-	static VOLUMETRICGI_PROBESTARTPOS: number;
-	static VOLUMETRICGI_PROBEPARAMS: number;
-	static VOLUMETRICGI_IRRADIANCE: number;
-	static VOLUMETRICGI_DISTANCE: number;
-
-	/** @internal */
-	static IBLTEX: number;
-	/** @internal */
-	static IBLROUGHNESSLEVEL: number;
-	/** @internal */
-	static AMBIENTSH: number;
-	/** @internal */
-	static AMBIENTCOLOR: number;
-	/** @internal */
-	static AMBIENTINTENSITY: number;
-	/** @internal */
-	static REFLECTIONINTENSITY: number;
 
 	/// Morph target
 
@@ -135,28 +108,6 @@ export class RenderableSprite3D extends Sprite3D {
 		RenderableSprite3D.LIGHTMAP_DIRECTION = Shader3D.propertyNameToID("u_LightMapDirection");
 		RenderableSprite3D.PICKCOLOR = Shader3D.propertyNameToID("u_PickColor");
 
-		RenderableSprite3D.REFLECTIONCUBE_PROBEPOSITION = Shader3D.propertyNameToID("u_SpecCubeProbePosition");
-		RenderableSprite3D.REFLECTIONCUBE_PROBEBOXMAX = Shader3D.propertyNameToID("u_SpecCubeBoxMax");
-		RenderableSprite3D.REFLECTIONCUBE_PROBEBOXMIN = Shader3D.propertyNameToID("u_SpecCubeBoxMin");
-
-		// volumestric GI
-		RenderableSprite3D.VOLUMETRICGI_PROBECOUNTS = Shader3D.propertyNameToID("u_VolGIProbeCounts");
-		RenderableSprite3D.VOLUMETRICGI_PROBESTEPS = Shader3D.propertyNameToID("u_VolGIProbeStep");
-		RenderableSprite3D.VOLUMETRICGI_PROBESTARTPOS = Shader3D.propertyNameToID("u_VolGIProbeStartPosition");
-		RenderableSprite3D.VOLUMETRICGI_PROBEPARAMS = Shader3D.propertyNameToID("u_VolGIProbeParams");
-		RenderableSprite3D.VOLUMETRICGI_IRRADIANCE = Shader3D.propertyNameToID("u_ProbeIrradiance");
-		RenderableSprite3D.VOLUMETRICGI_DISTANCE = Shader3D.propertyNameToID("u_ProbeDistance");
-
-		//ambient Color
-		RenderableSprite3D.AMBIENTCOLOR = Shader3D.propertyNameToID("u_AmbientColor");
-		// sh 
-		RenderableSprite3D.AMBIENTSH = Shader3D.propertyNameToID("u_IblSH");
-		//GI instance
-		RenderableSprite3D.AMBIENTINTENSITY = Shader3D.propertyNameToID("u_AmbientIntensity");
-		RenderableSprite3D.REFLECTIONINTENSITY = Shader3D.propertyNameToID("u_ReflectionIntensity");
-		RenderableSprite3D.IBLTEX = Shader3D.propertyNameToID("u_IBLTex");
-		RenderableSprite3D.IBLROUGHNESSLEVEL = Shader3D.propertyNameToID("u_IBLRoughnessLevel");
-
 		const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("Sprite3D");
 
 		/// morph target
@@ -172,53 +123,42 @@ export class RenderableSprite3D extends Sprite3D {
 		RenderableSprite3D.MorphActiceTargets = Shader3D.propertyNameToID("u_MorphActiveTargets");
 		RenderableSprite3D.MorphActiveCount = Shader3D.propertyNameToID("u_MorphTargetActiveCount");
 
-		commandUniform.addShaderUniform(RenderableSprite3D.MorphTex, "u_MorphTargetsTex", ShaderDataType.Texture2D);
-		commandUniform.addShaderUniform(RenderableSprite3D.MorphParams, "u_MorphParams", ShaderDataType.Vector4);
-		commandUniform.addShaderUniform(RenderableSprite3D.MorphAttriOffset, "u_MorphAttrOffset", ShaderDataType.Vector4);
-		commandUniform.addShaderUniform(RenderableSprite3D.MorphActiceTargets, "u_MorphActiveTargets", ShaderDataType.Buffer);
-		commandUniform.addShaderUniform(RenderableSprite3D.MorphActiveCount, "u_MorphTargetActiveCount", ShaderDataType.Int);
+		const morphTargetMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("MorphTarget");
+		morphTargetMap.addShaderUniform(RenderableSprite3D.MorphTex, "u_MorphTargetsTex", ShaderDataType.Texture2D);
+		morphTargetMap.addShaderUniform(RenderableSprite3D.MorphParams, "u_MorphParams", ShaderDataType.Vector4);
+		morphTargetMap.addShaderUniform(RenderableSprite3D.MorphAttriOffset, "u_MorphAttrOffset", ShaderDataType.Vector4);
+		morphTargetMap.addShaderUniformArray(RenderableSprite3D.MorphActiceTargets, "u_MorphActiveTargets", ShaderDataType.Vector4, Config3D.maxMorphTargetCount);
+		morphTargetMap.addShaderUniform(RenderableSprite3D.MorphActiveCount, "u_MorphTargetActiveCount", ShaderDataType.Int);
+
 
 		commandUniform.addShaderUniform(RenderableSprite3D.LIGHTMAPSCALEOFFSET, "u_LightmapScaleOffset", ShaderDataType.Vector4);
 		commandUniform.addShaderUniform(RenderableSprite3D.LIGHTMAP, "u_LightMap", ShaderDataType.Texture2D);
 		commandUniform.addShaderUniform(RenderableSprite3D.LIGHTMAP_DIRECTION, "u_LightMapDirection", ShaderDataType.Texture2D);
 		commandUniform.addShaderUniform(RenderableSprite3D.PICKCOLOR, "u_PickColor", ShaderDataType.Vector3);
 
-		commandUniform.addShaderUniform(RenderableSprite3D.REFLECTIONCUBE_PROBEPOSITION, "u_SpecCubeProbePosition", ShaderDataType.Vector3);
-		commandUniform.addShaderUniform(RenderableSprite3D.REFLECTIONCUBE_PROBEBOXMAX, "u_SpecCubeBoxMax", ShaderDataType.Vector3);
-		commandUniform.addShaderUniform(RenderableSprite3D.REFLECTIONCUBE_PROBEBOXMIN, "u_SpecCubeBoxMin", ShaderDataType.Vector3);
-		commandUniform.addShaderUniform(RenderableSprite3D.IBLTEX, "u_IBLTex", ShaderDataType.Texture2D);
-		commandUniform.addShaderUniform(RenderableSprite3D.IBLROUGHNESSLEVEL, "u_IBLRoughnessLevel", ShaderDataType.Float);
-		commandUniform.addShaderUniform(RenderableSprite3D.VOLUMETRICGI_PROBECOUNTS, "u_VolGIProbeCounts", ShaderDataType.Vector3);
-		commandUniform.addShaderUniform(RenderableSprite3D.VOLUMETRICGI_PROBESTEPS, "u_VolGIProbeStep", ShaderDataType.Vector3);
-		commandUniform.addShaderUniform(RenderableSprite3D.VOLUMETRICGI_PROBESTARTPOS, "u_VolGIProbeStartPosition", ShaderDataType.Vector3);
-		commandUniform.addShaderUniform(RenderableSprite3D.VOLUMETRICGI_PROBEPARAMS, "u_VolGIProbeParams", ShaderDataType.Vector4);
-		commandUniform.addShaderUniform(RenderableSprite3D.VOLUMETRICGI_IRRADIANCE, "u_ProbeIrradiance", ShaderDataType.Texture2D);
-		commandUniform.addShaderUniform(RenderableSprite3D.VOLUMETRICGI_DISTANCE, "u_ProbeDistance", ShaderDataType.Texture2D);
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSH, "u_IblSH", ShaderDataType.Buffer);
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTCOLOR, "u_AmbientColor", ShaderDataType.Vector4);
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTINTENSITY, "u_AmbientIntensity", ShaderDataType.Float);
-		commandUniform.addShaderUniform(RenderableSprite3D.REFLECTIONINTENSITY, "u_ReflectionIntensity", ShaderDataType.Float);
-
 		//Legency Reflectexture
+
+		const legacyReflectMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("LegacyReflection");
+
 		RenderableSprite3D.REFLECTIONTEXTURE = Shader3D.propertyNameToID("u_ReflectTexture");
 		RenderableSprite3D.REFLECTIONCUBE_HDR_PARAMS = Shader3D.propertyNameToID("u_ReflectCubeHDRParams");
-		commandUniform.addShaderUniform(RenderableSprite3D.REFLECTIONTEXTURE, "u_ReflectTexture", ShaderDataType.TextureCube);
-		commandUniform.addShaderUniform(RenderableSprite3D.REFLECTIONCUBE_HDR_PARAMS, "u_ReflectCubeHDRParams", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.REFLECTIONTEXTURE, "u_ReflectTexture", ShaderDataType.TextureCube);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.REFLECTIONCUBE_HDR_PARAMS, "u_ReflectCubeHDRParams", ShaderDataType.Vector4);
 		// legacy sh
 		RenderableSprite3D.AMBIENTSHAR = Shader3D.propertyNameToID("u_AmbientSHAr");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHAR, "u_AmbientSHAr", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHAR, "u_AmbientSHAr", ShaderDataType.Vector4);
 		RenderableSprite3D.AMBIENTSHAG = Shader3D.propertyNameToID("u_AmbientSHAg");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHAG, "u_AmbientSHAg", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHAG, "u_AmbientSHAg", ShaderDataType.Vector4);
 		RenderableSprite3D.AMBIENTSHAB = Shader3D.propertyNameToID("u_AmbientSHAb");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHAB, "u_AmbientSHAb", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHAB, "u_AmbientSHAb", ShaderDataType.Vector4);
 		RenderableSprite3D.AMBIENTSHBR = Shader3D.propertyNameToID("u_AmbientSHBr");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHBR, "u_AmbientSHBr", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHBR, "u_AmbientSHBr", ShaderDataType.Vector4);
 		RenderableSprite3D.AMBIENTSHBG = Shader3D.propertyNameToID("u_AmbientSHBg");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHBG, "u_AmbientSHBg", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHBG, "u_AmbientSHBg", ShaderDataType.Vector4);
 		RenderableSprite3D.AMBIENTSHBB = Shader3D.propertyNameToID("u_AmbientSHBb");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHBB, "u_AmbientSHBb", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHBB, "u_AmbientSHBb", ShaderDataType.Vector4);
 		RenderableSprite3D.AMBIENTSHC = Shader3D.propertyNameToID("u_AmbientSHC");
-		commandUniform.addShaderUniform(RenderableSprite3D.AMBIENTSHC, "u_AmbientSHC", ShaderDataType.Vector4);
+		legacyReflectMap.addShaderUniform(RenderableSprite3D.AMBIENTSHC, "u_AmbientSHC", ShaderDataType.Vector4);
 	}
 
 	/** @internal */
@@ -234,8 +174,7 @@ export class RenderableSprite3D extends Sprite3D {
 
 	/** 
 	 * @internal
-	 * @inheritDoc
-	 * @override
+	 * @inheritDoc 
 	 */
 	protected _onInActive(): void {
 		super._onInActive();
@@ -243,8 +182,7 @@ export class RenderableSprite3D extends Sprite3D {
 
 	/** 
 	 * @internal
-	 * @inheritDoc
-	 * @override
+	 * @inheritDoc 
 	 */
 	protected _onActive(): void {
 		super._onActive();
@@ -252,8 +190,7 @@ export class RenderableSprite3D extends Sprite3D {
 
 	/**
 	 * @internal
-	 * @inheritDoc
-	 * @override
+	 * @inheritDoc 
 	 */
 	protected _onActiveInScene(): void {
 		super._onActiveInScene();
@@ -267,8 +204,7 @@ export class RenderableSprite3D extends Sprite3D {
 
 	/**
 	 * @inheritDoc
-	 * @internal
-	 * @override
+	 * @internal 
 	 */
 	_setBelongScene(scene: Node): void {
 		super._setBelongScene(scene);
@@ -277,8 +213,7 @@ export class RenderableSprite3D extends Sprite3D {
 
 	/**
 	 * @inheritDoc
-	 * @internal
-	 * @override
+	 * @internal 
 	 */
 	_setUnBelongScene(): void {
 		super._setUnBelongScene();

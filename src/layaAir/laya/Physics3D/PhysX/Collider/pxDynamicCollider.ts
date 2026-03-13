@@ -5,9 +5,9 @@ import { IDynamicCollider } from "../../interface/IDynamicCollider";
 import { Physics3DStatInfo } from "../../interface/Physics3DStatInfo";
 import { EColliderCapable } from "../../physicsEnum/EColliderCapable";
 import { EPhysicsStatisticsInfo } from "../../physicsEnum/EPhysicsStatisticsInfo";
-import { pxPhysicsCreateUtil } from "../pxPhysicsCreateUtil";
-import { pxPhysicsManager } from "../pxPhysicsManager";
-import { pxActorFlag, pxCollider, pxColliderType } from "./pxCollider";
+import type { pxPhysicsManager } from "../pxPhysicsManager";
+import { pxStatics } from "../pxStatics";
+import { pxCollider, pxColliderType } from "./pxCollider";
 
 /**
  * @en The collision detection mode constants.
@@ -118,6 +118,7 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
         this._dynamicCapableMap.set(EColliderCapable.Collider_FrictionCombine, true);
         this._dynamicCapableMap.set(EColliderCapable.Collider_EventFilter, true);
         this._dynamicCapableMap.set(EColliderCapable.Collider_CollisionDetectionMode, true);
+
         this._dynamicCapableMap.set(EColliderCapable.RigidBody_AllowSleep, true);
         this._dynamicCapableMap.set(EColliderCapable.RigidBody_Gravity, true);
         this._dynamicCapableMap.set(EColliderCapable.RigidBody_LinearDamp, true);
@@ -185,7 +186,7 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
     }
 
     protected _initCollider() {
-        this._pxActor = pxPhysicsCreateUtil._pxPhysics.createRigidDynamic(this._transformTo(new Vector3(), new Quaternion()));
+        this._pxActor = pxStatics._physics.createRigidDynamic(this._transformTo(new Vector3(), new Quaternion()));
     }
 
     protected _initColliderShapeByCollider() {
@@ -207,19 +208,6 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
     }
 
     /**
-     * @en Set the world rotation of the dynamic collider.
-     * @param value The new world rotation.
-     * @zh 设置动态碰撞体的世界旋转。
-     * @param value 新的世界旋转。
-     */
-    setWorldRotation(value: Quaternion): void {
-        const transform = this._pxActor.getGlobalPose();
-        _tempTranslation.setValue(transform.translation.x, transform.translation.y, transform.translation.z);
-        _tempRotation.setValue(value.x, value.y, value.z, value.w);
-        this._pxActor.setGlobalPose(this._transformTo(_tempTranslation, _tempRotation), true);
-    }
-
-    /**
      * @en Set the world position of the dynamic collider.
      * @param value The new world position.
      * @zh 设置动态碰撞体的世界位置。
@@ -229,6 +217,19 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
         const transform = this._pxActor.getGlobalPose();
         _tempTranslation.setValue(value.x, value.y, value.z);
         _tempRotation.setValue(transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w);
+        this._pxActor.setGlobalPose(this._transformTo(_tempTranslation, _tempRotation), true);
+    }
+
+    /**
+     * @en Set the world rotation of the dynamic collider.
+     * @param value The new world rotation.
+     * @zh 设置动态碰撞体的世界旋转。
+     * @param value 新的世界旋转。
+     */
+    setWorldRotation(value: Quaternion): void {
+        const transform = this._pxActor.getGlobalPose();
+        _tempTranslation.setValue(transform.translation.x, transform.translation.y, transform.translation.z);
+        _tempRotation.setValue(value.x, value.y, value.z, value.w);
         this._pxActor.setGlobalPose(this._transformTo(_tempTranslation, _tempRotation), true);
     }
 
@@ -364,6 +365,7 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
     isSleeping(): boolean {
         return this._pxActor.isSleeping();
     }
+
     /**
      * @en Set the sleep threshold of the dynamic collider.
      * @param value The sleep threshold value.
@@ -385,16 +387,16 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
         this._collisionDetectionMode = value;
         switch (value) {
             case CollisionDetectionMode.Continuous:
-                this._pxActor.setRigidBodyFlag(pxPhysicsCreateUtil._physX.PxRigidBodyFlag.eENABLE_CCD, true);
+                this._pxActor.setRigidBodyFlag(pxStatics._physX.PxRigidBodyFlag.eENABLE_CCD, true);
                 break;
             case CollisionDetectionMode.ContinuousDynamic:
-                this._pxActor.setRigidBodyFlag(pxPhysicsCreateUtil._physX.PxRigidBodyFlag.eENABLE_CCD_FRICTION, true);
+                this._pxActor.setRigidBodyFlag(pxStatics._physX.PxRigidBodyFlag.eENABLE_CCD_FRICTION, true);
                 break;
             case CollisionDetectionMode.ContinuousSpeculative:
-                this._pxActor.setRigidBodyFlag(pxPhysicsCreateUtil._physX.PxRigidBodyFlag.eENABLE_SPECULATIVE_CCD, true);
+                this._pxActor.setRigidBodyFlag(pxStatics._physX.PxRigidBodyFlag.eENABLE_SPECULATIVE_CCD, true);
                 break;
             case CollisionDetectionMode.Discrete:
-                const physX = pxPhysicsCreateUtil._physX;
+                const physX = pxStatics._physX;
                 this._pxActor.setRigidBodyFlag(physX.PxRigidBodyFlag.eENABLE_CCD, false);
                 this._pxActor.setRigidBodyFlag(physX.PxRigidBodyFlag.eENABLE_CCD_FRICTION, false);
                 this._pxActor.setRigidBodyFlag(physX.PxRigidBodyFlag.eENABLE_SPECULATIVE_CCD, false);
@@ -425,14 +427,14 @@ export class pxDynamicCollider extends pxCollider implements IDynamicCollider {
             this._enableProcessCollisions = false;
             if (this._isSimulate)
                 this._physicsManager._dynamicUpdateList.remove(this);
-            this._pxActor.setRigidBodyFlag(pxPhysicsCreateUtil._physX.PxRigidBodyFlag.eKINEMATIC, true);
+            this._pxActor.setRigidBodyFlag(pxStatics._physX.PxRigidBodyFlag.eKINEMATIC, true);
             Physics3DStatInfo.addStatisticsInfo(EPhysicsStatisticsInfo.C_PhysicaKinematicRigidBody, 1);
             Physics3DStatInfo.addStatisticsInfo(EPhysicsStatisticsInfo.C_PhysicaDynamicRigidBody, -1);
         } else {
             this._enableProcessCollisions = true;
             if (this._isSimulate && this.inPhysicUpdateListIndex == -1)
                 this._physicsManager._dynamicUpdateList.add(this);
-            this._pxActor.setRigidBodyFlag(pxPhysicsCreateUtil._physX.PxRigidBodyFlag.eKINEMATIC, false);
+            this._pxActor.setRigidBodyFlag(pxStatics._physX.PxRigidBodyFlag.eKINEMATIC, false);
         }
     }
 
