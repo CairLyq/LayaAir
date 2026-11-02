@@ -21,7 +21,7 @@ const className = "DrawTrianglesCmd";
 export class DrawTrianglesCmd implements IGraphicsCmd {
     /** @internal */
     _cacheData: any;
-    
+
     /**
      * @en Identifier for the DrawTrianglesCmd
      * @zh 绘制三角形命令的标识符
@@ -84,6 +84,11 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      */
     mesh: IMeshFactory;
 
+    /** @internal 标记 */
+    _dynamic: Vector4 = null;
+
+    private _tempUVs: Float32Array = null;
+
     /**
      * @en Create a DrawTrianglesCmd instance
      * @param texture The texture to be drawn
@@ -98,20 +103,20 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      * @param blendMode Blend mode
      * @returns DrawTrianglesCmd instance
      * @zh 创建一个绘制三角形命令实例
-     * @param texture 要绘制的纹理  
-     * @param x X轴偏移量  
-     * @param y Y轴偏移量  
-     * @param vertices 顶点数组  
-     * @param uvs UV数据  
-     * @param indices 顶点索引  
-     * @param matrix 缩放矩阵  
-     * @param alpha 透明度值  
-     * @param color 颜色变换  
-     * @param blendMode 混合模式  
+     * @param texture 要绘制的纹理
+     * @param x X轴偏移量
+     * @param y Y轴偏移量
+     * @param vertices 顶点数组
+     * @param uvs UV数据
+     * @param indices 顶点索引
+     * @param matrix 缩放矩阵
+     * @param alpha 透明度值
+     * @param color 颜色变换
+     * @param blendMode 混合模式
      * @returns 绘制三角形命令实例
      */
     static create(texture: Texture, x: number, y: number, vertices: Float32Array, uvs: Float32Array, indices: Uint16Array,
-        matrix?: Matrix, alpha?: number, color?: string | number, blendMode?: string): DrawTrianglesCmd {
+                  matrix?: Matrix, alpha?: number, color?: string | number, blendMode?: string): DrawTrianglesCmd {
         var cmd: DrawTrianglesCmd = Pool.getItemByClass(className, DrawTrianglesCmd);
         cmd.texture = texture;
         texture?._addReference();
@@ -124,6 +129,7 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
         cmd.alpha = alpha ?? 1;
         cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
         cmd.blendMode = blendMode;
+        cmd._dynamic = texture._dynamic?.uv;
         return cmd;
     }
 
@@ -147,6 +153,7 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
         cmd.y = 0;
         cmd.mesh = mesh;
         cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
+        cmd._dynamic = texture._dynamic?.uv;
         return cmd;
     }
 
@@ -163,6 +170,8 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
         this.matrix = null;
         this.mesh = null;
         this._cacheData = null;
+        this._dynamic = null;
+        this._tempUVs = null;
         Pool.recover(className, this);
     }
 
@@ -172,9 +181,9 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      * @param gx Global X offset
      * @param gy Global Y offset
      * @zh 执行绘制三角形命令
-     * @param runner 渲染上下文  
-     * @param gx 全局X偏移  
-     * @param gy 全局Y偏移  
+     * @param runner 渲染上下文
+     * @param gx 全局X偏移
+     * @param gy 全局Y偏移
      */
     run(runner: GraphicsRunner, gx: number, gy: number): void {
         if (this.mesh) {

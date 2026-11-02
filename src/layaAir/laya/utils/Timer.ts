@@ -1,4 +1,6 @@
 import { Utils } from "./Utils";
+import { ILaya } from "../../ILaya";
+import { Event } from "../events/Event";
 
 /**
  * @en The `Timer` class is responsible for time management. It is a singleton and should not be instantiated manually. Access it via `Laya.timer`
@@ -56,6 +58,15 @@ export class Timer {
         this.currTimer = performance.now();
         this._lastTimer = performance.now();
         this._greedy = !!greedyMode;
+    }
+
+    /**
+     * 提供一个按照时间间隔更新的方法
+     * @param delay
+     */
+    setInterval(delay: number): void {
+        Timer.gSysTimer && Timer.gSysTimer.clear(this, this._update);
+        Timer.gSysTimer && Timer.gSysTimer.loop(delay, this, this._update);
     }
 
     /**
@@ -467,6 +478,12 @@ class TimerHandler {
         let args: any[] = this.args;
         withClear && this.clear();
         if (method == null) return;
-        args ? method.apply(caller, args) : method.call(caller);
+        try {
+            args ? method.apply(caller, args) : method.call(caller);
+        }catch (err) {
+            ILaya.stage.event(Event.ERROR, err);
+            console.error(err);
+        }
+
     }
 }

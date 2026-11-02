@@ -168,6 +168,9 @@ export class Config {
      * - "cpu": 使用CPU Sutherland-Hodgman算法裁剪三角形（CPU开销高，精确裁剪）
      */
     static uvClipMode: "gpu" | "cpu" = "cpu";
+
+
+    static useTextureArray: boolean = false;
 }
 
 export const PlayerConfig: {

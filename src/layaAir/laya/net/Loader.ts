@@ -670,7 +670,7 @@ export class Loader extends EventDispatcher {
                 task.onComplete.invoke(content);
                 return content;
             }
-        }).catch(error => {
+        }).catch((error: any):any => {
             !options.silent && Loader.warnFailed(url, error, options.initiator?.url);
 
             if (task.options.cache !== false)

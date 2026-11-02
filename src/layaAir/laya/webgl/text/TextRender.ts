@@ -60,7 +60,8 @@ export class TextRender {
         let italicDeg = italic ? 13 : 0;
         let cacheKey = (curFont.id * 10000) + fontSize + (bold ? "b_" : "_");
         let colorNum = ColorUtils.create(color).numColor;
-        let tint = stroke > 0 || !charMode && hasEmoji; //染色的条件： 有描边 或 非字符模式下且包含emoji
+        //let tint = stroke > 0 || !charMode && hasEmoji; //染色的条件： 有描边 或 非字符模式下且包含emoji
+        let tint = true; //这种优化机制存在变粗的问题，先屏蔽，统一染色
         if (tint)
             cacheKey += colorNum + "_";
         if (stroke > 0)
@@ -152,7 +153,7 @@ export class TextRender {
         let rectY = ((margin - fontSizeOffY - lineWidth) * fontScale | 0) - blockGap;
         let correctionW = height * 0.08; //某些字体（例如华文行楷，华文隶书，自带斜体效果，测算的宽度可能不够，这里补一些，0.08是经验值
         let rectW = Math.ceil((width + fontSizeOffX + lineWidth * 2 + correctionW) * fontScale) + blockGap * 2;
-        let rectH = Math.ceil((fontSizeH + lineWidth * 2) * fontScale) + blockGap * 2;
+        let rectH = Math.ceil((fontSizeH + lineWidth * 2 + 1) * fontScale) + blockGap * 2;
 
         let needCanvW = Math.min(rectW + Math.ceil(margin * 2 * fontScale), TextRenderConfig.maxCanvasWidth);
         let needCanvH = Math.min(rectH + Math.ceil(margin * 2 * fontScale), TextRenderConfig.maxCanvasWidth);

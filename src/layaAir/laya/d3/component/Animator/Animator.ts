@@ -1352,13 +1352,21 @@ export class Animator extends Component {
 
     /**
      * @internal
-     * @perfTag PerformanceDefine.T_AnimatorUpdate
      */
     onUpdate(): void {
-        let t = performance.now();
+        let now = performance.now();
         let timer = this.owner._scene.timer;
         let delta = timer.delta / 1000.0;//Laya.timer.delta已包含Laya.timer.scale
         delta = this._applyUpdateMode(delta);
+        this._update(delta, now);
+    }
+
+
+    /**
+     * @internal
+     * @perfTag PerformanceDefine.T_AnimatorUpdate
+     */
+    _update(delta:number, now = performance.now()): void {
         if (this._speed === 0 || delta === 0)//delta为0无需更新,可能造成crossWeight计算值为NaN
             return;
         if (!Stat.enableAnimatorUpdate)
@@ -1465,7 +1473,7 @@ export class Animator extends Component {
         }
         this._LateUpdateEvents.invoke();
         this._LateUpdateEvents.clear();
-        LayaGL.statAgent.recordTimeData(StatElement.T_AnimatorUpdate, performance.now() - t);
+        LayaGL.statAgent.recordTimeData(StatElement.T_AnimatorUpdate, performance.now() - now);
     }
 
     /**

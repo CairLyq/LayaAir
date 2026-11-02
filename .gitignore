@@ -14,3 +14,9 @@ package-lock.json
 .rpt2_cache
 /docTool/dist
 docs
+.svn
+.idea
+build-cmd.bat
+build-compile.bat
+build-install.bat
+build.ps1
