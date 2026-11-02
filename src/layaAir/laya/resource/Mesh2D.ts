@@ -136,7 +136,7 @@ export class Mesh2D extends Resource {
         let mesh2d = new Mesh2D();
         mesh2d.canRead = canRead;
         let vbArray = [];
-        let vertices = [];
+        let vertices: ArrayBuffer[] = [];
         for (var i = 0, n = vbs.length; i < n; i++) {
             let vbdata = vbs[i];
             let vertex = LayaGL.renderDeviceFactory.createVertexBuffer(BufferUsage.Dynamic);
@@ -144,14 +144,16 @@ export class Mesh2D extends Resource {
             vertex.setDataLength(vbdata.buffer.byteLength);
             vertex.setData(vbdata.buffer, 0, 0, vbdata.buffer.byteLength);
             vbArray.push(vertex);
-            vertices[i] = vbdata.buffer;
+            vertices[i] = vbdata.buffer as ArrayBuffer;
         }
         let indexBuffer = LayaGL.renderDeviceFactory.createIndexBuffer(BufferUsage.Dynamic);
         indexBuffer._setIndexDataLength(ib.buffer.byteLength);
         indexBuffer._setIndexData(ib, 0);
-        
+        indexBuffer.indexCount = ib.length;
         indexBuffer.indexType = ibFormat;
 
+        // Vertex streams describe the same vertices; count the first stream once.
+        mesh2d._vertexCount = vbs.length > 0 ? vbs[0].byteLength / vbDeclaration[0].vertexStride : 0;
         mesh2d._setBuffers(vbArray, indexBuffer);
 
         let geometryArray = [];
@@ -396,10 +398,19 @@ export class Mesh2D extends Resource {
             iscreateBuffer = true;
             this._indexBuffer = indexBuffer = LayaGL.renderDeviceFactory.createIndexBuffer(BufferUsage.Static);
             this._indexBuffer._setIndexDataLength(indices.byteLength);
-            indexBuffer.indexCount = indexBuffer.indexCount;
+            indexBuffer.indexCount = indices.length;
             indexBuffer.indexType = format;
         }
-        indexBuffer._setIndexData(indices, 0);
+        const indexByteSize = indices.BYTES_PER_ELEMENT;
+        const alignedByteLength = Math.ceil(indices.byteLength / 4) * 4;
+        const bufferByteLength = indexBuffer.indexCount * indexByteSize;
+        if (alignedByteLength > indices.byteLength && alignedByteLength <= bufferByteLength) {
+            const uploadData = new Uint8Array(alignedByteLength);
+            uploadData.set(new Uint8Array(indices.buffer, indices.byteOffset, indices.byteLength));
+            indexBuffer.setData(uploadData.buffer, 0, 0, uploadData.byteLength);
+        } else {
+            indexBuffer._setIndexData(indices, 0);
+        }
 
         if (iscreateBuffer) {
             this._bufferState.applyState(this._bufferState._vertexBuffers, indexBuffer);
@@ -422,6 +433,5 @@ export class Mesh2D extends Resource {
         }
     }
 }
-
 
 

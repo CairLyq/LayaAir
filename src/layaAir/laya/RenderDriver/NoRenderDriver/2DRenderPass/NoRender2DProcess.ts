@@ -1,5 +1,8 @@
+import { Laya } from "../../../../Laya";
+import { LayaGL } from "../../../layagl/LayaGL";
 import { SubShader } from "../../../RenderEngine/RenderShader/SubShader";
 import { Color } from "../../../maths/Color";
+import { Vector4 } from "../../../maths/Vector4";
 import { SingletonList } from "../../../utils/SingletonList";
 import { I2DRenderPassFactory } from "../../DriverDesign/2DRenderPass/I2DRenderPassFactory";
 import { IRenderContext2D } from "../../DriverDesign/2DRenderPass/IRenderContext2D";
@@ -10,62 +13,54 @@ import { IRenderGeometryElement } from "../../DriverDesign/RenderDevice/IRenderG
 import { InternalRenderTarget } from "../../DriverDesign/RenderDevice/InternalRenderTarget";
 import { ShaderData } from "../../DriverDesign/RenderDevice/ShaderData";
 import { NoRenderSetRenderData, NoRenderSetShaderDefine } from "../DriverDevice/NoRenderDeviceFactory";
-import { IRender2DDataHandle, I2DPrimitiveDataHandle, I2DBaseRenderDataHandle, IMesh2DRenderDataHandle, I2DGlobalRenderData, ISpineRenderDataHandle, I2DGraphicWholeBuffer, I2DGraphicIndexDataView, I2DGraphicVertexDataView, IGraphics2DBufferBlock, IGraphics2DVertexBlock } from "../../RenderModuleData/Design/2D/IRender2DDataHandle";
+import { IRender2DDataHandle, IGraphicsSingleQuadDataHandle, IGraphicsCommandStreamDataHandle, ISubStructRenderDataHandle, I2DBaseRenderDataHandle, IMesh2DRenderDataHandle, I2DGlobalRenderData, IGraphicsOp2DFactory } from "../../RenderModuleData/Design/2D/IRender2DDataHandle";
 import { IRender2DPass, IRender2DPassManager } from "../../RenderModuleData/Design/2D/IRender2DPass";
 import { IRenderStruct2D } from "../../RenderModuleData/Design/2D/IRenderStruct2D";
-import { NotImplementedError } from "../../../utils/Error";
+import {
+	NoRenderGlobalRenderData, NoRenderEmptyDataHandle,
+	NoRenderGraphicsSingleQuadDataHandle, NoRenderGraphicsCommandStreamDataHandle, NoRenderSubStructDataHandle, NoRenderBaseDataHandle,
+	NoRenderMeshDataHandle,
+	NoRenderStruct2D, NoRender2DPass, NoRender2DPassManager
+} from "./NoRender2DModuleData";
+import { ITransform2DMemoryFactory } from "../../../display/transform2d/ITransform2DMemory";
+import { NoRenderTransform2DMemoryFactory } from "./NoRenderTransform2DMemoryFactory";
+import { NoRenderGraphicsOp2DFactory } from "./NoRenderGraphicsOp2DFactory";
 
 
 export class NoRender2DProcess implements I2DRenderPassFactory {
-    createGraphic2DBufferBlock(): IGraphics2DBufferBlock {
-        throw new NotImplementedError();
+    createTransform2DMemoryFactory(): ITransform2DMemoryFactory {
+        return new NoRenderTransform2DMemoryFactory();
     }
-    
-    createGraphic2DVertexBlock(): IGraphics2DVertexBlock {
-        throw new NotImplementedError();
-    }
-
-    create2DGraphicVertexDataView(wholeBuffer: I2DGraphicWholeBuffer, elementOffset: number, elementSize: number, stride: number): I2DGraphicVertexDataView {
-        throw new NotImplementedError();
-    }
-    create2DGraphicIndexDataView(wholeBuffer: I2DGraphicWholeBuffer, elementSize: number): I2DGraphicIndexDataView {
-        throw new NotImplementedError();
-    }
-    create2DGraphicIndexBuffer(): I2DGraphicWholeBuffer {
-        throw new NotImplementedError();
-    }
-
-    create2DGraphicVertexBuffer(): I2DGraphicWholeBuffer {
-        throw new NotImplementedError();
-    }
-
     createRender2DPassManager(): IRender2DPassManager {
-        throw new NotImplementedError();
+        return new NoRender2DPassManager();
     }
 
     create2DGlobalRenderDataHandle(): I2DGlobalRenderData {
-        return null;
-    }
-    createSpineRenderDataHandle(): ISpineRenderDataHandle {
-        return null;
+        return new NoRenderGlobalRenderData();
     }
     createRender2DPass(): IRender2DPass {
-        return null;
+        return new NoRender2DPass();
     }
     createRenderStruct2D(): IRenderStruct2D {
-        return null;
+        return new NoRenderStruct2D();
     }
-    createRender2DDataHandle(): IRender2DDataHandle {
-        return null;
+    createSubStructRenderDataHandle(): ISubStructRenderDataHandle {
+        return new NoRenderSubStructDataHandle();
     }
-    create2D2DPrimitiveDataHandle(): I2DPrimitiveDataHandle {
-        return null;
+    createGraphicsSingleQuadDataHandle(): IGraphicsSingleQuadDataHandle {
+        return new NoRenderGraphicsSingleQuadDataHandle();
+    }
+    createGraphicsCommandStreamDataHandle(): IGraphicsCommandStreamDataHandle {
+        return new NoRenderGraphicsCommandStreamDataHandle();
+    }
+    createGraphicsOp2DFactory(): IGraphicsOp2DFactory {
+        return new NoRenderGraphicsOp2DFactory();
     }
     create2DBaseRenderDataHandle(): I2DBaseRenderDataHandle {
-        return null;
+        return new NoRenderBaseDataHandle();
     }
     createMesh2DRenderDataHandle(): IMesh2DRenderDataHandle {
-        return null;
+        return new NoRenderMeshDataHandle();
     }
     createSetRenderDataCMD(): SetRenderDataCMD {
         return new NoRenderSetRenderData();
@@ -86,12 +81,14 @@ export class NoRender2DProcess implements I2DRenderPassFactory {
         return new NoRenderElement2D()
     }
     createPrimitiveRenderElement2D(): IPrimitiveRenderElement2D {
-        return new NoRenderElement2D();
+        return new NoRenderPrimitiveRenderElement2D();
     }
     createRenderContext2D(): IRenderContext2D {
         return new NoRenderContext2D();
     }
-
+    createEmptyRenderDataHandle(): IRender2DDataHandle {
+        return new NoRenderEmptyDataHandle();
+    }
 }
 
 export class NoRenderElement2D implements IRenderElement2D {
@@ -112,20 +109,31 @@ export class NoRenderElement2D implements IRenderElement2D {
 
 }
 
+export class NoRenderPrimitiveRenderElement2D extends NoRenderElement2D implements IPrimitiveRenderElement2D {
+    typeKey: number = 0;
+    textureKey: number = 0;
+    primitiveShaderData: ShaderData = null;
+}
+
 export class NoRenderContext2D implements IRenderContext2D {
+    private _renderTarget: InternalRenderTarget = null;
+    private _offscreenView = new Vector4();
     passData: ShaderData;
     getRenderTarget(): InternalRenderTarget {
-        return null;
+        return this._renderTarget;
     }
 
     sceneData: ShaderData;
-    invertY: boolean;
-    pipelineMode: string;
+    invertY: boolean = false;
+    pipelineMode: string = "Forward";
     setRenderTarget(value: InternalRenderTarget, clear: boolean, clearColor: Color): void {
-
+        this._renderTarget = value;
     }
-    setOffscreenView(width: number, height: number): void {
-
+    setOffscreenView(width: number, height: number, x: number = 0, y: number = 0): void {
+        this._offscreenView.setValue(x, y, width, height);
+    }
+    getOffscreenView(out: Vector4): void {
+        this._offscreenView.cloneTo(out);
     }
     drawRenderElementOne(node: IRenderElement2D): void {
 
@@ -156,4 +164,7 @@ export class NoRenderSetRendertarget2DCMD extends SetRendertarget2DCMD {
     }
 }
 
-
+Laya.addBeforeInitCallback(() => {
+    if (!LayaGL.render2DRenderPassFactory)
+        LayaGL.render2DRenderPassFactory = new NoRender2DProcess();
+});

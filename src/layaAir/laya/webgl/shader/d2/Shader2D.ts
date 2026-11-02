@@ -7,21 +7,24 @@ import MathGLSL from "../d2/files/Math.glsl";
 import Sprite2DFrag from './NewShader/Sprite2DFrag.glsl';
 import ClipFrag from './NewShader/ClipFrag.glsl';
 import ClipVertex from './NewShader/ClipVertex.glsl';
+import StendcilMask from "./NewShader/StencilMask2D.fs";
 // import Sprite2DShaderInfo from './NewShader/Sprite2DShaderInfo.glsl';
 import Sprite2DVertex from './NewShader/Sprite2DVertex.glsl';
 import OutputTransformGLSL from "./files/OutputTransform.glsl";
 import { Shader3D, ShaderFeatureType } from "../../../RenderEngine/RenderShader/Shader3D";
 import { SubShader } from "../../../RenderEngine/RenderShader/SubShader";
 import { ShaderDataType } from "../../../RenderDriver/DriverDesign/RenderDevice/ShaderData";
+import { ShaderDefines2D } from "./ShaderDefines2D";
 
 export class Shader2D {
     /**@internal */
     static graphicsShader: Shader3D;
     /**@internal */
-    // static primitiveShader: Shader3D;
-    /**@internal */
     static render2DNodeShader: Shader3D;
-
+    /**@internal */
+    private static _stencilMaskShaderMap: Map<string, Shader3D> = new Map();
+    /** @internal */
+    static stencilShader:Shader3D;
     /**
      * @internal
      */
@@ -29,20 +32,12 @@ export class Shader2D {
     }
 
     /**
-     * primitive Mesh Descript
-     */
-    // public static readonly primitiveAttribute: { [name: string]: [number, ShaderDataType] } = {
-    //     'a_position': [0, ShaderDataType.Vector4],
-    //     'a_attribColor': [1, ShaderDataType.Vector4],
-    // }
-
-    /**
      * TextureSV Mesh Descript
      */
     public static readonly graphicsAttribute: { [name: string]: [number, ShaderDataType] } = {
         'a_posuv': [0, ShaderDataType.Vector4],
         'a_attribColor': [1, ShaderDataType.Vector4],
-        'a_attribFlags': [2, ShaderDataType.Vector4], // useTex, useClip
+        'a_attribFlags': [2, ShaderDataType.Vector4], // useTex, useClip globalAlpha textureArrayLayerIndex
         'a_customs': [3, ShaderDataType.Vector4] //useClip >= 0时 起效果为 裁剪范围.
     }
 
@@ -72,19 +67,17 @@ export class Shader2D {
         let pass = subShader.addShaderPass(texture_vs, texture_ps);
         // pass.additionShaderData = ["Sprite2DGraphics"];
 
-        //primitiveShader
-        // Shader2D.primitiveShader = Shader3D.add("Sprite2DPrimitive", false, false);
-        // Shader2D.primitiveShader.shaderType = ShaderFeatureType.D2_primitive;
-        // subShader = new SubShader(Shader2D.primitiveAttribute, {}, {});
-        // Shader2D.primitiveShader.addSubShader(subShader);
-        // subShader.addShaderPass(prime_vs, prime_ps);
-
         //meshspriteShader
         Shader2D.render2DNodeShader = Shader3D.add("baseRender2D", false, false);
         Shader2D.render2DNodeShader.shaderType = ShaderFeatureType.D2_BaseRenderNode2D;
         subShader = new SubShader(Shader2D.Render2DNodeAttribute, {}, {});
         Shader2D.render2DNodeShader.addSubShader(subShader);
         subShader.addShaderPass(baseRender2D_vs, baseRender2D_ps);
+
+        Shader2D.stencilShader = Shader3D.add("StencilMask2D", false, false);
+        subShader = new SubShader(Shader2D.Render2DNodeAttribute, {}, {});
+        Shader2D.stencilShader .addSubShader(subShader);
+        subShader.addShaderPass(baseRender2D_vs, StendcilMask);
     }
 }
 

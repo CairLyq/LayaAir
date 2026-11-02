@@ -34,9 +34,15 @@ export enum EComputeCMDMemoryOperate {
 
 export interface IComputeCMD_Dispatch {
     shader: IComputeShader;
-    Kernel: string
     shaderData: ShaderData[];
     dispatchParams: Vector3;
+}
+
+export interface IComputeCMD_DispatchIndirect {
+    shader: IComputeShader;
+    shaderData: ShaderData[];
+    indirectBuffer: IGPUBuffer;
+    indirectOffset: number;
 }
 
 export class CopyTextureInfo {
@@ -56,6 +62,12 @@ export interface IComputeContext {
      * @param cmd 计算着色器调度命令
      */
     addDispatchCommand(cmd: IComputeCMD_Dispatch): void;
+
+    /**
+     * 添加间接调度ComputeShader的命令
+     * @param cmd 计算着色器间接调度命令
+     */
+    addDispatchIndirectCommand(cmd: IComputeCMD_DispatchIndirect): void;
 
     /**
      * 添加修改ShaderData值的命令

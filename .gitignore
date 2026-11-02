@@ -3,6 +3,8 @@ bin/tsc
 bin/uploads
 bin/rollUp
 bin/jsLibs
+bin/webgl
+bin/webgpu
 node_modules
 .cache
 .vscode/chrome
@@ -14,9 +16,6 @@ package-lock.json
 .rpt2_cache
 /docTool/dist
 docs
-.svn
-.idea
-build-cmd.bat
-build-compile.bat
-build-install.bat
-build.ps1
+.claude
+.planning
+src/layaAir/tsconfig.check.json

@@ -23,19 +23,31 @@ import { NodeFlags } from "../../../../Const";
 import { WebGraphicsBatch } from "./WebGraphicsBatch";
 import { Vector4 } from "../../../../maths/Vector4";
 import { Rectangle } from "../../../../maths/Rectangle";
+import { WebStencilClip2D } from "./WebStencilClip2D";
 
 BatchManager.registerProvider(BaseRender2DType.graphics, WebGraphicsBatch);
 
+class ReusableStructList extends FastSinglelist<WebRenderStruct2D> {
+   previousLength: number = 0;
+   generation: number = -1;
+}
+
 class SortedStructs {
-   readonly lists: Map<number, FastSinglelist<WebRenderStruct2D>> = new Map();
+   readonly lists: Map<number, ReusableStructList> = new Map();
 
    private _indice = new Set<number>;
    private _sortedIndice: Array<number> = [];
+   private _generation: number = 0;
 
    add(struct: WebRenderStruct2D, zIndex: number) {
       let list = this.lists.get(zIndex);
       if (!list)
-         this.lists.set(zIndex, list = new FastSinglelist<WebRenderStruct2D>());
+         this.lists.set(zIndex, list = new ReusableStructList());
+      if (list.generation !== this._generation) {
+         list.previousLength = list.length;
+         list.length = 0;
+         list.generation = this._generation;
+      }
       list.add(struct);
       if (list.length === 1)
          this._indice.add(zIndex);
@@ -43,7 +55,32 @@ class SortedStructs {
    }
 
    reset() {
-      this._indice.forEach(i => this.lists.get(i).length = 0);
+      this._generation++;
+      this._sortedIndice.length = 0;
+   }
+
+   releaseUnused() {
+      this._indice.forEach(i => {
+         let list = this.lists.get(i);
+         if (list.generation !== this._generation) {
+            list.elements.fill(null, 0, list.length);
+            list.length = 0;
+         } else if (list.length < list.previousLength) {
+            list.elements.fill(null, list.length, list.previousLength);
+         }
+         list.previousLength = 0;
+         if (list.length === 0)
+            this._indice.delete(i);
+      });
+   }
+
+   clear() {
+      this._indice.forEach(i => {
+         let list = this.lists.get(i);
+         list.elements.fill(null, 0, Math.max(list.length, list.previousLength));
+         list.length = 0;
+         list.previousLength = 0;
+      });
       this._indice.clear();
       this._sortedIndice.length = 0;
    }
@@ -74,9 +111,10 @@ export class WebRender2DPass implements IRender2DPass {
    private _renderElements = new FastSinglelist<IRenderElement2D>();
    private _elementGroups: FastSinglelist<any> = new FastSinglelist<any>();
    private _structs: SortedStructs = new SortedStructs();
-   private _structsPool = Pool.createPool(SortedStructs, null, obj => obj.reset());
+   private _structsPool = Pool.createPool(SortedStructs, null, obj => obj.clear());
    private _pStructs: SortedStructs;
    private _batchProviders: IBatch2DProvider[] = [];
+   private _stencilClip2D: WebStencilClip2D = new WebStencilClip2D();
 
    _priority: number = 0;
    public get priority(): number {
@@ -172,6 +210,9 @@ export class WebRender2DPass implements IRender2DPass {
 
       let renderStruct = (struct.subStruct && struct !== this.root) ? struct.subStruct : struct;
 
+      // manualRender 模式：完全跳过此节点及所有子节点
+    //  if (renderStruct.manualRender) return;
+
       renderStruct._handleInterData();
       //这里进入process2D的排序  并不帧判断
       // if (struct.renderUpdateMask !== Stat.loopCount) {
@@ -233,8 +274,8 @@ export class WebRender2DPass implements IRender2DPass {
     * pass 2D 渲染
     * @param context 
     */
-   fowardRender(context: IRenderContext2D) {
-      let success = this._initRenderProcess(context);
+   fowardRender(context: IRenderContext2D, renderTime: number) {
+      let success = this._initRenderProcess(context, renderTime);
       if (!success) return;
 
       if (this.repaint) {
@@ -248,6 +289,9 @@ export class WebRender2DPass implements IRender2DPass {
          if (this.root) {
             this._pStructs = this._structs;
             this.cullAndSort(context, this.root);
+         }
+         this._structs.releaseUnused();
+         if (this.root) {
             this.fillRenderElements();
             this._enableBatch && LayaEnv.isPlaying && this.batch();
          }
@@ -257,9 +301,11 @@ export class WebRender2DPass implements IRender2DPass {
 
          if (this._mask) {
             let renderMask = this._mask.subStruct;
-            renderMask._handleInterData();
-            renderMask.renderUpdate(context);
-            context.drawRenderElementOne(renderMask.renderElements[0]);
+            if (renderMask) {
+               renderMask._handleInterData();
+               renderMask.renderUpdate(context);
+               context.drawRenderElementOne(renderMask.renderElements[0]);
+            }
          }
 
          // 处理后期处理
@@ -288,12 +334,34 @@ export class WebRender2DPass implements IRender2DPass {
       let groupStart: number = 0;
       let reorderRoot: WebRenderStruct2D;
       let renderElements = this._renderElements;
+      const stencilBuilder = this._stencilClip2D;
+
+      const addRenderElement = (element: IRenderElement2D) => {
+         if ((element as any).noBatch) {
+            if (groupStart !== renderElements.length) {
+               this._elementGroups.add(groupStart);
+               this._elementGroups.add(renderElements.length - 1);
+               this._elementGroups.add(false);
+            }
+            renderElements.add(element);
+            this._elementGroups.add(renderElements.length - 1);
+            this._elementGroups.add(renderElements.length - 1);
+            this._elementGroups.add(false);
+            groupStart = renderElements.length;
+         }
+         else {
+            renderElements.add(element);
+         }
+      };
+
+      stencilBuilder.beginBuild();
 
       this._structs.indice.forEach(index => {
          let list = this._structs.lists.get(index);
          for (let i = 0, cnt = list.length; i < cnt; i++) {
             let struct = list.elements[i];
-            let n = struct.renderElements ? struct.renderElements.length : 0;
+            let structElements = struct.renderElements;
+            let n = structElements ? structElements.length : 0;
             if (struct.owner._getBit(NodeFlags.HIDE_BY_EDITOR)) //Editor only code, native should ignore
                n = 0;
 
@@ -309,9 +377,11 @@ export class WebRender2DPass implements IRender2DPass {
 
             if (n > 0) {
                for (let i = 0; i < n; i++) {
-                  let element = struct.renderElements[i];
+                  let element = structElements[i];
                   element._index = i;
-                  element.geometry && renderElements.add(element);
+                  if (!element.geometry)
+                     continue;
+                  stencilBuilder.appendElement(element, addRenderElement);
                }
             }
 
@@ -326,6 +396,9 @@ export class WebRender2DPass implements IRender2DPass {
             }
          }
       });
+
+      // if (useStencilBuilder)
+      stencilBuilder.finishBuild(addRenderElement);
 
       if (groupStart !== renderElements.length) {
          this._elementGroups.add(groupStart);
@@ -375,7 +448,7 @@ export class WebRender2DPass implements IRender2DPass {
    }
 
    //预留
-   private _initRenderProcess(context: IRenderContext2D): boolean {
+   private _initRenderProcess(context: IRenderContext2D, renderTime: number): boolean {
       if (!this.root || this.root.globalAlpha < 0.01) {
          return false;
       }
@@ -388,6 +461,7 @@ export class WebRender2DPass implements IRender2DPass {
          if (rt.width == 0 || rt.height == 0)
             return false;
          context.invertY = rt._invertY;
+         context.setOffscreenView(rt.width, rt.height, 0, 0);
          context.setRenderTarget(rt._renderTarget, this.doClearColor, this._clearColor);
          sizeX = rt.width;
          sizeY = rt.height;
@@ -403,7 +477,7 @@ export class WebRender2DPass implements IRender2DPass {
          if (sizeX === 0 || sizeY === 0)
             return false
          context.invertY = false;
-         context.setOffscreenView(sizeX, sizeY);
+         context.setOffscreenView(sizeX, sizeY, 0, 0);
 
          context.setRenderTarget(null, this.doClearColor, this._clearColor);
 
@@ -412,11 +486,14 @@ export class WebRender2DPass implements IRender2DPass {
       }
 
       context.passData = this.shaderData;
+      this.shaderData.setNumber(ShaderDefines2D.UNIFORM_TIME, renderTime);
 
       if (sizeX !== this._rtsize.x || sizeY !== this._rtsize.y) {
          this._rtsize.setValue(sizeX, sizeY);
          this.shaderData.setVector2(ShaderDefines2D.UNIFORM_SIZE, this._rtsize);
       }
+
+      this.shaderData.setNumber(ShaderDefines2D.UNIFORM_TIME, renderTime);
 
       return true;
    }
@@ -440,17 +517,18 @@ export class WebRender2DPass implements IRender2DPass {
    }
 
    private _updateInvertMatrix() {
-      let rootTrans = this.root.trans;
-      if (!rootTrans) {
+      // 矩阵按 slot 直接问 Transform2DStore(经 renderMatrix getter)，不再依赖 struct 自存的 trans。
+      if (!this.root || this.root.transSlot < 0) {
          this._setInvertMatrix(1, 0, 0, 1, 0, 0);
          return true;
       }
+      let rootMatrix = this.root.renderMatrix;
       //无效值不更新
       if (
-         rootTrans.matrix.a == 0
-         && rootTrans.matrix.b == 0
-         && rootTrans.matrix.c == 0
-         && rootTrans.matrix.d == 0
+         rootMatrix.a == 0
+         && rootMatrix.b == 0
+         && rootMatrix.c == 0
+         && rootMatrix.d == 0
       ) {
          return false;
       }
@@ -458,11 +536,11 @@ export class WebRender2DPass implements IRender2DPass {
       let temp = _TEMP_InvertMatrix;
       let mask = this.mask;
       let offset = this.offsetMatrix;
-      if (mask && mask.trans) {
+      if (mask) {
          let maskMatrix = mask.renderMatrix;
          maskMatrix.copyTo(temp);
       } else {
-         rootTrans.matrix.copyTo(temp);
+         rootMatrix.copyTo(temp);
       }
 
       Matrix.mul(offset, temp, temp);
@@ -489,6 +567,8 @@ export class WebRender2DPass implements IRender2DPass {
       this.shaderData.setVector3(ShaderDefines2D.UNIFORM_INVERTMAT_0, this._invertMat_0);
       this.shaderData.setVector3(ShaderDefines2D.UNIFORM_INVERTMAT_1, this._invertMat_1);
    }
+
+   updatePostProcess(): void { }
 
    destroy(): void {
       if (this.destroyed) {
@@ -522,7 +602,7 @@ export class WebRender2DPassManager implements IRender2DPassManager {
       this._modify = true;
    }
 
-   apply(context: IRenderContext2D): void {
+   apply(context: IRenderContext2D, renderTime: number): void {
       if (this._modify) {
          this._modify = false;
          this._passes.sort((a, b) => b._priority - a._priority); // 按 priority 从大到小排序
@@ -530,7 +610,7 @@ export class WebRender2DPassManager implements IRender2DPassManager {
 
       for (const pass of this._passes) {
          if (pass.needRender()) {
-            pass.fowardRender(context);
+            pass.fowardRender(context, renderTime);
          }
       }
    }

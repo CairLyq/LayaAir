@@ -6,10 +6,15 @@
  * sensor_portrait     竖屏(双方向)
  */
 window.screenOrientation = "sensor_landscape";
-loadLib("jsLibs/spine-core-3.8.js")
-loadLib("jsLibs/laya.Box2d.js")
 loadLib("jsLibs/bullet.js")
+loadLib("jsLibs/laya.Box2d.js")
+loadLib("jsLibs/spine-core-3.8.js")
+loadLib("jsLibs/shader_compiler_web.js")
+loadLib("jsLibs/TextCoder.js")
+loadLib("jsLibs/nagabind.js")
+loadLib("jsLibs/recast-navigation.js")
 loadLib("3rd/astar.js")
+// loadLib("3rd/webxr-polyfill.module.js")
 
-loadLib("rollUp/laya.js");
-loadLib("rollUp/bundle.js");
+loadLib("webgl/laya.js");
+loadLib("webgl/bundle.js");

@@ -6,11 +6,12 @@ import { ClassUtils } from "../../utils/ClassUtils"
 import { ColorUtils } from "../../utils/ColorUtils"
 import { Pool } from "../../utils/Pool"
 import { VertexStream } from "../../utils/VertexStream"
-import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsCommandDependency, type GraphicsCommandInfo, GraphicsCommandLayoutRefresh, IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
 import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner"
 import { Rectangle } from "../../maths/Rectangle"
 import { Config } from "../../../Config";
 import { UVClippingUtils } from "../../webgl/utils/UVClippingUtils";
+import { drawTrianglesBatched } from "./DrawTrianglesBatchHelper";
 
 const className = "DrawTrianglesCmd";
 
@@ -28,11 +29,9 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      */
     static readonly ID: string = className;
 
-    /**
-     * @en The texture to be drawn.
-     * @zh 要绘制的纹理。
-     */
-    texture: Texture | null;
+    /** @internal */
+    _texture: Texture | null = null;
+
     /**
      * @en X-axis offset.
      * @zh X轴偏移量。
@@ -57,7 +56,7 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      * @en Vertex indices.
      * @zh 顶点索引。
      */
-    indices: Uint16Array;
+    indices: ArrayLike<number>;
     /**
      * @en Scaling matrix.
      * @zh 缩放矩阵。
@@ -78,6 +77,8 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      * @zh 颜色变换。
      */
     color: number | null;
+
+    colors: ArrayLike<number> | null;
     /**
      * @en Mesh factory for creating the mesh.
      * @zh 用于创建网格的工厂。
@@ -115,11 +116,10 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      * @param blendMode 混合模式
      * @returns 绘制三角形命令实例
      */
-    static create(texture: Texture, x: number, y: number, vertices: Float32Array, uvs: Float32Array, indices: Uint16Array,
-                  matrix?: Matrix, alpha?: number, color?: string | number, blendMode?: string): DrawTrianglesCmd {
+    static create(texture: Texture, x: number, y: number, vertices: Float32Array, uvs: Float32Array, indices: ArrayLike<number>,
+        matrix?: Matrix, alpha?: number, color?: string | number, blendMode?: string): DrawTrianglesCmd {
         var cmd: DrawTrianglesCmd = Pool.getItemByClass(className, DrawTrianglesCmd);
         cmd.texture = texture;
-        texture?._addReference();
         cmd.x = x;
         cmd.y = y;
         cmd.vertices = vertices;
@@ -129,7 +129,7 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
         cmd.alpha = alpha ?? 1;
         cmd.color = color != null ? ColorUtils.create(color).numColor : 0xffffffff;
         cmd.blendMode = blendMode;
-        cmd._dynamic = texture._dynamic?.uv;
+        cmd._dynamic = texture?._dynamic?.uv;
         return cmd;
     }
 
@@ -148,7 +148,6 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
     static create2(texture: Texture, mesh: IMeshFactory, color?: string | number): DrawTrianglesCmd {
         var cmd: DrawTrianglesCmd = Pool.getItemByClass(className, DrawTrianglesCmd);
         cmd.texture = texture;
-        texture?._addReference();
         cmd.x = 0;
         cmd.y = 0;
         cmd.mesh = mesh;
@@ -162,17 +161,31 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      * @zh 回收到对象池
      */
     recover(): void {
-        this.texture?._removeReference();
-        this.texture = null;
+        this._texture?._removeReference();
+        this._texture = null;
         this.vertices = null;
         this.uvs = null;
         this.indices = null;
         this.matrix = null;
         this.mesh = null;
+        this.colors = null;
         this._cacheData = null;
         this._dynamic = null;
         this._tempUVs = null;
         Pool.recover(className, this);
+    }
+
+    /**
+     * @en The texture to be drawn.
+     * @zh 要绘制的纹理。
+     */
+    get texture(): Texture | null {
+        return this._texture;
+    }
+    set texture(val: Texture | null) { //修复场景或预制体加载时没有添加资源引用
+        !!val && val._addReference();
+        this._texture?._removeReference();
+        this._texture = val;
     }
 
     /**
@@ -203,18 +216,18 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
                     const clippedData = UVClippingUtils.clipTrianglesByUVRange(
                         vb.getVertices(), vb.getIndices(), vb.getUVs(), this.texture.uvrect, vb.getColors()
                     );
-                    runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                    drawTrianglesBatched(runner, this.texture, this.x + gx, this.y + gy,
                         clippedData.vertices, clippedData.uvs, clippedData.indices,
                         this.matrix, this.alpha, this.blendMode, null, clippedData.colors,
                         null);
                 } else {
-                    runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                    drawTrianglesBatched(runner, this.texture, this.x + gx, this.y + gy,
                         vb.getVertices(), vb.getUVs(), vb.getIndices(),
                         this.matrix, this.alpha, this.blendMode, null, vb.getColors(),
                         this.texture.uvrect);
                 }
             } else {
-                runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+                drawTrianglesBatched(runner, this.texture, this.x + gx, this.y + gy,
                     vb.getVertices(), vb.getUVs(), vb.getIndices(),
                     this.matrix, this.alpha, this.blendMode, null, vb.getColors(),
                     null);
@@ -223,10 +236,11 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
             VertexStream.pool.recover(vb);
         }
         else if (this.vertices && this.uvs && this.indices) {
-            // 直接传递顶点数据的路径（无需裁剪处理）
-            runner.drawTriangles(this.texture, this.x + gx, this.y + gy,
+            // 直接传递顶点数据的路径
+            drawTrianglesBatched(runner, this.texture, this.x + gx, this.y + gy,
                 this.vertices, this.uvs, this.indices,
-                this.matrix, this.alpha, this.blendMode, this.color);
+                this.matrix, this.alpha, this.blendMode,
+                this.color, this.colors as Float32Array, null);
         }
     }
 
@@ -236,6 +250,15 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
      */
     get cmdID(): string {
         return DrawTrianglesCmd.ID;
+    }
+
+    /** @internal */
+    getGraphicsCommandInfo(out: GraphicsCommandInfo): GraphicsCommandInfo {
+        out.dependency = this.mesh ? GraphicsCommandDependency.SizePayload : GraphicsCommandDependency.None;
+        out.layoutRefresh = this.mesh ? GraphicsCommandLayoutRefresh.RerunCommand : GraphicsCommandLayoutRefresh.None;
+        out.scaleTessellationKey = 0;
+        out.isStateCommand = false;
+        return out;
     }
 
     /**

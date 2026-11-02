@@ -8,6 +8,8 @@ import { RigidBody } from "./RigidBody";
 import { Laya } from "../../Laya";
 import { PlayerConfig } from "../../Config";
 import { PhysicsLineShader } from "./Render/shader/PhysicsLineShader";
+import { Sprite } from "../display/Sprite";
+import { Point } from "../maths/Point";
 
 /**
  * @en 2D Physics Engine
@@ -29,13 +31,6 @@ export class Physics2D extends EventDispatcher {
     /** 是否已经激活*/
     private _enabled: boolean;
 
-    /**
-     * @internal
-     * @en An empty body node for joints that do not require a node.
-     * @zh 给不需要节点的关节使用的空的 body 节点。
-     */
-    _emptyBody: any;
-
     _factory: IPhysics2DFactory;
 
     /**
@@ -56,10 +51,33 @@ export class Physics2D extends EventDispatcher {
     }
 
     private _update(): void {
-        //时间步太长，会导致错误穿透
-        var delta = Math.min(ILaya.timer.delta / 1000, 0.033);
+        const deltaMs = ILaya.timer.delta;
+        if (!Number.isFinite(deltaMs))
+            return;
 
-        this._factory.update(delta);
+        //时间步太长，会导致错误穿透
+        this.update(Math.min(deltaMs / 1000, 0.033));
+    }
+
+    /**
+     * @en Advances the 2D physics simulation by the specified time and synchronizes physics transforms to render objects.
+     * When updating physics manually, set `Physics2DOption.customUpdate` to `true` before initializing the engine to avoid automatic updates.
+     * Non-positive steps do not advance the simulation, but Box2D still updates contacts and clears forces when auto-clear is enabled.
+     * @param deltaTime The simulation time step in seconds. It must be a finite number.
+     * @zh 按指定时间推进 2D 物理模拟，并将物理变换同步到渲染对象。
+     * 手动更新物理时，应在初始化引擎前将 `Physics2DOption.customUpdate` 设置为 `true`，以避免与自动更新重复执行。
+     * 非正时间步不推进模拟，但 Box2D 仍更新接触，并在启用自动清力时清除力。
+     * @param deltaTime 模拟时间步长，单位为秒。必须是有限数。
+     */
+    update(deltaTime: number): void {
+        if (!Number.isFinite(deltaTime))
+            throw new Error("Physics2D.update: deltaTime must be a finite number.");
+
+        // Physics2D may be referenced before its asynchronous initialization has completed.
+        if (!this._factory || !this._rigiBodyList)
+            return;
+
+        this._factory.update(deltaTime);
 
         //同步物理坐标到渲染坐标
         this._updatePhysicsTransformToRender();
@@ -101,7 +119,7 @@ export class Physics2D extends EventDispatcher {
             this._enabled = true;
         }
         if (!this._rigiBodyList) this._rigiBodyList = new SingletonList<RigidBody>();
-        else this._rigiBodyList.clear();
+
 
         if (!Physics2DOption.customUpdate && LayaEnv.isPlaying)
             ILaya.physicsTimer.frameLoop(1, this, this._update);
@@ -123,10 +141,105 @@ export class Physics2D extends EventDispatcher {
      * @zh 停止物理世界。
      */
     stop(): void {
-        this._rigiBodyList.clear();
         ILaya.physicsTimer.clear(this, this._update);
     }
 
+
+    /**
+     * @en Convert a value from globalTrans space to design resolution (physics) space by removing stage scale.
+     * @zh 将 globalTrans 空间的值转换为设计分辨率（物理空间），剥离 Stage 缩放。
+     */
+    static toPhysicsX(v: number): number { return v / ILaya.stage.clientScaleX; }
+    static toPhysicsY(v: number): number { return v / ILaya.stage.clientScaleY; }
+
+    /**
+     * @en Convert a value from design resolution (physics) space to globalTrans space by restoring stage scale.
+     * @zh 将设计分辨率（物理空间）的值转换回 globalTrans 空间，恢复 Stage 缩放。
+     */
+    static toRenderX(v: number): number { return v * ILaya.stage.clientScaleX; }
+    static toRenderY(v: number): number { return v * ILaya.stage.clientScaleY; }
+
+    /**
+     * @internal
+     * Return the effective sprite scale in Stage design space. Stage adaptation
+     * is deliberately excluded instead of being included and divided out later.
+     */
+    static getDesignScaleX(sprite: Sprite): number {
+        let scale = 1;
+        let node: Sprite = sprite;
+        while (node && node !== ILaya.stage) {
+            scale *= node.scaleX;
+            node = node.parent instanceof Sprite ? node.parent : null;
+        }
+        return scale;
+    }
+
+    /** @internal @see {@link getDesignScaleX} */
+    static getDesignScaleY(sprite: Sprite): number {
+        let scale = 1;
+        let node: Sprite = sprite;
+        while (node && node !== ILaya.stage) {
+            scale *= node.scaleY;
+            node = node.parent instanceof Sprite ? node.parent : null;
+        }
+        return scale;
+    }
+
+    /** @internal Return the accumulated rotation below Stage. */
+    static getDesignRotation(sprite: Sprite): number {
+        let rotation = 0;
+        let node: Sprite = sprite;
+        while (node && node !== ILaya.stage) {
+            rotation += node.rotation;
+            node = node.parent instanceof Sprite ? node.parent : null;
+        }
+        return rotation;
+    }
+
+    /** @internal Set accumulated rotation below Stage without involving Stage adaptation. */
+    static setDesignRotation(sprite: Sprite, rotation: number): void {
+        let parentRotation = 0;
+        let node = sprite.parent instanceof Sprite ? sprite.parent : null;
+        while (node && node !== ILaya.stage) {
+            parentRotation += node.rotation;
+            node = node.parent instanceof Sprite ? node.parent : null;
+        }
+        sprite.rotation = rotation - parentRotation;
+    }
+
+    /**
+     * @internal
+     * Return the sprite origin (its x/y registration position) in Stage design
+     * coordinates. Sprite.localToGlobal stops before applying Stage adaptation.
+     */
+    static getDesignPosition(sprite: Sprite, out: Point): Point {
+        out.setTo(sprite.pivotX, sprite.pivotY);
+        return sprite.localToGlobal(out);
+    }
+
+    /** @internal Set the sprite origin from a Stage design-space position. */
+    static setDesignPosition(sprite: Sprite, x: number, y: number, out: Point): void {
+        out.setTo(x, y);
+        const parent = sprite.parent;
+        if (parent instanceof Sprite)
+            parent.globalToLocal(out);
+        sprite.pos(out.x, out.y);
+    }
+
+    /** @internal Convert an origin-relative sprite point to Stage design space. */
+    static localToDesignPoint(sprite: Sprite, x: number, y: number, out: Point): Point {
+        out.setTo(sprite.pivotX + x, sprite.pivotY + y);
+        return sprite.localToGlobal(out);
+    }
+
+    /** @internal Convert a Stage design-space point to an origin-relative sprite point. */
+    static designToLocalPoint(sprite: Sprite, x: number, y: number, out: Point): Point {
+        out.setTo(x, y);
+        sprite.globalToLocal(out);
+        out.x -= sprite.pivotX;
+        out.y -= sprite.pivotY;
+        return out;
+    }
 
     // 下面考虑也放到ISceneComponentManager里面去处理，在update里面设置重设根节点之后再更新这个方法
     /**

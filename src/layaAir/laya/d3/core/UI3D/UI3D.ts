@@ -28,9 +28,13 @@ import { Camera } from "../Camera";
 import { Quaternion } from "../../../maths/Quaternion";
 import { Utils } from "../../../utils/Utils";
 import { Rectangle } from "../../../maths/Rectangle";
-import { SpriteUtils } from "../../../utils/SpriteUtils";
 import { RepaintFlag } from "../../../display/SpriteConst";
 import { ShaderFeatureType } from "../../../RenderEngine/RenderShader/Shader3D";
+import { SpriteUtils } from "../../../utils/SpriteUtils";
+import { Point } from "../../../maths/Point";
+
+/** Custom renderbit bit: skip 3D draw until the 2D UI RT is ready (avoids first-frame white flash). */
+const UI3D_TEXTURE_NOT_READY_BIT = 4;
 
 class UI3DShellSprite extends Sprite {
 
@@ -41,6 +45,13 @@ class UI3DShellSprite extends Sprite {
     _invertY: boolean;
 
     updateRT: boolean = false;
+
+    /** The RT currently sampled by the 3D material; _drawOriRT is the 2D render target. */
+    displayRT: RenderTexture2D;
+
+    /** @internal 内容渲染偏移量 */
+    _contentOffsetX: number = 0;
+    _contentOffsetY: number = 0;
 
     _genMipMap: boolean = false;
 
@@ -78,34 +89,20 @@ class UI3DShellSprite extends Sprite {
     }
 
     updateRenderTexture() {
-        //计算方式调整
         let rect = Rectangle.TEMP;
-        if (this.mask) {
-            SpriteUtils.getRect(this.mask, false, rect);
-            rect.x += this.mask._pivotX;
-            rect.y += this.mask._pivotY;
-        }
-        else {
-            SpriteUtils.getRect(this, false, rect);
-            rect.x += this._pivotX;
-            rect.y += this._pivotY;
-        }
-
-        // if (rect.width === 0 || rect.height === 0)
-        //     return false;
+        rect.setTo(this._contentOffsetX, this._contentOffsetY, this._rtWidth, this._rtHeight);
+        this._subStructRender._updateRenderOffset(rect, rect, 1, 1);
 
         let oldRT = this._drawOriRT;
-        let maskRect = this._subStructRender._rtRect;
-        //判断待考虑
         if (oldRT) {
-            if (maskRect.width === rect.width && maskRect.height === rect.height) {
-                // this._subStructRender._updateRenderOffset(rect);
+            if (this._rtWidth === oldRT.width && this._rtHeight === oldRT.height) {
                 return false;
             }
-            oldRT.destroy();
+            // Keep the displayed RT alive until the newly rendered RT is bound.
+            if (oldRT !== this.displayRT)
+                oldRT.destroy();
         }
 
-        // this._subStructRender._updateRenderOffset(rect);
         let renderTexture: RenderTexture2D;
         if (this._genMipMap) {
             renderTexture = new RenderTexture2D(this._rtWidth, this._rtHeight, RenderTargetFormat.R8G8B8A8);
@@ -140,8 +137,6 @@ export class UI3D extends BaseRender {
     private _uisprite: Sprite;
 
     private _ui3DMat: Material;
-
-    private _rendertexure2D: RenderTexture2D;
 
     private _geometry: UI3DGeometry;
 
@@ -200,11 +195,32 @@ export class UI3D extends BaseRender {
             return;
         this._uisprite = value;
         this._shellSprite.removeChildren(0, this._shellSprite.numChildren - 1);
-        if (value)
+        if (value) {
             this._shellSprite.addChild(value);
+            this._updateContentOffset(value);
+        } else {
+            this._shellSprite._contentOffsetX = 0;
+            this._shellSprite._contentOffsetY = 0;
+        }
         this._resizeRT();
         this._shellSprite.repaint();
+        this.setRenderbitFlag(UI3D_TEXTURE_NOT_READY_BIT, !value || !this._shellSprite.displayRT);
         this.boundsChange = true;
+    }
+
+    /**
+     * @internal
+     * 计算子节点内容的位置偏移
+     */
+    private _updateContentOffset(sp: Sprite): void {
+        // 用真实包围盒作为内容起点，避免子节点带旋转/缩放时直接拿 child.x/y 会裁掉旋转后伸出原点之外的部分
+        let rect = Rectangle.TEMP;
+        SpriteUtils.getRect(sp, false, rect);
+        if (sp.transform) {
+            rect.transform(sp.transform, rect);
+        }
+        this._shellSprite._contentOffsetX = rect.x + sp.x;
+        this._shellSprite._contentOffsetY = rect.y + sp.y;
     }
 
     /**
@@ -238,6 +254,7 @@ export class UI3D extends BaseRender {
         value.cloneTo(this._size);
         this._resizeRT();
         this.boundsChange = true;
+        this._sizeChange = true;
         this._scale.setValue(value.x, value.y, 1);
     }
 
@@ -372,13 +389,28 @@ export class UI3D extends BaseRender {
         this._shellSprite = new UI3DShellSprite();
         this._shellSprite.name = "UI3D";
         this._shellSprite._parent = ILaya.stage;
+        this._shellSprite._syncTransParent(); // 直接改 _parent 绕过了 _setParent，需手动同步 SoA 的 parent
         this._shellSprite._setBit(NodeFlags.DISPLAYED_INSTAGE, true);
         this._shellSprite._setBit(NodeFlags.ACTIVE_INHIERARCHY, true);
         this._shellSprite.cacheAs = "bitmap";
+        // shellSprite 不在渲染树，_updateStruct 不会被调用，手动初始化确保 root.trans 有效
+        this._shellSprite._struct.renderMatrix = this._shellSprite.globalTrans.getMatrix();
         this._baseRenderNode.shaderData.addDefine(MeshSprite3DShaderDeclaration.SHADERDEFINE_UV0);
+        this.setRenderbitFlag(UI3D_TEXTURE_NOT_READY_BIT, true);
 
         this._matrix = new Matrix4x4();
         this._scale = new Vector3(1.0, 1.0, 1.0);
+        // LayaX：bounds 依赖自维护 _matrix（非 owner worldMatrix），走 Explicit 直推（见 onPreRender）
+        this._baseRenderNode.disableNativeBoundsCallback?.();
+        this._baseRenderNode.setBoundsMode?.(1); // Explicit
+    }
+
+    /** LayaX：_matrix 更新后把世界 AABB 推给 ECS cull（Explicit 模式）。 */
+    private _pushWorldBoundsToNative(): void {
+        if (!this._baseRenderNode.setWorldBounds) return;
+        this._calculateBoundingBox();
+        const min = this._bounds.getMin(), max = this._bounds.getMax();
+        this._baseRenderNode.setWorldBounds(min.x, min.y, min.z, max.x, max.y, max.z);
     }
 
     protected _isMaterialVaild(value: Material): boolean {
@@ -401,7 +433,6 @@ export class UI3D extends BaseRender {
             this._creatDefaultMat();
             this.sharedMaterial = this._ui3DMat;
         }
-        this._setMaterialTexture();
         var material: Material = this.sharedMaterial;
         var element: RenderElement = new RenderElement();
         element.setTransform(this.owner._transform);
@@ -428,7 +459,10 @@ export class UI3D extends BaseRender {
     private _parseHit(ray: Ray) {
         let _tempRay = UI3D._ray;
         let u, v;
-        if (!this._uisprite || !LayaEnv.isPlaying) return null;
+        const displayRT = this._shellSprite.displayRT;
+        if (!this._uisprite || !displayRT || !LayaEnv.isPlaying) return null;
+        if (displayRT.width !== this._shellSprite.rtWidth || displayRT.height !== this._shellSprite.rtHeight)
+            return null;
         this._matrix.invert(tempMatrix);
         Vector3.transformCoordinate(ray.origin, tempMatrix, _tempRay.origin);
         Vector3.TransformNormal(ray.direction, tempMatrix, _tempRay.direction);
@@ -449,13 +483,16 @@ export class UI3D extends BaseRender {
         normalizeHitWidth = u + 0.5;
         normalizeHitHeight = v + 0.5;
 
-        let cx = normalizeHitWidth * this._rendertexure2D.width;
-        let cy = (1.0 - normalizeHitHeight) * this._rendertexure2D.height;
+        let cx = normalizeHitWidth * displayRT.width;
+        let cy = (1.0 - normalizeHitHeight) * displayRT.height;
 
-        // drawCircle to test
-        // UI3D.DEBUG && this._uisprite && this._shellSprite.graphics.drawCircle(cx, cy, 10, "#e53d30");
+        // RT 像素坐标 → shellSprite 空间 → _uisprite 局部坐标
+        const hitPoint = Point.TEMP.setTo(
+            cx + this._shellSprite._contentOffsetX,
+            cy + this._shellSprite._contentOffsetY);
+        this._uisprite.fromParentPoint(hitPoint);
 
-        let target = InputManager.inst.getSpriteUnderPoint(this._uisprite, cx, cy);
+        let target = InputManager.inst.getSpriteUnderPoint(this._uisprite, hitPoint.x, hitPoint.y);
         if (target)
             return target;
         else
@@ -480,7 +517,6 @@ export class UI3D extends BaseRender {
             this._shellSprite && (this._shellSprite.rtHeight = height);
             this._shellSprite && (this._shellSprite.invertY = !LayaGL.renderEngine._screenInvertY);
             this._shellSprite && this._shellSprite.repaint(RepaintFlag.UpdateRT);
-            this._setMaterialTexture();
         }
     }
 
@@ -489,6 +525,7 @@ export class UI3D extends BaseRender {
      */
     onPreRender(): void {
         //this._geometry
+        let matrixUpdated = true;
         if (this._isCameraSpaceMode()) {
             this.boundsChange = true;
             let cameraforward = Vector3.TEMP;
@@ -510,13 +547,25 @@ export class UI3D extends BaseRender {
         } else {
             if (this.billboard) {
                 this._sizeChange = false;
-                let camera = this.owner.scene.cullInfoCamera;
-                Matrix4x4.createAffineTransformation(this._transform.position, camera.transform.rotation, this._scale, this._matrix);
-            } else if (this._sizeChange) {
+                // billboard 矩阵每帧跟随相机旋转重建，bounds 需同步失效，否则裁剪会用到旧朝向的 AABB
                 this.boundsChange = true;
-                this._transform.worldMatrix.cloneTo(this._matrix);
+                let camera = this.owner.scene.cullInfoCamera;
+                let e = this._transform.worldMatrix.elements;
+                let sx = Math.sqrt(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+                let sy = Math.sqrt(e[4] * e[4] + e[5] * e[5] + e[6] * e[6]);
+                let finalScale = tempVec3;
+                finalScale.setValue(this._scale.x * sx, this._scale.y * sy, 1);
+                Matrix4x4.createAffineTransformation(this._transform.position, camera.transform.rotation, finalScale, this._matrix);
+            } else if (this._sizeChange) {
+                this._sizeChange = false;
+                this.boundsChange = true;
+                Matrix4x4.createScaling(this._scale, tempMatrix);
+                Matrix4x4.multiply(this._transform.worldMatrix, tempMatrix, this._matrix);
+            } else {
+                matrixUpdated = false;
             }
         }
+        matrixUpdated && this._pushWorldBoundsToNative();
     }
 
 
@@ -526,7 +575,7 @@ export class UI3D extends BaseRender {
      * @zh 获得ui渲染图
      */
     getUITexture(): BaseTexture {
-        return this._rendertexure2D;
+        return this._shellSprite.displayRT;
     }
 
     /**
@@ -569,8 +618,13 @@ export class UI3D extends BaseRender {
      */
     _submitRT() {
         if (this._shellSprite.updateRT) {
+            const oldRT = this._shellSprite.displayRT;
             this._shellSprite.updateRT = false;
+            // Stage draws the new 2D RT after 3D in the previous frame; bind it only now.
             this._setMaterialTexture();
+            this.setRenderbitFlag(UI3D_TEXTURE_NOT_READY_BIT, !this._uisprite || !this._shellSprite.displayRT);
+            if (oldRT && oldRT !== this._shellSprite.displayRT)
+                oldRT.destroy();
         }
     }
 
@@ -582,9 +636,10 @@ export class UI3D extends BaseRender {
         if (this._shellSprite._drawOriRT) {
             this.sharedMaterial.addDefine(UnlitMaterial.SHADERDEFINE_ALBEDOTEXTURE);
             this.sharedMaterial.setTexture(this._bindPropertyName, this._shellSprite._drawOriRT);
-            this._rendertexure2D = this._shellSprite._drawOriRT;
+            this._shellSprite.displayRT = this._shellSprite._drawOriRT;
         } else {
             this.sharedMaterial.removeDefine(UnlitMaterial.SHADERDEFINE_ALBEDOTEXTURE)
+            this._shellSprite.displayRT = null;
         }
 
 
@@ -628,8 +683,15 @@ export class UI3D extends BaseRender {
 
     protected _onDestroy() {
         super._onDestroy();
-        this._rendertexure2D && this._rendertexure2D.destroy();
-        this._shellSprite && (this._shellSprite._parent = null);
+        const displayRT = this._shellSprite.displayRT;
+        displayRT && displayRT.destroy();
+        const drawRT = this._shellSprite._drawOriRT;
+        if (drawRT && drawRT !== displayRT)
+            drawRT.destroy();
+        if (this._shellSprite) {
+            this._shellSprite._parent = null;
+            this._shellSprite._syncTransParent(); // 同步 SoA parent(置为 root)
+        }
         this._uisprite && this._uisprite.destroy();
         this._shellSprite && this._shellSprite.destroy();
         this._ui3DMat && this._ui3DMat.destroy();

@@ -1,5 +1,6 @@
 
 #include "ClipVertex.glsl";
+#include "Color.glsl";
 
 #ifdef CAMERA2D
  uniform mat3 u_view2D;
@@ -44,9 +45,6 @@ void getViewPos(in vec2 globalPos,out vec2 viewPos){
     #ifdef RENDERTEXTURE
         vec2 tempPos;
         transfrom(globalPos , u_InvertMat_0, u_InvertMat_1, tempPos);
-        // tempPos -= u_clipMatPos.xy - u_clipMatPos.zw;
-        // tempPos.x += (u_clipMatPos.x - u_clipMatPos.z); 
-        // tempPos.y += (u_clipMatPos.y - u_clipMatPos.w);
 
         #ifdef CAMERA2D
             viewPos.xy = (u_view2D *vec3(tempPos,1.0)).xy+u_size/2.;
@@ -85,13 +83,23 @@ void getViewPos(in vec2 globalPos,out vec2 viewPos){
     varying float v_useClip;
     varying vec4 v_customs;
 
+    #ifdef USE_TEX_ARRAY
+        varying float v_texLayer;
+    #endif
+
     void getVertexInfo(inout vertexInfo info){
        	//texcoordAlpha
         info.texcoordAlpha.xy = a_posuv.zw;
         //color
         info.color = a_attribColor;
-        info.color.a*=u_VertAlpha;
-	    info.color.xyz*= info.color.w;//反正后面也要预乘
+
+        #ifdef VERTEXALPHA
+            info.color.a*=a_attribFlags.z;
+        #else
+            info.color.a*=u_VertAlpha;
+        #endif
+
+	    info.color.xyz*= info.color.a;//反正后面也要预乘
         //useTex
         info.useTex = a_attribFlags.r;
         //useClip
@@ -131,7 +139,10 @@ void getViewPos(in vec2 globalPos,out vec2 viewPos){
     varying vec2 v_texcoord;
 
     uniform vec4 u_baseRenderColor;
-    
+    #ifdef UNITQUAD
+        uniform vec2 u_baseRenderSize2D;
+    #endif
+
     struct vertexInfo {
         vec4 color;
         vec2 uv;
@@ -168,22 +179,21 @@ void getViewPos(in vec2 globalPos,out vec2 viewPos){
         }
     #endif
 
-    vec4 linearToGamma(in vec4 value)
-    {
-        return vec4(mix(pow(value.rgb, vec3(0.41666)) * 1.055 - vec3(0.055), value.rgb * 12.92, vec3(lessThanEqual(value.rgb, vec3(0.0031308)))),value.a);
-
-        // return pow(value, vec3(1.0 / 2.2));
-        // return pow(value, vec3(0.455));
-    }
-
     void getVertexInfo(inout vertexInfo info){
-        info.pos = a_position.xy;
+        #ifdef UNITQUAD
+            info.pos = a_position.xy * u_baseRenderSize2D;
+        #else
+            info.pos = a_position.xy;
+        #endif
         info.color = vec4(1.0,1.0,1.0,1.0);
         #ifdef COLOR
             info.color = a_color;
             info.color.rgb *=a_color.a;
         #endif
-        info.color*= linearToGamma(u_baseRenderColor);
+
+        vec4 ucolor = linearToGamma(u_baseRenderColor);
+        ucolor.rgb *= ucolor.a;
+        info.color*= ucolor;
         #ifdef UV
             info.uv = a_uv;
         #endif

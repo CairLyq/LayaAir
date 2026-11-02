@@ -149,6 +149,12 @@ export class HtmlParser {
                             this._style.color = color;
                             (<any>this._style).colorChanged = true;
                         }
+                        let stroke: string = XMLIterator.getAttribute("stroke");
+                        if (stroke != null)
+                            this._style.stroke = parseInt(stroke) || 0;
+                        let strokeColor: string = XMLIterator.getAttribute("strokecolor");
+                        if (strokeColor != null)
+                            this._style.strokeColor = strokeColor;
                     }
                     else if (XMLIterator.tagType == XMLTagType.End)
                         this.popStyle();
@@ -187,9 +193,13 @@ export class HtmlParser {
                         this.pushStyle();
 
                         this._style.underline = this._style.underline || options.linkUnderline;
-                        if (!(<any>this._style).colorChanged && options.linkColor != null)
-                            this._style.color = options.linkColor;
-
+                        // if (!(<any>this._style).colorChanged && options.linkColor != null)
+                        //     this._style.color = options.linkColor;
+                        let color: string = XMLIterator.getAttribute("color");
+                        if (color != null) {
+                            this._style.color = color;
+                            (<any>this._style).colorChanged = true;
+                        }
                         let element = HtmlElement.getFromPool(HtmlElementType.Link);
                         element.fetchAttributes();
                         element.name = element.getAttrString("name");

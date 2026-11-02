@@ -3,7 +3,19 @@ import { ShaderDataType } from "../../RenderDriver/DriverDesign/RenderDevice/Sha
 import { ShaderDefine } from "../../RenderDriver/RenderModuleData/Design/ShaderDefine";
 import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
 
+import Particle2DCommon from "./shader/Particle2DCommon.glsl";
+import Particle2DFrag from "./shader/Particle2DFrag.glsl";
+import Particle2DLifetimeColor from "./shader/Particle2DLifetimeColor.glsl";
+import Particle2DLifetimeRotation from "./shader/Particle2DLifetimeRotation.glsl";
+import Particle2DLifetimeSize from "./shader/Particle2DLifetimeSize.glsl";
+import Particle2DLifetimeVelocity from "./shader/Particle2DLifetimeVelocity.glsl";
+import Particle2DTextureSheetAnimation from "./shader/Particle2DTextureSheetAnimation.glsl";
+import Particle2DVertex from "./shader/Particle2DVertex.glsl";
+import Curve from "./shader/Curve.glsl";
+
 export class Particle2DShader {
+
+    static GradientKeyCount8Def: ShaderDefine;
 
     static ColorOverLifetimeDef: ShaderDefine;
     static ColorOverLifetimeRandom: ShaderDefine;
@@ -47,6 +59,17 @@ export class Particle2DShader {
     static SpriteRotAndScale: number;
 
     static init() {
+        Particle2DShader.GradientKeyCount8Def = Shader3D.getDefineByName("GRADIENTKEYCOUNT_8");
+
+        Shader3D.addInclude("Particle2DCommon.glsl", Particle2DCommon);
+        Shader3D.addInclude("Particle2DFrag.glsl", Particle2DFrag);
+        Shader3D.addInclude("Particle2DLifetimeColor.glsl", Particle2DLifetimeColor);
+        Shader3D.addInclude("Particle2DLifetimeRotation.glsl", Particle2DLifetimeRotation);
+        Shader3D.addInclude("Particle2DLifetimeSize.glsl", Particle2DLifetimeSize);
+        Shader3D.addInclude("Particle2DLifetimeVelocity.glsl", Particle2DLifetimeVelocity);
+        Shader3D.addInclude("Particle2DTextureSheetAnimation.glsl", Particle2DTextureSheetAnimation);
+        Shader3D.addInclude("Particle2DVertex.glsl", Particle2DVertex);
+        Shader3D.addInclude("Curve.glsl", Curve);
 
         const uniformMap = LayaGL.renderDeviceFactory.createGlobalUniformMap("_Particle2D");
         const addUniform = (name: string, type: ShaderDataType) => {
@@ -82,11 +105,11 @@ export class Particle2DShader {
             // velocity over life time
             Particle2DShader.VelocityOverLifetimeDef = Shader3D.getDefineByName("VELOCITYOVERLIFETIME");
 
-            Particle2DShader.VelocityCurveMinX = addUniformArray("u_VelocityCurveMinX", ShaderDataType.Vector4, 2);
-            Particle2DShader.VelocityCurveMinY = addUniformArray("u_VelocityCurveMinY", ShaderDataType.Vector4, 2);
+            Particle2DShader.VelocityCurveMinX = addUniformArray("u_VelocityCurveMinX", ShaderDataType.Vector4, 4);
+            Particle2DShader.VelocityCurveMinY = addUniformArray("u_VelocityCurveMinY", ShaderDataType.Vector4, 4);
 
-            Particle2DShader.VelocityCurveMaxX = addUniformArray("u_VelocityCurveMaxX", ShaderDataType.Vector4, 2);
-            Particle2DShader.VelocityCurveMaxY = addUniformArray("u_VelocityCurveMaxY", ShaderDataType.Vector4, 2);
+            Particle2DShader.VelocityCurveMaxX = addUniformArray("u_VelocityCurveMaxX", ShaderDataType.Vector4, 4);
+            Particle2DShader.VelocityCurveMaxY = addUniformArray("u_VelocityCurveMaxY", ShaderDataType.Vector4, 4);
 
             Particle2DShader.VelocityOverLifetimeSpace = addUniform("u_VelocityOverLifetimeSpace", ShaderDataType.Float);
         }
@@ -95,28 +118,28 @@ export class Particle2DShader {
             // Size over life time
             Particle2DShader.SizeOverLifetimeDef = Shader3D.getDefineByName("SIZEOVERLIFETIME");
 
-            Particle2DShader.SizeCurveMinX = addUniformArray("u_SizeCurveMinX", ShaderDataType.Vector4, 2);
-            Particle2DShader.SizeCurveMinY = addUniformArray("u_SizeCurveMinY", ShaderDataType.Vector4, 2);
+            Particle2DShader.SizeCurveMinX = addUniformArray("u_SizeCurveMinX", ShaderDataType.Vector4, 4);
+            Particle2DShader.SizeCurveMinY = addUniformArray("u_SizeCurveMinY", ShaderDataType.Vector4, 4);
             Particle2DShader.SizeCurveMinTimeRange = addUniform("u_SizeCurveMinTimeRange", ShaderDataType.Vector4);
 
-            Particle2DShader.SizeCurveMaxX = addUniformArray("u_SizeCurveMaxX", ShaderDataType.Vector4, 2);
-            Particle2DShader.SizeCurveMaxY = addUniformArray("u_SizeCurveMaxY", ShaderDataType.Vector4, 2);
+            Particle2DShader.SizeCurveMaxX = addUniformArray("u_SizeCurveMaxX", ShaderDataType.Vector4, 4);
+            Particle2DShader.SizeCurveMaxY = addUniformArray("u_SizeCurveMaxY", ShaderDataType.Vector4, 4);
             Particle2DShader.SizeCurveMaxTimeRange = addUniform("u_SizeCurveMaxTimeRange", ShaderDataType.Vector4);
         }
         {
             // Rotation over life time
             Particle2DShader.RotationOverLifetimeDef = Shader3D.getDefineByName("ROTATIONOVERLIFETIME");
 
-            Particle2DShader.RotationCurveMin = addUniformArray("u_RotationCurveMin", ShaderDataType.Vector4, 2);
-            Particle2DShader.RotationCurveMax = addUniformArray("u_RotationCurveMax", ShaderDataType.Vector4, 2);
+            Particle2DShader.RotationCurveMin = addUniformArray("u_RotationCurveMin", ShaderDataType.Vector4, 4);
+            Particle2DShader.RotationCurveMax = addUniformArray("u_RotationCurveMax", ShaderDataType.Vector4, 4);
         }
         {
             // TextureSheetAnimation
             Particle2DShader.TextureSheetAnimationDef = Shader3D.getDefineByName("TEXTURESHEETANIMATION");
 
             Particle2DShader.TextureSheetFrameData = addUniform("u_TextureSheetFrameData", ShaderDataType.Vector4);
-            Particle2DShader.TextureSheetFrame = addUniformArray("u_TextureSheetFrame", ShaderDataType.Vector4, 2);
-            Particle2DShader.TextureSheetFrameMax = addUniformArray("u_TextureSheetFrameMax", ShaderDataType.Vector4, 2);
+            Particle2DShader.TextureSheetFrame = addUniformArray("u_TextureSheetFrame", ShaderDataType.Vector4, 4);
+            Particle2DShader.TextureSheetFrameMax = addUniformArray("u_TextureSheetFrameMax", ShaderDataType.Vector4, 4);
             Particle2DShader.TextureSheetFrameRange = addUniform("u_TextureSheetFrameRange", ShaderDataType.Vector4);
         }
 

@@ -7,6 +7,7 @@ import { HDRTextureInfo } from "../../../RenderEngine/HDRTextureInfo";
 import { KTXTextureInfo } from "../../../RenderEngine/KTXTextureInfo";
 import { FilterMode } from "../../../RenderEngine/RenderEnum/FilterMode";
 import { RenderCapable } from "../../../RenderEngine/RenderEnum/RenderCapable";
+import { RenderParams } from "../../../RenderEngine/RenderEnum/RenderParams";
 import { RenderTargetFormat } from "../../../RenderEngine/RenderEnum/RenderTargetFormat";
 import { TextureCompareMode } from "../../../RenderEngine/RenderEnum/TextureCompareMode";
 import { TextureDimension } from "../../../RenderEngine/RenderEnum/TextureDimension";
@@ -341,6 +342,17 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         return bytelength;
     }
 
+    private _ensureTexture3DStorage(texture: WebGLInternalTex, depth: number = texture.depth): void {
+        if (texture._texture3DStorageAllocated)
+            return;
+
+        let gl = this._gl;
+        this._engine._bindTexture(texture.target, texture.resource);
+        gl.texStorage3D(texture.target, texture.mipmapCount, texture.internalFormat, texture.width, texture.height, depth);
+        texture.gpuMemory = this.getGLtexMemory(texture, depth);
+        texture._texture3DStorageAllocated = true;
+    }
+
     // todo webgl2 srgb 判断
     supportSRGB(format: TextureFormat | RenderTargetFormat, mipmap: boolean): boolean {
         switch (format) {
@@ -492,12 +504,10 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
 
         this._engine._bindTexture(texture.target, texture.resource);
 
-        gl.texStorage3D(target, mipmapCount, internalFormat, width, height, depth);
-        texture.gpuMemory = this.getGLtexMemory(texture, depth);
+        this._ensureTexture3DStorage(texture, depth);
         for (let index = 0; index < depth; index++) {
             gl.texSubImage3D(target, 0, 0, 0, index, width, height, 1, format, type, sources[index]);
         }
-        texture.gpuMemory = this.getGLtexMemory(texture);
         if (texture.mipmap) {
             gl.generateMipmap(texture.target);
         }
@@ -524,8 +534,7 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         fourSize || gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
         this._engine._bindTexture(texture.target, texture.resource);
-        gl.texStorage3D(target, mipmapCount, internalFormat, width, height, depth);
-        texture.gpuMemory = this.getGLtexMemory(texture, depth);
+        this._ensureTexture3DStorage(texture, depth);
         if (source) {
             gl.texSubImage3D(target, 0, 0, 0, 0, width, height, depth, format, type, source);
             if (texture.mipmap) {
@@ -556,6 +565,7 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
 
         this._engine._bindTexture(texture.target, texture.resource);
 
+        this._ensureTexture3DStorage(texture);
         gl.texSubImage3D(target, mipmapLevel, xOffset, yOffset, zOffset, width, height, depth, format, type, source);
 
         if (texture.mipmap && generateMipmap) {
@@ -584,7 +594,7 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         let internalFormat = texture.internalFormat;
         let format = texture.format;
         let type = texture.type;
-        let mipmapCount = texture.mipmapCount;
+        let mipmapCount = Math.min(ktxInfo.mipmapCount, texture.mipmapCount);
         // todo texture size 
         let width = texture.width;
         let height = texture.height;
@@ -593,24 +603,23 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
 
         let source = ktxInfo.source;
         let compressed = ktxInfo.compress;
-        let fourSize = width % 4 == 0 && height % 4 == 0;
 
         let gl = this._gl;
         premultiplyAlpha && gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
         invertY && gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-        fourSize || gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+        !compressed && gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
 
         this._engine._bindTexture(texture.target, texture.resource);
 
         if (!compressed) {
-            gl.texStorage2D(target, ktxInfo.mipmapCount, internalFormat, width, height);
+            gl.texStorage2D(target, mipmapCount, internalFormat, width, height);
         }
 
         let mipmapWidth = width;
         let mipmapHeight = height;
         let dataOffset = ktxInfo.headerOffset + ktxInfo.bytesOfKeyValueData;
         let memory = 0;
-        for (let index = 0; index < ktxInfo.mipmapCount; index++) {
+        for (let index = 0; index < mipmapCount; index++) {
 
             let imageSize = new Int32Array(source, dataOffset, 1)[0];
 
@@ -619,28 +628,27 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
             if (compressed) {
                 let sourceData = new Uint8Array(source, dataOffset, imageSize);
                 gl.compressedTexImage2D(target, index, internalFormat, mipmapWidth, mipmapHeight, 0, sourceData);
-                memory += sourceData.length;
+                memory += sourceData.byteLength;
             }
             else {
                 let pixelParams = this.getFormatPixelsParams(ktxInfo.format);
                 let typedSize = imageSize / pixelParams.typedSize;
                 let sourceData = new pixelParams.dataTypedCons(source, dataOffset, typedSize);
                 gl.texSubImage2D(target, index, 0, 0, mipmapWidth, mipmapHeight, format, type, sourceData);
-                memory += sourceData.length;
+                memory += sourceData.byteLength;
             }
 
             dataOffset += imageSize;
             dataOffset += 3 - ((imageSize + 3) % 4);
 
-            mipmapWidth = Math.max(1, mipmapWidth * 0.5);
-            mipmapHeight = Math.max(1, mipmapHeight * 0.5);
+            mipmapWidth = Math.max(1, Math.floor(mipmapWidth * 0.5));
+            mipmapHeight = Math.max(1, Math.floor(mipmapHeight * 0.5));
 
         }
         this._engine._bindTexture(texture.target, null);
         texture.gpuMemory = memory;
         premultiplyAlpha && gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
         invertY && gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-        fourSize || gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     }
 
     setCubeImageData(texture: WebGLInternalTex, sources: (HTMLImageElement | HTMLCanvasElement | ImageBitmap)[], premultiplyAlpha: boolean, invertY: boolean): void {
@@ -754,12 +762,12 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         let internalFormat = texture.internalFormat;
         let format = texture.format;
         let type = texture.type;
-        let mipmapCount = texture.mipmapCount;
+        let mipmapCount = Math.min(ktxInfo.mipmapCount, texture.mipmapCount);
         // todo texture size 与 ddsInfo size
         let width = texture.width;
         let height = texture.height;
 
-        texture.maxMipmapLevel = ktxInfo.mipmapCount - 1;
+        texture.maxMipmapLevel = mipmapCount - 1;
 
         let source = ktxInfo.source;
         let compressed = ktxInfo.compress;
@@ -777,10 +785,10 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         this._engine._bindTexture(texture.target, texture.resource);
 
         if (!compressed) {
-            gl.texStorage2D(target, ktxInfo.mipmapCount, internalFormat, width, height);
+            gl.texStorage2D(target, mipmapCount, internalFormat, width, height);
         }
         let memory = 0;
-        for (let index = 0; index < ktxInfo.mipmapCount; index++) {
+        for (let index = 0; index < mipmapCount; index++) {
 
             let imageSize = new Int32Array(source, dataOffset, 1)[0];
 
@@ -805,8 +813,8 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
                 dataOffset += 3 - ((imageSize + 3) % 4);
             }
 
-            mipmapWidth = Math.max(1, mipmapWidth * 0.5);
-            mipmapHeight = Math.max(1, mipmapHeight * 0.5);
+            mipmapWidth = Math.max(1, Math.floor(mipmapWidth * 0.5));
+            mipmapHeight = Math.max(1, Math.floor(mipmapHeight * 0.5));
         }
         texture.gpuMemory = memory;
         this._engine._bindTexture(texture.target, null);
@@ -1007,6 +1015,142 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         return internalTex;
     }
 
+    createMultiRenderTargetInternal(width: number, height: number, colorFormats: readonly (RenderTargetFormat | null)[], depthStencilFormat: RenderTargetFormat, color0SRGB: boolean = false): WebGLInternalRT {
+        const gl = this._gl;
+        if (!this._engine.getCapable(RenderCapable.MRT))
+            throw new Error("WebGL2 MRT is not supported by this engine.");
+        const maxSize = this._engine.getParams(RenderParams.MAX_Texture_Size);
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width > maxSize || height > maxSize)
+            throw new RangeError(`MRT dimensions must be positive integers no greater than ${maxSize}.`);
+        const maxCount = this._engine.getParams(RenderParams.Max_Color_Attachment_Count);
+        if (!Array.isArray(colorFormats) || colorFormats.length < 1 || colorFormats.length > maxCount)
+            throw new RangeError(`MRT requires between 1 and ${maxCount} color attachments.`);
+        const formats = Array.from(colorFormats, format => format ?? null);
+        if (formats[0] == null)
+            throw new Error("MRT color attachment 0 cannot be empty.");
+        // 仅主色允许 sRGB；格式映射复用临时对象，这里必须逐项复制。
+        const colorParams = formats.map((format, index) => {
+            if (format === null) return null;
+            const useSRGB = index === 0 && (this.isSRGBFormat(format) || (color0SRGB && this.supportSRGB(format, false)));
+            const params = this.glRenderTextureParam(format, useSRGB);
+            if (params.format !== gl.RGB && params.format !== gl.RGBA)
+                throw new Error(`Invalid WebGL2 MRT color format: ${format}.`);
+            return { ...params, useSRGB };
+        });
+        switch (depthStencilFormat) {
+            case RenderTargetFormat.None:
+            case RenderTargetFormat.DEPTH_16:
+            case RenderTargetFormat.DEPTH_32:
+            case RenderTargetFormat.DEPTHSTENCIL_24_8:
+            case RenderTargetFormat.STENCIL_8:
+                break;
+            default:
+                throw new Error(`Unsupported WebGL2 MRT depth/stencil format: ${depthStencilFormat}.`);
+        }
+        const depthParams = this.glRenderBufferParam(depthStencilFormat, false);
+        if (depthParams) {
+            const maxRenderbufferSize = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+            if (width > maxRenderbufferSize || height > maxRenderbufferSize)
+                throw new RangeError(`MRT depth/stencil dimensions exceed ${maxRenderbufferSize}.`);
+        }
+        let memory = this.getGLRTTexMemory(width, height, RenderTargetFormat.None, depthStencilFormat, false, 1, false);
+        for (const format of formats)
+            if (format !== null) memory += this.getGLRTTexMemory(width, height, format, RenderTargetFormat.None, false, 1, false);
+
+        const previousDraw = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
+        const previousRenderbuffer = gl.getParameter(gl.RENDERBUFFER_BINDING);
+        const previousTexture = gl.getParameter(gl.TEXTURE_BINDING_2D);
+        const textureUnit = this._engine._activedTextureID - gl.TEXTURE0;
+        const previousCachedTexture = this._engine._activeTextures[textureUnit];
+        const renderTarget = new WebGLInternalRT(this._engine, formats[0], depthStencilFormat, false, false, 1, formats);
+        renderTarget.isSRGB = colorParams[0].useSRGB;
+        let error: string = null;
+        if (!renderTarget._framebuffer)
+            error = "Unable to allocate the MRT framebuffer.";
+        else {
+            gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, renderTarget._framebuffer);
+            const drawBuffers: number[] = [];
+            for (let i = 0; i < formats.length; i++) {
+                const params = colorParams[i];
+                if (!params) {
+                    // 空槽只保留 location，不分配纹理。
+                    renderTarget._textures.push(null);
+                    drawBuffers.push(gl.NONE);
+                    continue;
+                }
+                const texture = new WebGLInternalTex(this._engine, gl.TEXTURE_2D, width, height, 1, TextureDimension.Tex2D, false, params.useSRGB, 1);
+                renderTarget._textures.push(texture);
+                if (!texture.resource) {
+                    error = `Unable to allocate MRT color attachment ${i}.`;
+                    break;
+                }
+                texture.internalFormat = params.internalFormat;
+                texture.format = params.format;
+                texture.type = params.type;
+                this._engine._bindTexture(gl.TEXTURE_2D, texture.resource);
+                gl.texStorage2D(gl.TEXTURE_2D, 1, texture.internalFormat, width, height);
+                const attachment = gl.COLOR_ATTACHMENT0 + i;
+                gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, attachment, gl.TEXTURE_2D, texture.resource, 0);
+                drawBuffers.push(attachment);
+            }
+            if (!error && depthParams) {
+                renderTarget._depthbuffer = gl.createRenderbuffer();
+                if (!renderTarget._depthbuffer)
+                    error = "Unable to allocate MRT depth/stencil storage.";
+                else {
+                    gl.bindRenderbuffer(gl.RENDERBUFFER, renderTarget._depthbuffer);
+                    gl.renderbufferStorage(gl.RENDERBUFFER, depthParams.internalFormat, width, height);
+                    gl.framebufferRenderbuffer(gl.DRAW_FRAMEBUFFER, depthParams.attachment, gl.RENDERBUFFER, renderTarget._depthbuffer);
+                }
+            }
+            if (!error) {
+                gl.drawBuffers(drawBuffers);
+                const status = gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER);
+                if (status !== gl.FRAMEBUFFER_COMPLETE)
+                    error = `WebGL2 MRT framebuffer is incomplete (0x${status.toString(16)}).`;
+                else error = this._createMRTColor0Target(renderTarget);
+            }
+        }
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, previousDraw);
+        gl.bindRenderbuffer(gl.RENDERBUFFER, previousRenderbuffer);
+        gl.bindTexture(gl.TEXTURE_2D, previousTexture);
+        // 引擎缓存按纹理单元保存，可能记录的是其他纹理类型，需与 GL 绑定分别恢复。
+        this._engine._activeTextures[textureUnit] = previousCachedTexture;
+        if (error) {
+            renderTarget.dispose();
+            throw new Error(error);
+        }
+        renderTarget.gpuMemory = memory;
+        return renderTarget;
+    }
+
+    /** 子 FBO 只借用整组主色和深度，由 owner 统一销毁。 */
+    private _createMRTColor0Target(owner: WebGLInternalRT): string | null {
+        const gl = this._gl;
+        const target = new WebGLInternalRT(this._engine, owner.colorFormat, owner.depthStencilFormat, false, false, 1);
+        owner._color0Target = target;
+        target._owner = owner;
+        target._textures.push(owner._textures[0]);
+        target._depthTexture = owner._depthTexture;
+        target._depthbuffer = owner._depthbuffer;
+        target.isSRGB = owner.isSRGB;
+        if (!target._framebuffer)
+            return "Unable to allocate the MRT color-0 framebuffer.";
+        gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, target._framebuffer);
+        gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target._textures[0].resource, 0);
+        if (owner.depthStencilFormat !== RenderTargetFormat.None) {
+            const attachment = this.glRenderTargetAttachment(owner.depthStencilFormat);
+            if (owner._depthTexture)
+                gl.framebufferTexture2D(gl.DRAW_FRAMEBUFFER, attachment, gl.TEXTURE_2D, owner._depthTexture.resource, 0);
+            else
+                gl.framebufferRenderbuffer(gl.DRAW_FRAMEBUFFER, attachment, gl.RENDERBUFFER, owner._depthbuffer);
+        }
+        gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+        const status = gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER);
+        return status === gl.FRAMEBUFFER_COMPLETE ? null
+            : `WebGL2 MRT color-0 framebuffer is incomplete (0x${status.toString(16)}).`;
+    }
+
     createRenderTargetInternal(width: number, height: number, colorFormat: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number, storage: boolean): WebGLInternalRT {
         let texture = this.createRenderTextureInternal(TextureDimension.Tex2D, width, height, colorFormat, generateMipmap, sRGB);
 
@@ -1143,27 +1287,142 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
 
     }
 
+    /** 创建用作 RT 的 Texture2DArray 内部纹理(仅描述，存储分配延迟到 _ensureTexture3DStorage) */
+    createRenderTextureArrayInternal(width: number, height: number, depth: number, format: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean): WebGLInternalTex {
+        let useSRGBExt = false;
+        generateMipmap = generateMipmap && this.supportGenerateMipmap(format);
+        let target = this._gl.TEXTURE_2D_ARRAY;
+        let internalTex = new WebGLInternalTex(this._engine, target, width, height, depth, TextureDimension.Texture2DArray, generateMipmap, useSRGBExt, 1.0);
+        let glParam = this.glRenderTextureParam(format, useSRGBExt);
+        internalTex.internalFormat = glParam.internalFormat;
+        internalTex.format = glParam.format;
+        internalTex.type = glParam.type;
+        return internalTex;
+    }
 
-    bindRenderTarget(renderTarget: WebGLInternalRT, faceIndex: number = 0): void {
+    createRenderTargetArrayInternal(width: number, height: number, depth: number, colorFormat: RenderTargetFormat, depthStencilFormat: RenderTargetFormat, generateMipmap: boolean, sRGB: boolean, multiSamples: number): WebGLInternalRT {
+        if (multiSamples > 1) {
+            throw "createRenderTargetArrayInternal: MSAA for Texture2DArray RT is not implemented yet.";
+        }
+        let texture = this.createRenderTextureArrayInternal(width, height, depth, colorFormat, generateMipmap, sRGB);
+        // 一次性分配整张 array 不可变存储
+        this._ensureTexture3DStorage(texture, depth);
+        this._engine._bindTexture(texture.target, null);
+
+        let renderTarget = this._assembleLayeredRT(texture, width, height, colorFormat, depthStencilFormat, false);
+        renderTarget.isSRGB = sRGB;
+        // 内存语义:array 颜色按层计在纹理上(getGLRTTexMemory 无法表达层数);RT 只记 depth
+        texture.gpuMemory = this.getGLtexMemory(texture, depth);
+        renderTarget.gpuMemory = this.getGLRTTexMemory(width, height, RenderTargetFormat.None, depthStencilFormat, false, 1, false);
+        return renderTarget;
+    }
+
+
+    bindRenderTarget(renderTarget: WebGLInternalRT, slice: number = 0): void {
+        if (!renderTarget || renderTarget.destroyed || !renderTarget._framebuffer)
+            throw new Error("Cannot bind a missing or destroyed WebGL render target.");
+        if (renderTarget.colorFormats && slice !== 0)
+            throw new RangeError("WebGL2 MRT only supports 2D attachments at mip level 0.");
         this.currentActiveRT && this.unbindRenderTarget(this.currentActiveRT);
         let gl = this._gl;
 
-        if (renderTarget._isCube) {
-            let framebuffer = renderTarget._framebuffer;
-            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
-            let texture = <WebGLInternalTex>renderTarget._textures[0];
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + faceIndex, texture.resource, 0);
+        let head = <WebGLInternalTex>renderTarget._textures[0];
+        let needReattach = renderTarget._isCube || head.target === gl.TEXTURE_2D_ARRAY;
+        if (needReattach) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, renderTarget._framebuffer);
+            let bufs: number[] = [];
+            for (let i = 0; i < renderTarget._textures.length; i++) {
+                let tex = <WebGLInternalTex>renderTarget._textures[i];
+                if (!tex) {
+                    bufs.push(gl.NONE);
+                    continue;
+                }
+                let attach = gl.COLOR_ATTACHMENT0 + i;
+                if (renderTarget._isCube)
+                    gl.framebufferTexture2D(gl.FRAMEBUFFER, attach, gl.TEXTURE_CUBE_MAP_POSITIVE_X + slice, tex.resource, 0);
+                else
+                    gl.framebufferTextureLayer(gl.FRAMEBUFFER, attach, tex.resource, 0, slice);
+                bufs.push(attach);
+            }
+            if (bufs.length > 1) gl.drawBuffers(bufs);
+            if (head.target === gl.TEXTURE_2D_ARRAY) renderTarget._arrayLayerIndex = slice;
         }
 
         if (renderTarget._samples > 1) {
             gl.bindFramebuffer(gl.FRAMEBUFFER, renderTarget._msaaFramebuffer);
         }
         else {
-            let framebuffer = renderTarget._framebuffer;
-
-            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, renderTarget._framebuffer);
         }
         this.currentActiveRT = renderTarget;
+    }
+
+    /** 字节颜色读入字节数组，浮点颜色读入 Float32Array。 */
+    async readRenderTargetPixelDataAsync(renderTarget: WebGLInternalRT, xOffset: number, yOffset: number, width: number, height: number, out: ArrayBufferView, attachmentIndex: number = 0): Promise<ArrayBufferView> {
+        if (!Number.isInteger(attachmentIndex) || attachmentIndex < 0)
+            throw new RangeError("Color attachment index must be a non-negative integer.");
+        if (!renderTarget || renderTarget.destroyed)
+            throw new Error("Cannot read a missing or destroyed WebGL render target.");
+        // 普通 RT 保留原有读回流程。
+        if (!renderTarget.colorFormats)
+            return super.readRenderTargetPixelDataAsync(renderTarget, xOffset, yOffset, width, height, out, attachmentIndex);
+        const gl = this._gl;
+        if (renderTarget._gl !== gl || !renderTarget._framebuffer)
+            throw new Error("MRT does not belong to this WebGL context or has no framebuffer.");
+        if (attachmentIndex >= renderTarget.colorFormats.length)
+            throw new RangeError(`MRT color attachment index out of range: ${attachmentIndex}.`);
+        const texture = renderTarget._textures[attachmentIndex] as WebGLInternalTex;
+        if (!texture)
+            throw new Error(`MRT color attachment ${attachmentIndex} is empty.`);
+        if (!texture.resource || renderTarget._samples !== 1)
+            throw new Error("MRT readback requires a valid single-sampled color attachment.");
+        if (!Number.isInteger(xOffset) || !Number.isInteger(yOffset) || !Number.isInteger(width) || !Number.isInteger(height)
+            || xOffset < 0 || yOffset < 0 || width <= 0 || height <= 0 || xOffset + width > texture.width || yOffset + height > texture.height)
+            throw new RangeError("MRT readback rectangle must be positive-sized and within the attachment.");
+        // RGB 附件也按 RGBA 读回。
+        const textureType = texture.type;
+        let type: number;
+        let byteLength: number;
+        if (textureType === gl.UNSIGNED_BYTE) {
+            if (!(out instanceof Uint8Array) && !(out instanceof Uint8ClampedArray))
+                throw new TypeError("RGBA8 MRT readback requires Uint8Array or Uint8ClampedArray.");
+            type = gl.UNSIGNED_BYTE;
+            byteLength = width * height * 4;
+        } else if (textureType === gl.HALF_FLOAT || textureType === gl.FLOAT) {
+            if (!(out instanceof Float32Array))
+                throw new TypeError("Floating-point MRT readback requires Float32Array.");
+            type = gl.FLOAT;
+            byteLength = width * height * 16;
+        } else {
+            throw new Error(`Unsupported MRT readback texture type: ${textureType}.`);
+        }
+        if (out.byteLength < byteLength)
+            throw new RangeError(`MRT readback output requires at least ${byteLength} bytes.`);
+
+        const previousRead = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, renderTarget._framebuffer);
+        if (gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+            gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previousRead);
+            throw new Error("Cannot read an incomplete MRT framebuffer.");
+        }
+        const previousReadBuffer = gl.getParameter(gl.READ_BUFFER);
+        const previousPackBuffer = gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING);
+        const packParams = [gl.PACK_ALIGNMENT, gl.PACK_ROW_LENGTH, gl.PACK_SKIP_PIXELS, gl.PACK_SKIP_ROWS];
+        const packValues = packParams.map(param => gl.getParameter(param));
+        gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
+        gl.pixelStorei(gl.PACK_ROW_LENGTH, 0);
+        gl.pixelStorei(gl.PACK_SKIP_PIXELS, 0);
+        gl.pixelStorei(gl.PACK_SKIP_ROWS, 0);
+        // WebGL 的 Promise 接口沿用同步 readPixels。
+        gl.readPixels(xOffset, yOffset, width, height, gl.RGBA, type, out);
+        gl.readBuffer(previousReadBuffer);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, previousRead);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, previousPackBuffer);
+        for (let i = 0; i < packParams.length; i++)
+            gl.pixelStorei(packParams[i], packValues[i]);
+        return out;
     }
 
     unbindRenderTarget(renderTarget: WebGLInternalRT): void {
@@ -1189,6 +1448,7 @@ export class GL2TextureContext extends GLTextureContext implements ITextureConte
         }
         if (renderTarget && renderTarget._generateMipmap) {
             renderTarget._textures.forEach(tex => {
+                if (!tex) return;
                 let target = (<WebGLInternalTex>tex).target;
                 this._engine._bindTexture(target, tex.resource);
                 gl.generateMipmap(target);

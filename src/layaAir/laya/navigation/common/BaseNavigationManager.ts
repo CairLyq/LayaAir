@@ -18,6 +18,7 @@ import { IElementComponentManager } from "../../components/IScenceComponentManag
  */
 export class BaseNavigationManager implements IElementComponentManager {
 
+    private static _initializePromise: Promise<void> | null = null;
 
     /**
      * 初始化系统，由系统内部调用
@@ -25,20 +26,26 @@ export class BaseNavigationManager implements IElementComponentManager {
      */
     protected static _initialize(callback: () => void | Promise<void>): Promise<void> {
         if (NavigationUtils._getRecast() != null) {
-            callback && callback();
-            return Promise.resolve();
-        } else {
-            
-            if((window as any).Recast){
-                return (window as any).Recast().then((Recast: any) => {
-                    NavigationUtils._initialize(Recast);
-                    callback && callback();
-                    return Promise.resolve();
-                });
-            }else{
-                return Promise.resolve();
-            }
+            return Promise.resolve().then(callback);
         }
+
+        const Recast = (window as any).Recast;
+        if (!Recast) {
+            return Promise.resolve();
+        }
+
+        if (BaseNavigationManager._initializePromise == null) {
+            BaseNavigationManager._initializePromise = Recast()
+                .then((recast: any) => {
+                    NavigationUtils._initialize(recast);
+                })
+                .catch((error: unknown) => {
+                    BaseNavigationManager._initializePromise = null;
+                    throw error;
+                });
+        }
+
+        return BaseNavigationManager._initializePromise.then(callback);
     }
 
 
@@ -196,7 +203,7 @@ export class BaseNavigationManager implements IElementComponentManager {
      */
     setFilterCost(filer: any) {
         this._areaFlagMap.forEach((value) => {
-            filer.setAreaCost(value.flag, value.cost);
+            filer.setAreaCost(value.index, value.cost);
         });
     }
 
@@ -283,7 +290,8 @@ export class BaseNavigationManager implements IElementComponentManager {
         if (!this._naveMeshLinkMaps.has(key)) {
             this._naveMeshLinkMaps.set(key, Array<NavMeshLinkData>());
         }
-        this._naveMeshLinkMaps.get(key).push(link);
+        const links = this._naveMeshLinkMaps.get(key);
+        if (!links.includes(link)) links.push(link);
     }
 
     /**
@@ -298,7 +306,6 @@ export class BaseNavigationManager implements IElementComponentManager {
      */
     removeMeshLink(start: BaseNavMeshSurface, end: BaseNavMeshSurface, link: NavMeshLinkData) {
         if (start == end) return;
-        if (start.agentType != end.agentType) return;
         let key: string = this._getLinkIdByNavMeshSurfaces(start, end);
         if (!this._naveMeshLinkMaps.has(key)) {
             return;
@@ -380,7 +387,12 @@ export class BaseNavigationManager implements IElementComponentManager {
         for (var i = 0, n = surfaces.length; i < n; i++) {
             let nav = surfaces.elements[i];
             if (NavigationUtils._boundContentPoint(nav.min, nav.max, pos)) {
-                return surfaces.elements[i];
+                return nav;
+            }
+            const mesh = nav._navMesh;
+            if (mesh?.is3D && pos.x >= nav.min.x && pos.x <= nav.max.x && pos.z >= nav.min.z && pos.z <= nav.max.z) {
+                const nearest = new Vector3();
+                if (mesh._findNearestPoly(pos, null, nearest) && Math.abs(nearest.y - pos.y) <= mesh.navTileGrid.config.cellHeight * 2) return nav;
             }
         }
         return null;
@@ -434,4 +446,3 @@ export class BaseNavigationManager implements IElementComponentManager {
     }
 
 }
-

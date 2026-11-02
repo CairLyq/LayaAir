@@ -4,9 +4,11 @@ import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
 import { LayaGL } from "../../../layagl/LayaGL";
 import { StatElement } from "../../../layagl/StatisticsContext";
 import { Color } from "../../../maths/Color";
+import { Vector2 } from "../../../maths/Vector2";
 import { Vector4 } from "../../../maths/Vector4";
 import { Viewport } from "../../../maths/Viewport";
 import { FastSinglelist } from "../../../utils/SingletonList";
+import { Stat } from "../../../utils/Stat";
 import { IRenderContext3D, PipelineMode } from "../../DriverDesign/3DRenderPass/I3DRenderPass";
 import { IRenderCMD } from "../../DriverDesign/RenderDevice/IRenderCMD";
 import { InternalRenderTarget } from "../../DriverDesign/RenderDevice/InternalRenderTarget";
@@ -15,16 +17,14 @@ import { WebDefineDatas } from "../../RenderModuleData/WebModuleData/WebDefineDa
 import { WebGLShaderData } from "../../RenderModuleData/WebModuleData/WebGLShaderData";
 import { WebGLCommandUniformMap } from "../RenderDevice/WebGLCommandUniformMap";
 import { WebGLEngine } from "../RenderDevice/WebGLEngine";
+import { WebGLGlobalPipeLineCacheInfo } from "../RenderDevice/WebGLRenderDeviceFactory";
 import { WebGLRenderElement3D } from "./WebGLRenderElement3D";
-
 
 export class WebGLRenderContext3D implements IRenderContext3D {
     //单例
     static _instance: WebGLRenderContext3D;
-    /**
-     * @internal 
-    */
-    _preDrawUniformMaps: Set<string>;
+
+    preDrawUniformMaps: Set<string>;
 
     /** @internal */
     _cacheGlobalDefines: WebDefineDatas = new WebDefineDatas();
@@ -41,14 +41,16 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     private _cameraData: WebGLShaderData;
     /**@internal */
     private _renderTarget: InternalRenderTarget;
+    /** Internal MRT shader variant; ordinary RTs keep their existing shader path. */
+    get _mrtColorAttachmentCount(): number { return this._renderTarget?.colorFormats?.length || 0; }
     /**@internal */
     private _viewPort: Viewport;
     /**@internal */
     private _scissor: Vector4;
     /**@internal */
-    private _sceneUpdataMask: number;
+    private _sceneUpdateMask: number = 0;
     /**@internal */
-    private _cameraUpdateMask: number;
+    private _cameraUpdateMask: number = 0;
     /**@internal */
     private _pipelineMode: PipelineMode;
     /**@internal */
@@ -57,13 +59,16 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     private _clearFlag: number;
     /**@internal */
     private _clearColor: Color;
+    private _clearColorValues: (Color | null)[] = null;
+    private _clearColorValuesCache: (Color | null)[];
+    // Retain per-slot Color objects across null entries and smaller target layouts.
+    private _clearColorValuePool: Color[];
     /**@internal */
     private _clearDepth: number;
     /**@internal */
     private _clearStencil: number;
     /**@internal */
-    private _needStart: boolean = true;
-
+    _needStart: boolean = true;
 
     get sceneData(): WebGLShaderData {
         return this._sceneData;
@@ -73,12 +78,12 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._sceneData = value;
         if (Config._uniformBlock && this.sceneData) {
 
-            for (let key of this._preDrawUniformMaps) {
-                let uniformMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap(key);
-                if (uniformMap._idata.size > 0) {
-                    this.sceneData.createUniformBuffer(key, uniformMap._idata);
-                }
-            }
+            // for (let key of this.preDrawUniformMaps) {
+            //     let uniformMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap(key);
+            //     if (uniformMap._idata.size > 0) {
+            //         this.sceneData.createUniformBuffer(key, uniformMap._idata);
+            //     }
+            // }
         }
     }
 
@@ -89,10 +94,10 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     set cameraData(value: WebGLShaderData) {
         this._cameraData = value;
 
-        if (Config._uniformBlock && this.cameraData) {
-            let cameraMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap("BaseCamera");
-            this.cameraData.createUniformBuffer("BaseCamera", cameraMap._idata);
-        }
+        // if (Config._uniformBlock && this.cameraData) {
+        //     let cameraMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap("BaseCamera");
+        //     this.cameraData.createUniformBuffer("BaseCamera", cameraMap._idata);
+        // }
     }
 
     get sceneModuleData(): WebSceneNodeData {
@@ -102,7 +107,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     set sceneModuleData(value: WebSceneNodeData) {
         this._sceneModuleData = value;
     }
-
 
     get cameraModuleData(): WebCameraNodeData {
         return this._cameraModuleData;
@@ -120,9 +124,48 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._globalShaderData = value;
     }
 
+    /**@internal */
+    _curRenderGlobalKey: number;
+    /**@internal */
+    _curDefineChangeFlag: Vector2;
+    private _globalComkeyNameMap: any = {};
+    private _globalComkeyCounter: number = 0;
+    private _globalRendercacheInfoMap: Map<number, WebGLGlobalPipeLineCacheInfo> = new Map();
+    _curRenderCacheInfo: WebGLGlobalPipeLineCacheInfo;
+    //全局组合生成的id
+    private globalComkeyToID(name: string): number {
+        if (this._globalComkeyNameMap[name] !== undefined) {
+            return this._globalComkeyNameMap[name];
+        } else {
+            const id = this._globalComkeyCounter++;
+            this._globalComkeyNameMap[name] = id;
+            return id;
+        }
+    }
+
+    private _getSceneCameraCacheKey() {
+        let key: string = `${this.sceneData ? this.sceneData._id : -1} + ${this.cameraData ? this.cameraData._id : -1}+${this._pipelineMode}+${this._mrtColorAttachmentCount}`;
+        this._curRenderGlobalKey = this.globalComkeyToID(key);
+
+        if (!this._globalRendercacheInfoMap.has(this._curRenderGlobalKey)) {
+            let cacheInfo = new WebGLGlobalPipeLineCacheInfo();
+            this._curRenderCacheInfo = cacheInfo;
+            this._cacheGlobalDefines.cloneTo(cacheInfo.globalDefineData);
+            this._curRenderCacheInfo.globalDefineChangeFlag.setValue(Stat.loopCount, WebGLEngine.instance._framePassCount);
+            this._globalRendercacheInfoMap.set(this._curRenderGlobalKey, cacheInfo);
+        } else {
+            this._curRenderCacheInfo = this._globalRendercacheInfoMap.get(this._curRenderGlobalKey);
+            if (!this._curRenderCacheInfo.globalDefineData.isEual(this._cacheGlobalDefines)) {
+                this._cacheGlobalDefines.cloneTo(this._curRenderCacheInfo.globalDefineData);
+                this._curRenderCacheInfo.globalDefineChangeFlag.setValue(Stat.loopCount, WebGLEngine.instance._framePassCount)
+            }
+        }
+        this._curDefineChangeFlag = this._curRenderCacheInfo.globalDefineChangeFlag
+    }
+
     /**
      * @internal
-     * @returns 
+     * @returns
      */
     _getContextShaderDefines(): WebDefineDatas {
         return this._cacheGlobalDefines;
@@ -138,26 +181,33 @@ export class WebGLRenderContext3D implements IRenderContext3D {
 
         if (this.sceneData) {
             this.sceneData._defineDatas.cloneTo(contextDef);
-
-            for (let key of this._preDrawUniformMaps) {
-                this.sceneData.updateUBOBuffer(key);
+            if (Config._uniformBlock) {
+                for (let key of this.preDrawUniformMaps) {
+                    let uniformMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap(key);
+                    if (uniformMap._idata.size > 0) {
+                        this.sceneData.createUniformBuffer(key, uniformMap._idata, true);
+                    }
+                }
             }
-        }
-        else {
+        } else {
             this._globalConfigShaderData.cloneTo(contextDef);
         }
 
         if (this.cameraData) {
             contextDef.addDefineDatas(this.cameraData._defineDatas);
-
-            this.cameraData.updateUBOBuffer("BaseCamera");
+            if (Config._uniformBlock) {
+                let cameraMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap("BaseCamera");
+                this.cameraData.createUniformBuffer("BaseCamera", cameraMap._idata, true);
+            }
         }
+        this._getSceneCameraCacheKey();
     }
 
     setRenderTarget(value: InternalRenderTarget, clearFlag: RenderClearFlag) {
         this._clearFlag = clearFlag;
         if (value == this._renderTarget)
             return;
+        this._clearColorValues = null;
         this._renderTarget = value;
         this._needStart = true;
     }
@@ -173,14 +223,13 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     }
 
 
-    get sceneUpdataMask(): number {
-        return this._sceneUpdataMask;
+    get sceneUpdateMask(): number {
+        return this._sceneUpdateMask;
     }
 
-    set sceneUpdataMask(value: number) {
-        this._sceneUpdataMask = value;
+    set sceneUpdateMask(value: number) {
+        this._sceneUpdateMask = value;
     }
-
 
     get cameraUpdateMask(): number {
         return this._cameraUpdateMask;
@@ -190,7 +239,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._cameraUpdateMask = value;
     }
 
-
     get pipelineMode(): PipelineMode {
         return this._pipelineMode;
     }
@@ -198,7 +246,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     set pipelineMode(value: PipelineMode) {
         this._pipelineMode = value;
     }
-
 
     get invertY(): boolean {
         return this._invertY;
@@ -208,15 +255,13 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._invertY = value;
     }
 
-
-
     /**
      * <code>GLESRenderContext3D<code/>
      */
     constructor() {
         this._clearColor = new Color();
         this._globalConfigShaderData = Shader3D._configDefineValues as WebDefineDatas;
-        this._preDrawUniformMaps = new Set<string>();
+        this.preDrawUniformMaps = new Set<string>();
         this.cameraUpdateMask = 0;
         WebGLRenderContext3D._instance = this;
     }
@@ -226,14 +271,28 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     }
 
     runCMDList(cmds: IRenderCMD[]): void {
-        cmds.forEach(element => {
+        cmds.forEach((element) => {
             element.apply(this);
         });
     }
 
-    setClearData(clearFlag: number, color: Color, depth: number, stencil: number): number {
+    setClearData(clearFlag: number, color: Color, depth: number, stencil: number, colorValues?: readonly (Color | null)[]): number {
         this._clearFlag = clearFlag;
         color.cloneTo(this._clearColor);
+        if ((clearFlag & RenderClearFlag.Color) && colorValues) {
+            const values = this._clearColorValuesCache ||= [];
+            const colors = this._clearColorValuePool ||= [];
+            values.length = colorValues.length;
+            for (let i = 0; i < colorValues.length; i++) {
+                const value = colorValues[i];
+                if (value) {
+                    const snapshot = colors[i] ||= new Color();
+                    value.cloneTo(snapshot);
+                    values[i] = snapshot;
+                } else values[i] = null;
+            }
+            this._clearColorValues = values;
+        } else this._clearColorValues = null;
         this._clearDepth = depth;
         this._clearStencil = stencil;
         return 0;
@@ -250,7 +309,7 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._prepareContext();
         let elements = list.elements;
         for (var i: number = 0, n: number = list.length; i < n; i++) {
-            elements[i]._preUpdatePre(this);//render
+            elements[i]._preUpdatePre(this); //render
         }
 
         let bufferMgr = WebGLEngine.instance.bufferMgr;
@@ -259,8 +318,12 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         }
         LayaGL.statAgent.recordTimeData(StatElement.T_3DContextPre, performance.now() - time);
         time = performance.now();
+
+        // 清理渲染状态缓存
+        WebGLEngine.instance._GLRenderState.clearRenderStateCache();
+
         for (var i: number = 0, n: number = list.length; i < n; i++) {
-            elements[i]._render(this);//render
+            elements[i]._render(this); //render
         }
         LayaGL.statAgent.recordTimeData(StatElement.T_3DContextRender, performance.now() - time);
         LayaGL.statAgent.recordCTData(StatElement.CT_3DDrawCall, list.length);
@@ -283,13 +346,17 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         if (bufferMgr) {
             bufferMgr.upload();
         }
+
+        // 清理渲染状态缓存
+        WebGLEngine.instance._GLRenderState.clearRenderStateCache();
+
         node._render(this);
         LayaGL.statAgent.recordCTData(StatElement.CT_3DDrawCall, 1);
         LayaGL.renderEngine._framePassCount++;
         return 0;
     }
 
-    private _bindRenderTarget() {
+    _bindRenderTarget() {
         if (this._renderTarget) {
             LayaGL.textureContext.bindRenderTarget(this._renderTarget);
         } else {
@@ -297,18 +364,21 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         }
     }
 
-    private _start() {
+    _start() {
         WebGLEngine.instance.scissorTest(true);
         WebGLEngine.instance.viewport(this._viewPort.x, this._viewPort.y, this._viewPort.width, this._viewPort.height);
         WebGLEngine.instance.scissor(this._viewPort.x, this._viewPort.y, this._viewPort.width, this._viewPort.height);
         if (this._clearFlag != RenderClearFlag.Nothing)
-            WebGLEngine.instance.clearRenderTexture(this._clearFlag, this._clearColor, this._clearDepth, this._clearStencil);
+            WebGLEngine.instance.clearRenderTexture(this._clearFlag, this._clearColor, this._clearDepth, this._clearStencil, this._clearColorValues);
+        this._clearFlag = RenderClearFlag.Nothing;
+        this._clearColorValues = null;
         WebGLEngine.instance.scissor(this._scissor.x, this._scissor.y, this._scissor.z, this._scissor.w);
     }
 
     clearRenderTarget(): void {
         this._bindRenderTarget();
         this._start();
+        this._needStart = false;
     }
 
 }

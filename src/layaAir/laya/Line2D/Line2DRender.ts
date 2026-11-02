@@ -63,6 +63,8 @@ export class Line2DRender extends BaseRenderNode2D {
 
     private _lineWidth: number = 1;
 
+    private _screenSpaceWidth: boolean = false;
+
     private _renderGeometry: IRenderGeometryElement;
 
     private _positionInstansBufferData: Float32Array;
@@ -97,8 +99,20 @@ export class Line2DRender extends BaseRenderNode2D {
         return this._lineWidth;
     }
     set lineWidth(value: number) {
-        this._lineWidth = Math.max(1, value);
+        this._lineWidth = value;
         this._spriteShaderData.setNumber(LineShader.LINEWIDTH, this._lineWidth);
+    }
+
+    /**
+     * @en Whether the line width is in screen space. When enabled, the line width remains constant regardless of node transformations.
+     * @zh 线宽是否为屏幕空间宽度。启用后，线宽不受节点变换矩阵的影响，始终保持设定的像素宽度。
+     */
+    get screenSpaceWidth(): boolean {
+        return this._screenSpaceWidth;
+    }
+    set screenSpaceWidth(value: boolean) {
+        this._screenSpaceWidth = value;
+        this._spriteShaderData.setNumber(LineShader.SCREENSPACEWIDTH, value ? 1.0 : 0.0);
     }
 
     /**
@@ -216,14 +230,22 @@ export class Line2DRender extends BaseRenderNode2D {
         return this._tillOffset;
     }
 
-
     /**
-   * @en Render material
-   * @zh 渲染材质
-   */
+     * @en Render material
+     * @zh 渲染材质
+     */
+    get sharedMaterial(): Material {
+        return this._materials[0];
+    }
+
     set sharedMaterial(value: Material) {
         super.sharedMaterial = value;
-        BaseRenderNode2D._setRenderElement2DMaterial(this._renderElements[0], this._materials[0] ? this._materials[0] : Line2DRender.defaultLine2DMaterial);
+        BaseRenderNode2D._setRenderElement2DMaterial(this._renderElements[0], this._getElementMaterial(0));
+    }
+
+    /** @internal */
+    protected _getElementMaterial(index: number): Material {
+        return this._materials[index] || Line2DRender.defaultLine2DMaterial;
     }
 
 
@@ -236,7 +258,7 @@ export class Line2DRender extends BaseRenderNode2D {
     }
 
     protected _isMaterialVaild(value: Material): boolean {
-        return value.checkType(ShaderFeatureType.Default);
+        return value.checkType(ShaderFeatureType.D2_BaseRenderNode2D);
     }
 
     /**
@@ -252,6 +274,7 @@ export class Line2DRender extends BaseRenderNode2D {
         //this._spriteShaderData.addDefine(Shader3D.getDefineByName("UV"));
         this._spriteShaderData.setColor(BaseRenderNode2D.BASERENDER2DCOLOR, this._color);
         this._updateDashValue();
+        this._spriteShaderData.setNumber(LineShader.SCREENSPACEWIDTH, 0.0);
         this.tillOffset = null;
         this.texture = null;
     }
@@ -359,7 +382,7 @@ export class Line2DRender extends BaseRenderNode2D {
         renderElement.renderStateIsBySprite = false;
         renderElement.nodeCommonMap = this._getcommonUniformMap();
         renderElement.owner = this._struct;
-        BaseRenderNode2D._setRenderElement2DMaterial(renderElement, this._materials[0] ? this._materials[0] : Line2DRender.defaultLine2DMaterial);
+        BaseRenderNode2D._setRenderElement2DMaterial(renderElement, this._getElementMaterial(0));
         this._renderElements[0] = renderElement;
         this._struct.renderElements = this._renderElements;
 

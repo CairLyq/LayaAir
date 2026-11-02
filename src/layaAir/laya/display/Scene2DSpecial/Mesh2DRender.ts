@@ -1,10 +1,12 @@
 import { LayaGL } from "../../layagl/LayaGL";
 import { Color } from "../../maths/Color";
+import { Vector2 } from "../../maths/Vector2";
 import { Vector4 } from "../../maths/Vector4";
 import { BaseRenderNode2D } from "../../NodeRender2D/BaseRenderNode2D";
 import { IRenderContext2D } from "../../RenderDriver/DriverDesign/2DRenderPass/IRenderContext2D";
 import { IMesh2DRenderDataHandle } from "../../RenderDriver/RenderModuleData/Design/2D/IRender2DDataHandle";
 import { RenderState } from "../../RenderDriver/RenderModuleData/Design/RenderState";
+import { IndexFormat } from "../../RenderEngine/RenderEnum/IndexFormat";
 import { Shader3D, ShaderFeatureType } from "../../RenderEngine/RenderShader/Shader3D";
 import { BaseTexture } from "../../resource/BaseTexture";
 import { Material } from "../../resource/Material";
@@ -21,6 +23,7 @@ export class Mesh2DRender extends BaseRenderNode2D {
      * @zh 默认Mesh2D渲染材质 
      */
     static mesh2DDefaultMaterial: Material;
+    static defaultQuadMesh: Mesh2D;
 
     static __init__() {
         if (Mesh2DRender.mesh2DDefaultMaterial) return
@@ -36,14 +39,32 @@ export class Mesh2DRender extends BaseRenderNode2D {
         Mesh2DRender.mesh2DDefaultMaterial.setFloatByIndex(ShaderDefines2D.UNIFORM_VERTALPHA, 1.0);
         Mesh2DRender.mesh2DDefaultMaterial.setIntByIndex(Shader3D.CULL, RenderState.CULL_NONE);
         Mesh2DRender.mesh2DDefaultMaterial.lock = true;
+
+        // Create default unit quad mesh (POSITION + UV)
+        let vbDecl = VertexMesh2D.getVertexDeclaration(["POSITION,UV"]);
+        let vbData = new Float32Array([
+            // x, y, z, u, v
+            0, 0, 0, 0, 0,
+            1, 0, 0, 1, 0,
+            1, 1, 0, 1, 1,
+            0, 1, 0, 0, 1
+        ]);
+        let ibData = new Uint16Array([0, 1, 2, 0, 2, 3]);
+        Mesh2DRender.defaultQuadMesh = Mesh2D.createMesh2DByPrimitive(
+            [vbData], vbDecl, ibData, IndexFormat.UInt16,
+            [{ start: 0, length: 6 }]
+        );
     }
 
 
     private _sharedMesh: Mesh2D;
+    private _useUnitQuad: boolean = false;
+    private _activeMesh: Mesh2D;
     declare _renderHandle: IMesh2DRenderDataHandle;
     private _textureTilingOffset: Vector4 = new Vector4(0, 0, 1, 1);
     private _tilingOffset: Vector4;
     private _texture: BaseTexture | Texture;
+    private _size: Vector2 = new Vector2(1, 1);
 
     protected _createRenderHandle(): IMesh2DRenderDataHandle {
         return LayaGL.render2DRenderPassFactory.createMesh2DRenderDataHandle();
@@ -53,6 +74,7 @@ export class Mesh2DRender extends BaseRenderNode2D {
         this.color = new Color();
         this.tilingOffset = new Vector4(0, 0, 1, 1);
         this.texture = null;
+        this._applyUnitQuad(this._useUnitQuad);
     }
 
     protected _isMaterialVaild(value: Material): boolean {
@@ -63,34 +85,39 @@ export class Mesh2DRender extends BaseRenderNode2D {
         this._updateLight();
     }
     /**
-     * @en 2D Mesh 
+     * @en Whether to use the built-in unit quad mesh with size scaling
+     * @zh 是否使用内置单位四边形网格（配合 size 缩放）
+     */
+    set useUnitQuad(value: boolean) {
+        if (this._useUnitQuad === value)
+            return;
+        this._applyUnitQuad(value);
+    }
+
+    get useUnitQuad(): boolean {
+        return this._useUnitQuad;
+    }
+
+    /**
+     * @en 2D Mesh
      * @zh 2D 渲染网格
      */
     set sharedMesh(value: Mesh2D) {
         if (this._sharedMesh == value)
             return;
-        let meshArrayDefine = new Array();
         if (this._sharedMesh) {
-            VertexMesh2D.getMeshDefine(this._sharedMesh, meshArrayDefine);
-            for (var i: number = 0, n: number = meshArrayDefine.length; i < n; i++)
-                this._spriteShaderData.removeDefine(meshArrayDefine[i]);
-            this._sharedMesh._removeReference()
+            this._sharedMesh._removeReference();
         }
-        meshArrayDefine.length = 0;
         if (value) {
             if (!value._vertexBuffers) {
                 value = null;
                 console.warn("not a 2D mesh");
-            }
-            else {
-                VertexMesh2D.getMeshDefine(value, meshArrayDefine);
-                for (var i: number = 0, n: number = meshArrayDefine.length; i < n; i++)
-                    this._spriteShaderData.addDefine(meshArrayDefine[i]);
+            } else {
                 value._addReference();
             }
         }
         this._sharedMesh = value;
-        this._changeMesh();
+        this._applyUnitQuad(!value);
     }
 
     get sharedMesh(): Mesh2D {
@@ -103,6 +130,7 @@ export class Mesh2DRender extends BaseRenderNode2D {
      */
     set color(value: Color) {
         this._renderHandle.baseColor = value;
+        this._notifyDataChange();
     }
 
 
@@ -111,12 +139,25 @@ export class Mesh2DRender extends BaseRenderNode2D {
     }
 
     /**
+     * @en Render size for unit quad scaling
+     * @zh 单位四边形的渲染尺寸
+     */
+    set size(value: Vector2) {
+        value.cloneTo(this._size);
+        this._spriteShaderData.setVector2(BaseRenderNode2D.BASERENDERSIZE, this._size);
+        this._notifyDataChange();
+    }
+
+    get size(): Vector2 { return this._size; }
+
+    /**
      * @en Tiling offset
      * @zh 平铺偏移
      */
     set tilingOffset(value: Vector4) {
         this._tilingOffset = value;
         this._updateTilingOffset();
+        this._notifyDataChange();
     }
 
     get tilingOffset(): Vector4 {
@@ -152,6 +193,7 @@ export class Mesh2DRender extends BaseRenderNode2D {
             this._texture._removeReference();
         }
         this._texture = value;
+
         if (value instanceof Texture) {
             value._addReference();
 
@@ -174,6 +216,7 @@ export class Mesh2DRender extends BaseRenderNode2D {
         }
         this._updateTilingOffset();
         this._renderHandle.baseTexture = value;
+        this._notifyDataChange();
     }
 
     get texture(): BaseTexture | Texture {
@@ -186,6 +229,7 @@ export class Mesh2DRender extends BaseRenderNode2D {
      */
     set normalTexture(value: BaseTexture) {
         this._renderHandle.normal2DTexture = value;
+        this._notifyDataChange();
     }
 
     get normalTexture(): BaseTexture {
@@ -197,7 +241,8 @@ export class Mesh2DRender extends BaseRenderNode2D {
      * @zh 法线效果强度
      */
     set normalStrength(value: number) {
-        this._renderHandle.normal2DStrength = value
+        this._renderHandle.normal2DStrength = value;
+        this._notifyDataChange();
     }
 
     get normalStrength() {
@@ -211,17 +256,52 @@ export class Mesh2DRender extends BaseRenderNode2D {
     set sharedMaterial(value: Material) {
         super.sharedMaterial = value;
         this._changeMesh();
+        this._notifyDataChange();
     }
 
     get sharedMaterial() {
         return this._materials[0];
     }
 
+    /** @internal */
+    protected _getElementMaterial(index: number): Material {
+        return this._materials[index] || Mesh2DRender.mesh2DDefaultMaterial;
+    }
+
+    private _applyUnitQuad(value: boolean) {
+        this._useUnitQuad = value;
+        if (value) {
+            this._spriteShaderData.addDefine(BaseRenderNode2D.SHADERDEFINE_UNITQUAD);
+        } else {
+            this._spriteShaderData.removeDefine(BaseRenderNode2D.SHADERDEFINE_UNITQUAD);
+        }
+        this._changeMesh();
+        this._notifyDataChange();
+    }
+
     private _changeMesh() {
-        let submeshNum = this._sharedMesh ? this._sharedMesh.subMeshCount : 0;
+        let mesh = this._useUnitQuad ? Mesh2DRender.defaultQuadMesh : this._sharedMesh;
+        // Swap vertex defines: remove old mesh's, add new mesh's
+        let meshArrayDefine = new Array();
+        if (this._activeMesh) {
+            VertexMesh2D.getMeshDefine(this._activeMesh, meshArrayDefine);
+            for (var i: number = 0, n: number = meshArrayDefine.length; i < n; i++)
+                this._spriteShaderData.removeDefine(meshArrayDefine[i]);
+            meshArrayDefine.length = 0;
+        }
+        if (mesh) {
+            VertexMesh2D.getMeshDefine(mesh, meshArrayDefine);
+            for (var i: number = 0, n: number = meshArrayDefine.length; i < n; i++)
+                this._spriteShaderData.addDefine(meshArrayDefine[i]);
+        }
+
+        this._activeMesh = mesh;
+        
+        let submeshNum = mesh ? mesh.subMeshCount : 0;
         if (submeshNum < this._renderElements.length) {
             for (var i = this._renderElements.length, n = submeshNum; n < i; i--) {
                 let element = this._renderElements[i - 1];
+                BaseRenderNode2D._removeRenderElement2DMaterial(element, this._getElementMaterial(i - 1));
                 element.destroy();
             }
             this._renderElements.length = submeshNum;
@@ -230,9 +310,9 @@ export class Mesh2DRender extends BaseRenderNode2D {
             let element = this._renderElements[i];
             if (!element)
                 element = this._renderElements[i] = LayaGL.render2DRenderPassFactory.createRenderElement2D();
-            element.geometry = this._sharedMesh.getSubMesh(i);
+            element.geometry = mesh.getSubMesh(i);
             element.value2DShaderData = this._spriteShaderData;
-            BaseRenderNode2D._setRenderElement2DMaterial(element, this._materials[i] ? this._materials[i] : Mesh2DRender.mesh2DDefaultMaterial);
+            BaseRenderNode2D._setRenderElement2DMaterial(element, this._getElementMaterial(i));
             element.renderStateIsBySprite = false;
             element.nodeCommonMap = this._getcommonUniformMap();
             element.owner = this._struct;

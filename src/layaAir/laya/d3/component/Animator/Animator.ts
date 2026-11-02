@@ -1,42 +1,31 @@
-
 import { Component } from "../../../components/Component";
-import { NodeFlags } from "../../../Const";
-import { Stat } from "../../../utils/Stat";
-import { AnimationClip } from "../../animation/AnimationClip";
-import { AnimatorStateScript } from "../../animation/AnimatorStateScript";
-import { KeyframeNode } from "../../animation/KeyframeNode";
-import { KeyframeNodeList } from "../../animation/KeyframeNodeList";
-import { Material } from "../../../resource/Material";
-import { Sprite3D } from "../../core/Sprite3D";
-import { Utils3D } from "../../utils/Utils3D";
-import { AnimatorControllerLayer } from "./AnimatorControllerLayer";
-import { AnimatorPlayState } from "./AnimatorPlayState";
-import { AnimatorResource } from "./AnimatorResource";
-import { AnimatorState } from "./AnimatorState";
-import { AvatarMask } from "./AvatarMask";
-import { KeyframeNodeOwner, KeyFrameValueType } from "./KeyframeNodeOwner";
-import { AnimationEvent } from "../../animation/AnimationEvent";
-import { AnimatorTransition } from "./AnimatorTransition";
-import { AnimatorController } from "./AnimatorController";
-import { Color } from "../../../maths/Color";
-import { Quaternion } from "../../../maths/Quaternion";
-import { Vector2 } from "../../../maths/Vector2";
-import { Vector3 } from "../../../maths/Vector3";
-import { Vector4 } from "../../../maths/Vector4";
 import { AnimatorUpdateMode } from "../../../components/AnimatorUpdateMode";
 import { AnimatorStateCondition } from "../../../components/AnimatorStateCondition";
 import { Delegate } from "../../../utils/Delegate";
-import { Browser } from "../../../utils/Browser";
+import { KeyframeNode } from "../../animation/KeyframeNode";
+import { Sprite3D } from "../../core/Sprite3D";
+import { AnimatorControllerLayer } from "./AnimatorControllerLayer";
+import { AnimatorPlayState } from "./AnimatorPlayState";
+import { AnimatorState } from "./AnimatorState";
+import { AnimatorController } from "./AnimatorController";
+import { KeyframeNodeOwner } from "./KeyframeNodeOwner";
+import { AnimatorBindContext } from "./factory/AnimatorBindContext";
+import { ITaskSlot } from "./factory/TaskSlot";
+import { AnimatorManager } from "./manager/AnimatorManager";
 import { LayaGL } from "../../../layagl/LayaGL";
 import { StatElement } from "../../../layagl/StatisticsContext";
-import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
+import { ILaya } from "../../../../ILaya";
+import { StringKeyframe } from "../../../maths/StringKeyframe";
+import { Loader } from "../../../net/Loader";
 
 export type AnimatorParams = { [key: number]: number | boolean };
 
 
 /**
  * @en The `Animator` class is used to create 3D animation components.
+ *      Per-frame推进和回写均由 AnimatorManager + 工厂的 TaskSlot 接管；本类只保留对外 API + 必要状态字段。
  * @zh `Animator` 类用于创建3D动画组件。
+ *      每帧推进和数据回写由 AnimatorManager + 工厂 TaskSlot 接管，本类只保留对外 API + 必要状态字段。
  */
 export class Animator extends Component {
     /**
@@ -50,49 +39,37 @@ export class Animator extends Component {
      */
     static readonly CULLINGMODE_CULLCOMPLETELY: number = 2;
 
-    private _speed: number;
-    private _keyframeNodeOwnerMap: any;
-    private _keyframeNodeOwners: KeyframeNodeOwner[] = [];
-    private _updateMark: number;
-    private _controllerLayers: AnimatorControllerLayer[];
-    /** 更新模式*/
-    private _updateMode: AnimatorUpdateMode = AnimatorUpdateMode.Normal;
-    /** 降低更新频率调整值*/
-    private _lowUpdateDelty: number = 20;
+    /** @internal */
+    _speed: number;
+    /** @internal */
+    _keyframeNodeOwnerMap: Record<string, KeyframeNodeOwner>;
+    /** @internal */
+    _keyframeNodeOwners: KeyframeNodeOwner[] = [];
+    /** @internal */
+    _controllerLayers: AnimatorControllerLayer[];
+    /** @internal 更新模式 */
+    _updateMode: AnimatorUpdateMode = AnimatorUpdateMode.Normal;
+    /** @internal 降低更新频率调整值 */
+    _lowUpdateDelty: number = 20;
+    /** @internal 状态机过渡事件延迟队列，AnimatorManager._drainLateUpdates 调 invoke。 */
+    _LateUpdateEvents: Delegate = new Delegate();
+    /** @internal */
+    _controller: AnimatorController;
+    /** @internal Manager.tickOne 通过它提交本帧 layer 任务到工厂 slot。 */
+    _taskSlot: ITaskSlot | null = null;
+
     private _animatorParams: AnimatorParams = {};
-    // /**@internal */
-    // _linkSprites: any;
-    /**@internal	*/
-    _avatarNodeMap: any;
-    /**@internal */
-    _linkAvatarSpritesData: any = {};
-    /**@internal */
-    _linkAvatarSprites: Sprite3D[] = [];
-
-    /**	
-     * @en Culling mode，By default, when set to invisible, the animation will not play at all.
-     * @zh 裁剪模式,默认为不可见时完全不播放动画。
-     */
-    cullingMode: number = Animator.CULLINGMODE_CULLCOMPLETELY;
-
-    /**@internal	[NATIVE]*/
-    _animationNodeLocalPositions: Float32Array;
-    /**@internal	[NATIVE]*/
-    _animationNodeLocalRotations: Float32Array;
-    /**@internal	[NATIVE]*/
-    _animationNodeLocalScales: Float32Array;
-    /**@internal	[NATIVE]*/
-    _animationNodeWorldMatrixs: Float32Array;
-    /**@internal	[NATIVE]*/
-    _animationNodeParentIndices: Int16Array;
     private _finishSleep: boolean = false;
-
-    private _LateUpdateEvents: Delegate = new Delegate();
+    private _manager: AnimatorManager | null = null;
+    private _cachedBindContext: AnimatorBindContext;
+    /** 反序列化期间 manager 未就绪时累积的 prepare state；_onEnable 时统一刷一次。 */
+    private _pendingPrepareStates: AnimatorState[] = [];
 
     /**
-     * @internal
+     * @en Culling mode. Defaults to don't animate when not visible.
+     * @zh 裁剪模式。默认为不可见时完全不播放动画。
      */
-    _controller: AnimatorController;
+    cullingMode: number = Animator.CULLINGMODE_CULLCOMPLETELY;
 
     /**
      * @en The animation controller.
@@ -109,7 +86,6 @@ export class Animator extends Component {
             val._addReference();
             val.updateTo(this);
         }
-
     }
 
     /**
@@ -119,11 +95,9 @@ export class Animator extends Component {
     get speed(): number {
         return this._speed;
     }
-
     set speed(value: number) {
         this._speed = value;
     }
-
 
     /**
      * @en The update mode for the animator.
@@ -134,8 +108,8 @@ export class Animator extends Component {
     }
 
     /**
-     * @en Low update mode
-     * @zh 低更新模式
+     * @en Low update interval.
+     * @zh 低更新模式步长。
      */
     set lowUpdateDelty(value: number) {
         this._lowUpdateDelty = value;
@@ -156,11 +130,9 @@ export class Animator extends Component {
     get animatorParams() {
         return this._animatorParams;
     }
-
     set animatorParams(values: AnimatorParams) {
         this._animatorParams = values;
     }
-
 
     /**
      * @en Whether to stop updating after the animation is completed.
@@ -169,7 +141,6 @@ export class Animator extends Component {
     get sleep() {
         return this._finishSleep;
     }
-
     set sleep(value: boolean) {
         this._finishSleep = value;
     }
@@ -182,1100 +153,85 @@ export class Animator extends Component {
     constructor() {
         super();
         this._controllerLayers = [];
-        //this._linkSprites = {};
         this._speed = 1.0;
         this._keyframeNodeOwnerMap = {};
-        this._updateMark = 0;
     }
 
-    private _addKeyframeNodeOwner(clipOwners: KeyframeNodeOwner[], node: KeyframeNode, propertyOwner: any): void {
-        var nodeIndex = node._indexInList;
-        var fullPath = node.fullPath;
-        var keyframeNodeOwner = this._keyframeNodeOwnerMap[fullPath];
-        let mat = false;
-        if (keyframeNodeOwner) {
-            keyframeNodeOwner.referenceCount++;
-            clipOwners[nodeIndex] = keyframeNodeOwner;
-        } else {
-            var property = propertyOwner;
-            for (var i = 0, n = node.propertyCount; i < n; i++) {
-                if (mat) {
-                    // 使用 KeyframeNode 的缓存方法，直接获取 shader property ID
-                    const shaderPropId = node.getMaterialPropertyId(i);
-                    const type = node.type;
-                    switch (type) {
-                        case KeyFrameValueType.Color:
-                            const color = property.shaderData.getColor(shaderPropId);
-                            property = new Vector4(color.r, color.g, color.b, color.a);
-                            break;
-                        case KeyFrameValueType.Vector2:
-                            property = property.shaderData.getVector2(shaderPropId);
-                            break;
-                        case KeyFrameValueType.Vector3:
-                            property = property.shaderData.getVector3(shaderPropId);
-                            break;
-                        case KeyFrameValueType.Vector4:
-                            property = property.shaderData.getVector(shaderPropId);
-                            break;
-                        case KeyFrameValueType.Float:
-                            property = property.shaderData.getNumber(shaderPropId);
-                            break;
-                        case KeyFrameValueType.Boolean:
-                            property = property.shaderData.getBool(shaderPropId);
-                            break;
-                    }
-                } else {
-                    property = property[node.getPropertyByIndex(i)];
-                }
-                if (property instanceof Material) {
-                    mat = true;
-                }
-                if (!property)
-                    break;
-            }
-
-            keyframeNodeOwner = this._keyframeNodeOwnerMap[fullPath] = new KeyframeNodeOwner();
-            keyframeNodeOwner.isMaterial = mat;
-            keyframeNodeOwner.fullPath = fullPath;
-            keyframeNodeOwner.indexInList = this._keyframeNodeOwners.length;
-            keyframeNodeOwner.referenceCount = 1;
-            keyframeNodeOwner.propertyOwner = propertyOwner;
-            keyframeNodeOwner.nodePath = node.nodePath;
-            keyframeNodeOwner.callbackFunData = node.callbackFunData;
-            keyframeNodeOwner.callParams = node.callParams;
-            keyframeNodeOwner.getCallbackNode();
-            var propertyCount = node.propertyCount;
-            var propertys: string[] = [];
-            for (i = 0; i < propertyCount; i++)
-                propertys[i] = node.getPropertyByIndex(i);
-            keyframeNodeOwner.property = propertys;
-            keyframeNodeOwner.type = node.type;
-
-            if (property) {//查询成功后赋默认值
-                if (node.type === KeyFrameValueType.Float || node.type === KeyFrameValueType.Boolean) {
-                    keyframeNodeOwner.defaultValue = property;
-                } else {
-                    var defaultValue = new property.constructor();
-                    property.cloneTo(defaultValue);
-                    keyframeNodeOwner.defaultValue = defaultValue;
-                    keyframeNodeOwner.value = new property.constructor();
-                    keyframeNodeOwner.crossFixedValue = new property.constructor();
-                }
-            }
-
-            this._keyframeNodeOwners.push(keyframeNodeOwner);
-            clipOwners[nodeIndex] = keyframeNodeOwner;
+    /**
+     * @internal 工厂用的窄上下文：lazy 构造一次后复用，sprite 字段每次刷新以兼容 owner 重绑。
+     */
+    get _bindContext(): AnimatorBindContext {
+        let ctx = this._cachedBindContext;
+        if (!ctx) {
+            ctx = this._cachedBindContext = {
+                sprite: this.owner as Sprite3D,
+                ownerMap: this._keyframeNodeOwnerMap,
+                owners: this._keyframeNodeOwners,
+                layers: this._controllerLayers,
+            };
         }
+        ctx.sprite = this.owner as Sprite3D;
+        return ctx;
     }
 
     /**
      * @internal
      */
     _removeKeyframeNodeOwner(nodeOwners: (KeyframeNodeOwner | null)[], node: KeyframeNode): void {
-        var fullPath = node.fullPath;
-        var keyframeNodeOwner = this._keyframeNodeOwnerMap[fullPath];
-        if (keyframeNodeOwner) {//TODO:Avatar中没该节点,但动画文件有,不会保存_keyframeNodeOwnerMap在中,移除会出BUG,例如动画节点下的SkinnedMeshRender有动画帧，但Avatar中忽略了
-            keyframeNodeOwner.referenceCount--;
-            if (keyframeNodeOwner.referenceCount === 0) {
-                delete this._keyframeNodeOwnerMap[fullPath];
-                this._keyframeNodeOwners.splice(this._keyframeNodeOwners.indexOf(keyframeNodeOwner), 1);
-            }
-            nodeOwners[node._indexInList] = null;
-        }
+        this._manager?._factory.removeKeyframeNodeOwner(this._bindContext, nodeOwners, node);
     }
 
     /**
-     * @internal
+     * @internal manager 未就绪时（构造 / 反序列化期）把 state buffer 到 _pendingPrepareStates，
+     * _onEnable 时统一 prepare。
      */
     _getOwnersByClip(clipStateInfo: AnimatorState): void {
-        if (!clipStateInfo._clip)
-            return;
-
-        var frameNodes = clipStateInfo._clip!._nodes;
-        var frameNodesCount = frameNodes!.count;
-        var nodeOwners: KeyframeNodeOwner[] = clipStateInfo._nodeOwners;
-        nodeOwners.length = frameNodesCount;
-        for (var i: number = 0; i < frameNodesCount; i++) {
-            var node: KeyframeNode = frameNodes!.getNodeByIndex(i);
-            //var property: any = this._avatar ? this._avatarNodeMap[this._avatar._rootNode.name!] : this.owner;//如果有avatar需使用克隆节点
-            var property: any = this.owner;
-            for (var j: number = 0, m: number = node.ownerPathCount; j < m; j++) {
-                var ownPat: string = node.getOwnerPathByIndex(j);
-                if (ownPat === "") {//TODO:直接不存
-                    break;
-                } else {
-                    property = property.getChild(ownPat);
-                    if (!property)
-                        break;
-                }
-            }
-
-            if (property) {
-                var propertyOwner: string = node.propertyOwner;
-                const oriProperty = property;
-                (propertyOwner) && (property = property[propertyOwner]);
-                if (!property) {
-                    property = AnimatorResource.getAnimatorResource(oriProperty, propertyOwner);
-                }
-                property && this._addKeyframeNodeOwner(nodeOwners, node, property);
-            }
+        const factory = this._manager?._factory;
+        if (factory) {
+            factory.prepareStateOwners(this._bindContext, clipStateInfo);
+        } else {
+            this._pendingPrepareStates.push(clipStateInfo);
         }
     }
 
-    private _updatePlayer(animatorState: AnimatorState, playState: AnimatorPlayState, elapsedTime: number, islooping: boolean, layerIndex: number): void {
-        var clipDuration: number = animatorState._clip!._duration * (animatorState.clipEnd - animatorState.clipStart);
-        var lastElapsedTime: number = playState._elapsedTime;
-        var elapsedPlaybackTime: number = lastElapsedTime + elapsedTime;
-        playState._lastElapsedTime = lastElapsedTime;
-        playState._elapsedTime = elapsedPlaybackTime;
-        var normalizedTime: number = elapsedPlaybackTime / clipDuration;//TODO:时候可以都统一为归一化时间
-        playState._normalizedTime = normalizedTime;
-        var playTime: number = normalizedTime % 1.0;
-        const normalizedPlayTime = playTime < 0 ? playTime + 1.0 : playTime;
-        playState._normalizedPlayTime = normalizedPlayTime;
-        playState._duration = clipDuration;
-        if (elapsedPlaybackTime >= clipDuration) {
-            if (!islooping) {
-                playState._finish = true;
-                playState._elapsedTime = clipDuration;
-                playState._normalizedPlayTime = animatorState.clipEnd;
-            } else {
-                let loopNum = Math.floor(elapsedPlaybackTime / clipDuration);
-                let pLoopNum = Math.floor(lastElapsedTime / clipDuration);
-                if (pLoopNum != loopNum) {
-                    animatorState._eventLoop();
-                }
-            }
-        }
-
-        (!playState._finish) && animatorState._eventStateUpdate(playState._normalizedPlayTime);
-        this._applyTransition(animatorState, layerIndex, animatorState._eventtransition(playState._normalizedPlayTime, this.animatorParams));
-        return;
-    }
-
-    /**
-     * 启用过渡
-     * @param layerindex 
-     * @param transition 
-     * @returns 
-     */
-    private _applyTransition(state: AnimatorState, layerindex: number, transition: AnimatorTransition) {
-        if (!transition) {
-            if (state.curTransition)
-                state.curTransition = null;
-            return;
-        }
-
-        if (transition == state.curTransition)
-            return;
-        state.curTransition = transition;
-
-        this._LateUpdateEvents.add(this.crossFade, this, [transition.destState.name, transition.transduration, layerindex, transition.transstartoffset]);
-        //this.crossFade(transition.destState.name, transition.transduration, layerindex, transition.transstartoffset);
-    }
-
-    /**
-     * @param animatorState 
-     * @param playState 
-     */
-    private _updateStateFinish(animatorState: AnimatorState, playState: AnimatorPlayState): void {
-        if (playState._finish) {
-            animatorState._eventExit();//派发播放完成的事件
-        }
-    }
     /**
      * @internal
-     * @param parentState 
-     * @param currentState 
      */
-
-    private _switchState(parentState: AnimatorState, currentState: AnimatorState): void {
-        if (parentState) {
-            parentState._eventSwitch(currentState);
-        }
+    _handleSpriteOwnersBySprite(isLink: boolean, path: string[], sprite: Sprite3D): void {
+        this._manager?._factory.handleSpriteOwnersBySprite(this._bindContext, isLink, path, sprite);
     }
 
-    private _updateEventScript(stateInfo: AnimatorState, playStateInfo: AnimatorPlayState): void {
-        if (!this.owner._getBit(NodeFlags.HAS_SCRIPT))
-            return;
-
-        let clip = stateInfo._clip;
-        let events = clip!._animationEvents;
-        if (!events || 0 == events.length || null == playStateInfo.animatorState) return;
-        let clipDuration = playStateInfo._duration;
-        let time = playStateInfo.animatorState.clipStart * clipDuration + playStateInfo._normalizedPlayTime * clipDuration;
-        let parentPlayTime = playStateInfo._parentPlayTime;
-        if (null == parentPlayTime) {
-            parentPlayTime = clipDuration * playStateInfo.animatorState.clipStart;
-        }
-        if (time < parentPlayTime) {
-            this._eventScript(events, parentPlayTime, clipDuration * playStateInfo.animatorState.clipEnd);
-            parentPlayTime = clipDuration * playStateInfo.animatorState.clipStart;
-        }
-        this._eventScript(events, parentPlayTime, time);
-        playStateInfo._parentPlayTime = time;
+    /** @internal layer.avatarMask 变更时转发给 factory 刷新（RT 后端生效，Web 可选链跳过）。 */
+    _refreshLayerAvatarMask(layer: AnimatorControllerLayer): void {
+        this._manager?._factory.refreshLayerMask?.(this._bindContext, layer);
     }
-    private _eventScript(events: AnimationEvent[], parentPlayTime: number, currPlayTime: number) {
-        let scripts = this.owner.components;
-        for (let i = 0, len = events.length; i < len; i++) {
-            let e = events[i];
-            if (e.time > parentPlayTime && e.time <= currPlayTime) {
-                for (let j = 0, m = scripts.length; j < m; j++) {
-                    let script = scripts[j];
-                    if (script._isScript()) {
-                        let fun: Function = (script as any)[e.eventName];
-                        (fun) && (fun.apply(script, e.params));
-                    }
-                }
-            } else if (e.time > currPlayTime) {
-                break;
-            }
-        }
+
+    /** @internal 进入 FixedCross 时把这批 cross owner 的 native 值快照为 crossFixedValue（RT 后端生效）。 */
+    _saveCrossFixedValues(owners: KeyframeNodeOwner[], count: number): void {
+        this._manager?._factory.saveCrossFixedValues?.(owners, count);
+    }
+
+    private _updateDefaultValues(): void {
+        this._manager?._factory.updateDefaultValues(this._keyframeNodeOwners);
     }
 
     /**
-     * 更新clip数据
+     * @internal
+     * 是否至少存在一个启用且 blending 为 additive 的 layer。
      */
-    private _updateClipDatas(animatorState: AnimatorState, addtive: boolean, playStateInfo: AnimatorPlayState, animatorMask: AvatarMask = null): void {
-        var clip = animatorState._clip;
-        var clipDuration = clip!._duration;
-
-        var curPlayTime = animatorState.clipStart * clipDuration + playStateInfo._normalizedPlayTime * playStateInfo._duration;
-        var currentFrameIndices = animatorState._currentFrameIndices;
-        var frontPlay = playStateInfo._elapsedTime > playStateInfo._lastElapsedTime;
-        clip!._evaluateClipDatasRealTime(clip!._nodes!, curPlayTime, currentFrameIndices!, addtive, frontPlay, animatorState._realtimeDatas, animatorMask);
-    }
-
-    private _applyFloat(defaultValue: number, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: number): number {
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                defaultValue += weight * data;
-            } else {
-                var oriValue: number = defaultValue;
-                defaultValue = oriValue + weight * (data - oriValue);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive)
-                    defaultValue = nodeOwner.defaultValue + data;
-                else
-                    defaultValue = data;
-            } else {
-                if (additive) {
-                    defaultValue = nodeOwner.defaultValue + weight * (data);
-                } else {
-                    var defValue: number = nodeOwner.defaultValue;
-                    defaultValue = defValue + weight * (data - defValue);
-                }
+    private _hasAdditiveLayer(): boolean {
+        const layers = this._controllerLayers;
+        for (let i = 0, n = layers.length; i < n; i++) {
+            const layer = layers[i];
+            if (layer && layer.enable && layer.blendingMode !== AnimatorControllerLayer.BLENDINGMODE_OVERRIDE) {
+                return true;
             }
         }
-        return defaultValue;
-    }
-
-    private _applyVec2(defaultValue: Vector2, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector2): Vector2 {
-        if (!defaultValue) return null;
-
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                defaultValue.x += weight * data.x;
-                defaultValue.y += weight * data.y;
-            } else {
-                var oriValue = defaultValue;
-                defaultValue.x = oriValue.x + weight * (data.x - oriValue.x);
-                defaultValue.y = oriValue.y + weight * (data.y - oriValue.y);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    defaultValue.x = nodeOwner.defaultValue.x + data.x;
-                    defaultValue.y = nodeOwner.defaultValue.y + data.y;
-                }
-                else
-                    data.cloneTo(defaultValue);
-            } else {
-                if (additive) {
-                    defaultValue.x = nodeOwner.defaultValue.x + weight * (data.x);
-                    defaultValue.y = nodeOwner.defaultValue.y + weight * (data.y);
-                } else {
-                    var defValue: Vector2 = nodeOwner.defaultValue;
-                    defaultValue.x = defValue.x + weight * (data.x - defValue.x);
-                    defaultValue.y = defValue.y + weight * (data.y - defValue.y);
-                }
-            }
-        }
-        return defaultValue;
-    }
-
-    private _applyVec3(defaultValue: Vector3, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector3) {
-        if (!defaultValue) return null;
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                defaultValue.x += weight * data.x;
-                defaultValue.y += weight * data.y;
-                defaultValue.z += weight * data.z;
-            } else {
-                var oriValue = defaultValue;
-                defaultValue.x = oriValue.x + weight * (data.x - oriValue.x);
-                defaultValue.y = oriValue.y + weight * (data.y - oriValue.y);
-                defaultValue.z = oriValue.z + weight * (data.z - oriValue.z);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    defaultValue.x = nodeOwner.defaultValue.x + data.x;
-                    defaultValue.y = nodeOwner.defaultValue.y + data.y;
-                    defaultValue.z = nodeOwner.defaultValue.z + data.z;
-                }
-                else
-                    data.cloneTo(defaultValue);
-            } else {
-                if (additive) {
-                    defaultValue.x = nodeOwner.defaultValue.x + weight * (data.x);
-                    defaultValue.y = nodeOwner.defaultValue.y + weight * (data.y);
-                    defaultValue.z = nodeOwner.defaultValue.z + weight * (data.z);
-                } else {
-                    var defValue: Vector3 = nodeOwner.defaultValue;
-                    defaultValue.x = defValue.x + weight * (data.x - defValue.x);
-                    defaultValue.y = defValue.y + weight * (data.y - defValue.y);
-                    defaultValue.z = defValue.z + weight * (data.z - defValue.z);
-                }
-            }
-        }
-        return defaultValue;
-    }
-
-    private _applyVec4(defaultValue: Vector4, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector4) {
-        if (!defaultValue) return null;
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                defaultValue.x += weight * data.x;
-                defaultValue.y += weight * data.y;
-                defaultValue.z += weight * data.z;
-                defaultValue.w += weight * data.w;
-            } else {
-                var oriValue = defaultValue;
-                defaultValue.x = oriValue.x + weight * (data.x - oriValue.x);
-                defaultValue.y = oriValue.y + weight * (data.y - oriValue.y);
-                defaultValue.z = oriValue.z + weight * (data.z - oriValue.z);
-                defaultValue.w = oriValue.w + weight * (data.w - oriValue.w);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    defaultValue.x = nodeOwner.defaultValue.x + data.x;
-                    defaultValue.y = nodeOwner.defaultValue.y + data.y;
-                    defaultValue.z = nodeOwner.defaultValue.z + data.z;
-                    defaultValue.w = nodeOwner.defaultValue.w + data.w;
-                }
-                else
-                    data.cloneTo(defaultValue);
-            } else {
-                if (additive) {
-                    defaultValue.x = nodeOwner.defaultValue.x + weight * (data.x);
-                    defaultValue.y = nodeOwner.defaultValue.y + weight * (data.y);
-                    defaultValue.z = nodeOwner.defaultValue.z + weight * (data.z);
-                    defaultValue.w = nodeOwner.defaultValue.w + weight * (data.w);
-                } else {
-                    var defValue: Vector4 = nodeOwner.defaultValue;
-                    defaultValue.x = defValue.x + weight * (data.x - defValue.x);
-                    defaultValue.y = defValue.y + weight * (data.y - defValue.y);
-                    defaultValue.z = defValue.z + weight * (data.z - defValue.z);
-                    defaultValue.w = defValue.w + weight * (data.w - defValue.w);
-                }
-            }
-        }
-        return defaultValue;
-    }
-
-    private _applyColor(defaultValue: Color, nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector4) {
-        if (!defaultValue) return null;
-        if (!nodeOwner.defaultValue) nodeOwner.defaultValue = new Vector4(defaultValue.r, defaultValue.g, defaultValue.b, defaultValue.a);
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                defaultValue.r += weight * data.x;
-                defaultValue.g += weight * data.y;
-                defaultValue.b += weight * data.z;
-                defaultValue.a += weight * data.w;
-            } else {
-                var oriValue = defaultValue;
-                defaultValue.r = oriValue.r + weight * (data.x - oriValue.r);
-                defaultValue.g = oriValue.g + weight * (data.y - oriValue.g);
-                defaultValue.b = oriValue.b + weight * (data.z - oriValue.b);
-                defaultValue.a = oriValue.a + weight * (data.w - oriValue.a);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    defaultValue.r = nodeOwner.defaultValue.x + data.x;
-                    defaultValue.g = nodeOwner.defaultValue.y + data.y;
-                    defaultValue.b = nodeOwner.defaultValue.z + data.z;
-                    defaultValue.a = nodeOwner.defaultValue.w + data.w;
-                }
-                else {
-                    //data.cloneTo(defaultValue);
-                    defaultValue.setValue(data.x, data.y, data.z, data.w);
-                }
-
-            } else {
-                if (additive) {
-                    defaultValue.r = nodeOwner.defaultValue.x + weight * (data.x);
-                    defaultValue.g = nodeOwner.defaultValue.y + weight * (data.y);
-                    defaultValue.b = nodeOwner.defaultValue.z + weight * (data.z);
-                    defaultValue.a = nodeOwner.defaultValue.w + weight * (data.w);
-                } else {
-                    var defValue: Vector4 = nodeOwner.defaultValue;
-                    defaultValue.r = defValue.x + weight * (data.x - defValue.x);
-                    defaultValue.g = defValue.y + weight * (data.y - defValue.y);
-                    defaultValue.b = defValue.z + weight * (data.z - defValue.z);
-                    defaultValue.a = defValue.w + weight * (data.w - defValue.w);
-                }
-            }
-        }
-        return defaultValue;
-    }
-
-    private _applyPositionAndRotationEuler(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, data: Vector3, out: Vector3): void {
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                out.x += weight * data.x;
-                out.y += weight * data.y;
-                out.z += weight * data.z;
-            } else {
-                var oriX: number = out.x;
-                var oriY: number = out.y;
-                var oriZ: number = out.z;
-                out.x = oriX + weight * (data.x - oriX);
-                out.y = oriY + weight * (data.y - oriY);
-                out.z = oriZ + weight * (data.z - oriZ);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    var defValue: Vector3 = nodeOwner.defaultValue;
-                    out.x = defValue.x + data.x;
-                    out.y = defValue.y + data.y;
-                    out.z = defValue.z + data.z;
-                } else {
-                    out.x = data.x;
-                    out.y = data.y;
-                    out.z = data.z;
-                }
-            } else {
-                defValue = nodeOwner.defaultValue;
-                if (additive) {
-                    out.x = defValue.x + weight * data.x;
-                    out.y = defValue.y + weight * data.y;
-                    out.z = defValue.z + weight * data.z;
-                } else {
-                    var defX: number = defValue.x;
-                    var defY: number = defValue.y;
-                    var defZ: number = defValue.z;
-                    out.x = defX + weight * (data.x - defX);
-                    out.y = defY + weight * (data.y - defY);
-                    out.z = defZ + weight * (data.z - defZ);
-                }
-            }
-        }
-    }
-
-    private _applyRotation(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, clipRot: Quaternion, localRotation: Quaternion): void {
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                Utils3D.quaternionWeight(clipRot, weight, _tempQuaternion1);
-                _tempQuaternion1.normalize(_tempQuaternion1);
-                Quaternion.multiply(localRotation, _tempQuaternion1, localRotation);
-            } else {
-                Quaternion.lerp(localRotation, clipRot, weight, localRotation);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    var defaultRot: Quaternion = nodeOwner.defaultValue;
-                    Quaternion.multiply(defaultRot, clipRot, localRotation);
-                } else {
-                    localRotation.x = clipRot.x;
-                    localRotation.y = clipRot.y;
-                    localRotation.z = clipRot.z;
-                    localRotation.w = clipRot.w;
-                }
-            } else {
-                defaultRot = nodeOwner.defaultValue;
-                if (additive) {
-                    Utils3D.quaternionWeight(clipRot, weight, _tempQuaternion1);
-                    _tempQuaternion1.normalize(_tempQuaternion1);
-                    Quaternion.multiply(defaultRot, _tempQuaternion1, localRotation);
-                } else {
-                    Quaternion.lerp(defaultRot, clipRot, weight, localRotation);
-                }
-            }
-        }
-    }
-
-    private _applyScale(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, clipSca: Vector3, localScale: Vector3): void {
-        if (nodeOwner.updateMark === this._updateMark) {//一定非第一层
-            if (additive) {
-                Utils3D.scaleWeight(clipSca, weight, _tempVector31);
-                localScale.x = localScale.x * _tempVector31.x;
-                localScale.y = localScale.y * _tempVector31.y;
-                localScale.z = localScale.z * _tempVector31.z;
-            } else {
-                Utils3D.scaleBlend(localScale, clipSca, weight, localScale);
-            }
-        } else {
-            if (isFirstLayer) {
-                if (additive) {
-                    var defaultSca: Vector3 = nodeOwner.defaultValue;
-                    localScale.x = defaultSca.x * clipSca.x;
-                    localScale.y = defaultSca.y * clipSca.y;
-                    localScale.z = defaultSca.z * clipSca.z;
-                } else {
-                    localScale.x = clipSca.x;
-                    localScale.y = clipSca.y;
-                    localScale.z = clipSca.z;
-                }
-            } else {
-                defaultSca = nodeOwner.defaultValue;
-                if (additive) {
-                    Utils3D.scaleWeight(clipSca, weight, _tempVector31);
-                    localScale.x = defaultSca.x * _tempVector31.x;
-                    localScale.y = defaultSca.y * _tempVector31.y;
-                    localScale.z = defaultSca.z * _tempVector31.z;
-                } else {
-                    Utils3D.scaleBlend(defaultSca, clipSca, weight, localScale);
-                }
-            }
-        }
-    }
-
-    private _applyCrossData(nodeOwner: KeyframeNodeOwner, additive: boolean, weight: number, isFirstLayer: boolean, srcValue: any, desValue: any, crossWeight: number): void {
-        var pro: any = nodeOwner.propertyOwner;
-        let lastpro;
-        if (pro) {
-            switch (nodeOwner.type) {
-                case KeyFrameValueType.Boolean:
-                    console.log("Animator:Boolean not support3");
-                    break;
-                case KeyFrameValueType.Float: //Float
-                    var proPat: string[] = nodeOwner.property!;
-                    var m: number = proPat.length - 1;
-                    for (var j: number = 0; j < m; j++) {
-                        pro = pro[proPat[j]];
-                        if (!pro)//属性可能或被置空
-                            break;
-                    }
-
-                    var crossValue: number = srcValue + crossWeight * (desValue - srcValue);
-                    nodeOwner.value = crossValue;
-                    lastpro = proPat[m];
-                    if (!nodeOwner.isMaterial) {
-                        pro && (pro[lastpro] = this._applyFloat(pro[lastpro], nodeOwner, additive, weight, isFirstLayer, crossValue));
-                    } else {
-                        pro && (pro as Material).setFloat(lastpro, this._applyFloat((pro as Material).getFloat(lastpro), nodeOwner, additive, weight, isFirstLayer, crossValue));
-                    }
-                    if (nodeOwner.callbackFun) {
-                        nodeOwner.animatorDataSetCallBack();
-                    }
-                    break;
-                case KeyFrameValueType.Position: //Position
-                    var localPos: Vector3 = pro.localPosition;
-                    var position: Vector3 = nodeOwner.value;
-                    var srcX: number = srcValue.x, srcY: number = srcValue.y, srcZ: number = srcValue.z;
-                    position.x = srcX + crossWeight * (desValue.x - srcX);
-                    position.y = srcY + crossWeight * (desValue.y - srcY);
-                    position.z = srcZ + crossWeight * (desValue.z - srcZ);
-                    this._applyPositionAndRotationEuler(nodeOwner, additive, weight, isFirstLayer, position, localPos);
-                    pro.localPosition = localPos;
-                    break;
-                case KeyFrameValueType.Rotation: //Rotation
-                    var localRot: Quaternion = pro.localRotation;
-                    var rotation: Quaternion = nodeOwner.value;
-                    Quaternion.lerp(srcValue, desValue, crossWeight, rotation);
-                    this._applyRotation(nodeOwner, additive, weight, isFirstLayer, rotation, localRot);
-                    pro.localRotation = localRot;
-                    break;
-                case KeyFrameValueType.Scale: //Scale
-                    var localSca: Vector3 = pro.localScale;
-                    var scale: Vector3 = nodeOwner.value;
-                    Utils3D.scaleBlend(srcValue, desValue, crossWeight, scale);
-                    this._applyScale(nodeOwner, additive, weight, isFirstLayer, scale, localSca);
-                    pro.localScale = localSca;
-                    break;
-                case KeyFrameValueType.RotationEuler: //RotationEuler
-                    var localEuler: Vector3 = pro.localRotationEuler;
-                    var rotationEuler: Vector3 = nodeOwner.value;
-                    srcX = srcValue.x, srcY = srcValue.y, srcZ = srcValue.z;
-                    rotationEuler.x = srcX + crossWeight * (desValue.x - srcX);
-                    rotationEuler.y = srcY + crossWeight * (desValue.y - srcY);
-                    rotationEuler.z = srcZ + crossWeight * (desValue.z - srcZ);
-                    this._applyPositionAndRotationEuler(nodeOwner, additive, weight, isFirstLayer, rotationEuler, localEuler);
-                    pro.localRotationEuler = localEuler;
-                    break;
-                case KeyFrameValueType.Color:
-                    var proPat: string[] = nodeOwner.property!;
-                    var m: number = proPat.length - 1;
-                    for (var j: number = 0; j < m; j++) {
-                        pro = pro[proPat[j]];
-                        if (!pro)//属性可能或被置空
-                            break;
-                    }
-                    let v44 = nodeOwner.value as Vector4;
-                    v44.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
-                    v44.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
-                    v44.z = srcValue.z + crossWeight * (desValue.z - srcValue.z);
-                    v44.w = srcValue.w + crossWeight * (desValue.w - srcValue.w);
-
-                    nodeOwner.value = v44;
-                    lastpro = proPat[m];
-                    if (!nodeOwner.isMaterial) {
-                        pro && (pro[lastpro] = this._applyColor(pro[lastpro], nodeOwner, additive, weight, isFirstLayer, v44));
-                    } else {
-                        pro && (pro as Material).setColor(lastpro, this._applyColor((pro as Material).getColor(lastpro), nodeOwner, additive, weight, isFirstLayer, v44));
-                    }
-                    if (nodeOwner.callbackFun) {
-                        nodeOwner.animatorDataSetCallBack();
-                    }
-                    break;
-                case KeyFrameValueType.Vector2:
-                    var proPat: string[] = nodeOwner.property!;
-                    var m: number = proPat.length - 1;
-                    for (var j: number = 0; j < m; j++) {
-                        pro = pro[proPat[j]];
-                        if (!pro)//属性可能或被置空
-                            break;
-                    }
-                    let v2 = nodeOwner.value as Vector2;
-                    // srcValue和desValue是Vector2类型，使用.x, .y而非.r, .g
-                    v2.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
-                    v2.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
-                    nodeOwner.value = v2;
-                    lastpro = proPat[m];
-                    if (!nodeOwner.isMaterial) {
-                        pro && (pro[lastpro] = this._applyVec2(pro[lastpro], nodeOwner, additive, weight, isFirstLayer, v2));
-                    } else {
-                        pro && (pro as Material).setVector2(lastpro, this._applyVec2((pro as Material).getVector2(lastpro), nodeOwner, additive, weight, isFirstLayer, v2));
-                    }
-                    if (nodeOwner.callbackFun) {
-                        nodeOwner.animatorDataSetCallBack();
-                    }
-                    break;
-                case KeyFrameValueType.Vector4:
-                    var proPat: string[] = nodeOwner.property!;
-                    var m: number = proPat.length - 1;
-                    for (var j: number = 0; j < m; j++) {
-                        pro = pro[proPat[j]];
-                        if (!pro)//属性可能或被置空
-                            break;
-                    }
-                    let v4 = nodeOwner.value as Vector4;
-                    v4.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
-                    v4.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
-                    v4.z = srcValue.z + crossWeight * (desValue.z - srcValue.z);
-                    v4.w = srcValue.w + crossWeight * (desValue.w - srcValue.w);  // 添加缺失的w分量
-                    nodeOwner.value = v4;
-                    lastpro = proPat[m];
-                    if (!nodeOwner.isMaterial) {
-                        pro && (pro[lastpro] = this._applyVec4(pro[lastpro], nodeOwner, additive, weight, isFirstLayer, v4));
-                    } else {
-                        pro && (pro as Material).setVector4(lastpro, this._applyVec4((pro as Material).getVector4(lastpro), nodeOwner, additive, weight, isFirstLayer, v4));
-                    }
-                    if (nodeOwner.callbackFun) {
-                        nodeOwner.animatorDataSetCallBack();
-                    }
-                    break;
-                case KeyFrameValueType.Vector3:
-                    var proPat: string[] = nodeOwner.property!;
-                    var m: number = proPat.length - 1;
-                    for (var j: number = 0; j < m; j++) {
-                        pro = pro[proPat[j]];
-                        if (!pro)//属性可能或被置空
-                            break;
-                    }
-                    let v3 = nodeOwner.value as Vector3;
-                    v3.x = srcValue.x + crossWeight * (desValue.x - srcValue.x);
-                    v3.y = srcValue.y + crossWeight * (desValue.y - srcValue.y);
-                    v3.z = srcValue.z + crossWeight * (desValue.z - srcValue.z);
-                    nodeOwner.value = v3;
-                    lastpro = proPat[m];
-                    if (!nodeOwner.isMaterial) {
-                        pro && (pro[lastpro] = this._applyVec3(pro[lastpro], nodeOwner, additive, weight, isFirstLayer, v3));
-                    } else {
-                        pro && (pro as Material).setVector3(lastpro, this._applyVec3((pro as Material).getVector3(lastpro), nodeOwner, additive, weight, isFirstLayer, v3));
-                    }
-                    if (nodeOwner.callbackFun) {
-                        nodeOwner.animatorDataSetCallBack();
-                    }
-                    break;
-            }
-            nodeOwner.updateMark = this._updateMark;
-        }
-    }
-
-    /**
-     * 赋值Node数据
-     * @param stateInfo 动画状态
-     * @param additive 是否为addtive
-     * @param weight state权重
-     * @param isFirstLayer 是否是第一层
-     */
-    private _setClipDatasToNode(stateInfo: AnimatorState, additive: boolean, weight: number, isFirstLayer: boolean, controllerLayer: AnimatorControllerLayer = null): void {
-        var realtimeDatas: Array<number | Vector3 | Quaternion | Vector2 | Vector4 | Color> = stateInfo._realtimeDatas;
-        var nodes: KeyframeNodeList = stateInfo._clip!._nodes!;
-        var nodeOwners: KeyframeNodeOwner[] = stateInfo._nodeOwners;
-        for (var i: number = 0, n: number = nodes.count; i < n; i++) {
-            var nodeOwner: KeyframeNodeOwner = nodeOwners[i];
-            if (nodeOwner) {//骨骼中没有该节点
-                var node = nodes.getNodeByIndex(i);
-                if (controllerLayer.avatarMask && (!controllerLayer.avatarMask.getTransformActive(node.nodePath))) {
-                    continue;
-                }
-                var pro: any = nodeOwner.propertyOwner;
-                let value: string;
-                if (pro) {
-                    switch (nodeOwner.type) {
-                        case KeyFrameValueType.Boolean:
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            let lastBoolPro = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[lastBoolPro] = realtimeDatas[i])
-                            }
-                            break;
-                        case KeyFrameValueType.Float: //Float
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            //pro && this._applyFloat(pro, proPat[m], nodeOwner, additive, weight, isFirstLayer, <number>realtimeDatas[i]);
-                            let lastpro = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[lastpro] = this._applyFloat(pro[lastpro], nodeOwner, additive, weight, isFirstLayer, <number>realtimeDatas[i]));
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && (pro as Material).setFloat(lastpro, this._applyFloat(0, nodeOwner, additive, weight, isFirstLayer, <number>realtimeDatas[i]));
-                            }
-                            break;
-                        case KeyFrameValueType.Position: //Position
-                            var localPos: Vector3 = pro.localPosition;
-                            this._applyPositionAndRotationEuler(nodeOwner, additive, weight, isFirstLayer, <Vector3>realtimeDatas[i], localPos);
-                            pro.localPosition = localPos;
-                            break;
-                        case KeyFrameValueType.Rotation: //Rotation
-                            var localRot: Quaternion = pro.localRotation;
-                            this._applyRotation(nodeOwner, additive, weight, isFirstLayer, <Quaternion>realtimeDatas[i], localRot);
-                            pro.localRotation = localRot;
-                            break;
-                        case KeyFrameValueType.Scale: //Scale
-                            var localSca: Vector3 = pro.localScale;
-                            this._applyScale(nodeOwner, additive, weight, isFirstLayer, <Vector3>realtimeDatas[i], localSca);
-                            pro.localScale = localSca;
-                            break;
-                        case KeyFrameValueType.RotationEuler: //RotationEuler
-                            var localEuler: Vector3 = pro.localRotationEuler;
-                            this._applyPositionAndRotationEuler(nodeOwner, additive, weight, isFirstLayer, <Vector3>realtimeDatas[i], localEuler);
-                            pro.localRotationEuler = localEuler;
-                            break;
-                        case KeyFrameValueType.Vector2://vec2
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = this._applyVec2(pro[value], nodeOwner, additive, weight, isFirstLayer, <Vector2>realtimeDatas[i]));
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getVector2(value) && (pro as Material).setVector2(value, this._applyVec2(pro.getVector2(value), nodeOwner, additive, weight, isFirstLayer, <Vector2>realtimeDatas[i]));
-                            }
-                            break;
-                        case KeyFrameValueType.Vector3://vec3
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = this._applyVec3(pro[value], nodeOwner, additive, weight, isFirstLayer, <Vector3>realtimeDatas[i]));
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getVector3(value) && (pro as Material).setVector3(value, this._applyVec3(pro.getVector3(value), nodeOwner, additive, weight, isFirstLayer, <Vector3>realtimeDatas[i]));
-                            }
-                            break;
-                        case KeyFrameValueType.Vector4://vec4
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = this._applyVec4(pro[value], nodeOwner, additive, weight, isFirstLayer, <Vector4>realtimeDatas[i]));
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getVector4(value) && (pro as Material).setVector4(value, this._applyVec4(pro.getVector4(value), nodeOwner, additive, weight, isFirstLayer, <Vector4>realtimeDatas[i]));
-                            }
-                            break;
-                        case KeyFrameValueType.Color://Color
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = this._applyColor(pro[value], nodeOwner, additive, weight, isFirstLayer, <Vector4>realtimeDatas[i]));
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                const color = pro.getColor(value);
-                                if (pro && color) {
-                                    _tempColor.r = color.r;
-                                    _tempColor.g = color.g;
-                                    _tempColor.b = color.b;
-                                    _tempColor.a = color.a;
-                                    (pro as Material).setColor(value, this._applyColor(_tempColor, nodeOwner, additive, weight, isFirstLayer, <Vector4>realtimeDatas[i]));
-                                }
-                            }
-                            break;
-                    }
-                    nodeOwner.updateMark = this._updateMark;
-                }
-            }
-        }
-    }
-
-    private _setCrossClipDatasToNode(controllerLayer: AnimatorControllerLayer, srcState: AnimatorState, destState: AnimatorState, crossWeight: number, isFirstLayer: boolean): void {
-        var nodeOwners: KeyframeNodeOwner[] = controllerLayer._crossNodesOwners;
-        var ownerCount: number = controllerLayer._crossNodesOwnersCount;
-        var additive: boolean = controllerLayer.blendingMode !== AnimatorControllerLayer.BLENDINGMODE_OVERRIDE;
-        var weight: number = controllerLayer.defaultWeight;
-
-        var destRealtimeDatas: Array<number | Vector3 | Quaternion> = destState._realtimeDatas;
-        var destDataIndices: number[] = controllerLayer._destCrossClipNodeIndices;
-        var destNodeOwners: KeyframeNodeOwner[] = destState._nodeOwners;
-        var srcRealtimeDatas: Array<number | Vector3 | Quaternion> = srcState._realtimeDatas;
-        var srcDataIndices: number[] = controllerLayer._srcCrossClipNodeIndices;
-        var srcNodeOwners: KeyframeNodeOwner[] = srcState._nodeOwners;
-
-        for (var i: number = 0; i < ownerCount; i++) {
-            var nodeOwner: KeyframeNodeOwner = nodeOwners[i];
-            if (nodeOwner) {
-                var srcIndex: number = srcDataIndices[i];
-                var destIndex: number = destDataIndices[i];
-                if (-1 == srcIndex && -1 == destIndex) continue;
-                var srcValue: any = srcIndex !== -1 ? srcRealtimeDatas[srcIndex] : destNodeOwners[destIndex].defaultValue;
-                if (null == srcValue) continue;
-                var desValue: any = destIndex !== -1 ? destRealtimeDatas[destIndex] : srcNodeOwners[srcIndex].defaultValue;
-                if (!desValue) {
-                    desValue = srcNodeOwners[srcIndex].defaultValue;
-                }
-                if (null == desValue) continue;
-                if (!controllerLayer.avatarMask || controllerLayer.avatarMask.getTransformActive(nodeOwner.nodePath)) {
-                    this._applyCrossData(nodeOwner, additive, weight, isFirstLayer, srcValue, desValue, crossWeight);
-                }
-            }
-        }
-
-    }
-
-    private _setFixedCrossClipDatasToNode(controllerLayer: AnimatorControllerLayer, destState: AnimatorState, crossWeight: number, isFirstLayer: boolean): void {
-        var nodeOwners: KeyframeNodeOwner[] = controllerLayer._crossNodesOwners;
-        var ownerCount: number = controllerLayer._crossNodesOwnersCount;
-        var additive: boolean = controllerLayer.blendingMode !== AnimatorControllerLayer.BLENDINGMODE_OVERRIDE;
-        var weight: number = controllerLayer.defaultWeight;
-        var destRealtimeDatas: Array<number | Vector3 | Quaternion> = destState._realtimeDatas;
-        var destDataIndices: number[] = controllerLayer._destCrossClipNodeIndices;
-
-        for (var i: number = 0; i < ownerCount; i++) {
-            var nodeOwner: KeyframeNodeOwner = nodeOwners[i];
-            if (nodeOwner) {
-                var destIndex: number = destDataIndices[i];
-                var srcValue: any = nodeOwner.crossFixedValue;
-                var desValue;
-                if (destIndex == -1 || !destRealtimeDatas[destIndex]) {
-                    desValue = nodeOwner.defaultValue;
-                } else {
-                    desValue = destRealtimeDatas[destIndex];
-                }
-                this._applyCrossData(nodeOwner, additive, weight, isFirstLayer, srcValue, desValue, crossWeight);
-            }
-        }
+        return false;
     }
 
     private _revertDefaultKeyframeNodes(clipStateInfo: AnimatorState): void {
-        var nodeOwners: KeyframeNodeOwner[] = clipStateInfo._nodeOwners;
-        for (var i: number = 0, n: number = nodeOwners.length; i < n; i++) {
-            var nodeOwner: KeyframeNodeOwner = nodeOwners[i];
-            if (nodeOwner) {
-                var pro: any = nodeOwner.propertyOwner;
-                let value: string;
-                if (pro) {
-                    switch (nodeOwner.type) {
-                        case KeyFrameValueType.Boolean:
-                            console.log("Animator:Boolean not support2");
-                            break;
-                        case KeyFrameValueType.Float:
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            //pro && this._applyFloat(pro, proPat[m], nodeOwner, additive, weight, isFirstLayer, <number>realtimeDatas[i]);
-                            let lastpro = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[lastpro] = nodeOwner.defaultValue);
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && (pro as Material).setFloat(lastpro, nodeOwner.defaultValue);
-                            }
-                            break;
-                        case KeyFrameValueType.Position:
-                            var locPos: Vector3 = pro.localPosition;
-                            var def: Vector3 = nodeOwner.defaultValue;
-                            locPos.x = def.x;
-                            locPos.y = def.y;
-                            locPos.z = def.z;
-                            pro.localPosition = locPos;
-                            break;
-                        case KeyFrameValueType.Rotation:
-                            var locRot: Quaternion = pro.localRotation;
-                            var defQua: Quaternion = nodeOwner.defaultValue;
-                            locRot.x = defQua.x;
-                            locRot.y = defQua.y;
-                            locRot.z = defQua.z;
-                            locRot.w = defQua.w;
-                            pro.localRotation = locRot;
-                            break;
-                        case KeyFrameValueType.Scale:
-                            var locSca: Vector3 = pro.localScale;
-                            def = nodeOwner.defaultValue;
-                            locSca.x = def.x;
-                            locSca.y = def.y;
-                            locSca.z = def.z;
-                            pro.localScale = locSca;
-                            break;
-                        case KeyFrameValueType.RotationEuler:
-                            var locEul: Vector3 = pro.localRotationEuler;
-                            def = nodeOwner.defaultValue;
-                            locEul.x = def.x;
-                            locEul.y = def.y;
-                            locEul.z = def.z;
-                            pro.localRotationEuler = locEul;
-                            break;
-                        case KeyFrameValueType.Vector2:
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = nodeOwner.defaultValue);
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getVector2(value) && (pro as Material).setVector2(value, nodeOwner.defaultValue);
-                            }
-                            break;
-                        case KeyFrameValueType.Vector3:
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = nodeOwner.defaultValue);
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getVector3(value) && (pro as Material).setVector3(value, nodeOwner.defaultValue);
-                            }
-                            break;
-                        case KeyFrameValueType.Vector4:
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = nodeOwner.defaultValue);
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getVector3(value) && (pro as Material).setVector3(value, nodeOwner.defaultValue);
-                            }
-                            break;
-                        case KeyFrameValueType.Color:
-                            var proPat: string[] = nodeOwner.property!;
-                            var m: number = proPat.length - 1;
-                            for (var j: number = 0; j < m; j++) {
-                                pro = pro[proPat[j]];
-                                if (!pro)//属性可能或被置空
-                                    break;
-                            }
-                            value = proPat[m];
-                            if (!nodeOwner.defaultValue) break;
-                            _tempColor.r = nodeOwner.defaultValue.x;
-                            _tempColor.g = nodeOwner.defaultValue.y;
-                            _tempColor.b = nodeOwner.defaultValue.z;
-                            _tempColor.a = nodeOwner.defaultValue.w;
-                            if (!nodeOwner.isMaterial) {
-                                pro && (pro[value] = _tempColor);
-                                if (nodeOwner.callbackFun) {
-                                    nodeOwner.animatorDataSetCallBack();
-                                }
-                            } else {
-                                pro && pro.getColor(value) && (pro as Material).setColor(value, _tempColor);
-                            }
-                            break;
-                        default:
-                            throw "Animator:unknown type.";
-                    }
-
-                }
-            }
-        }
+        this._manager?._factory.revertDefaultKeyframeNodes(clipStateInfo);
     }
 
     /** @internal */
@@ -1291,6 +247,23 @@ export class Animator extends Component {
     }
 
     protected _onEnable(): void {
+        this._resolveManager();
+        if (!this._manager) return;
+        this._manager.addAnimator(this);
+        this._taskSlot = this._manager._factory.bindAnimator(this._bindContext);
+        this._taskSlot.resizeLayers(this._controllerLayers.length);
+
+        // 反序列化 / 构造期间累积的 state prepare 一次性 flush
+        if (this._pendingPrepareStates.length > 0) {
+            const factory = this._manager._factory;
+            const ctx = this._bindContext;
+            const pending = this._pendingPrepareStates;
+            for (let i = 0, n = pending.length; i < n; i++) {
+                factory.prepareStateOwners(ctx, pending[i]);
+            }
+            pending.length = 0;
+        }
+
         for (let i = 0, n = this._controllerLayers.length; i < n; i++) {
             if (this._controllerLayers[i].playOnWake) {
                 let defaultClip: AnimatorState = this.getDefaultState(i);
@@ -1299,7 +272,19 @@ export class Animator extends Component {
         }
     }
 
+    protected _onDisable(): void {
+        if (this._manager) this._manager.removeAnimator(this);
+        // 不释放 slot（disable→enable 复用），但要从 activeList 出列免得 flush 处理上一帧的数据。
+        this._taskSlot?.submitAllIdle();
+    }
+
     protected _onDestroy() {
+        if (this._manager) {
+            this._manager.removeAnimator(this);
+            this._manager._factory.unbindAnimator(this._bindContext);
+            this._manager = null;
+        }
+        this._taskSlot = null;
         if (this._controller) {
             this._controller._removeReference();
             this._controller = null;
@@ -1308,171 +293,25 @@ export class Animator extends Component {
             this._controllerLayers[i]._removeReference();
     }
 
-    private _applyUpdateMode(delta: number): number {
-        let ret;
-        switch (this._updateMode) {
-            case AnimatorUpdateMode.Normal:
-                ret = delta;
-                break;
-            case AnimatorUpdateMode.LowFrame:
-                ret = (Stat.loopCount % this._lowUpdateDelty == 0) ? delta * this._lowUpdateDelty : 0;
-                break;
-            case AnimatorUpdateMode.UnScaleTime:
-                ret = 0;
-                break;
-        }
-        return ret;
+    private _resolveManager(): void {
+        if (this._manager) return;
+        const scene = (this.owner as Sprite3D)?.scene;
+        if (!scene) return;
+        this._manager = scene.getComponentElementManager(AnimatorManager.__managerName) as AnimatorManager;
     }
 
     /**
      * @internal
+     * @en Manually step this animator by `delta` seconds. Bypasses the scene timer and update-mode scaling,
+     *     so callers that drive time themselves (e.g. deterministic fight playback) get exact control.
+     * @zh 手动按 delta（秒）驱动一次动画更新，不经过场景计时器和 updateMode 缩放，
+     *     供自行驱动时间的调用方（如战斗内的确定性播放）使用。
      */
-    _handleSpriteOwnersBySprite(isLink: boolean, path: string[], sprite: Sprite3D): void {
-        for (var i: number = 0, n: number = this._controllerLayers.length; i < n; i++) {
-            if (!this._controllerLayers[i].enable)
-                continue;
-            var clipStateInfos: AnimatorState[] = this._controllerLayers[i]._states;
-            for (var j: number = 0, m: number = clipStateInfos.length; j < m; j++) {
-                var clipStateInfo: AnimatorState = clipStateInfos[j];
-                var clip: AnimationClip = clipStateInfo._clip!;
-                var nodePath: string = path.join("/");
-                var ownersNodes: KeyframeNode[] = clip._nodesMap[nodePath];
-                if (ownersNodes) {
-                    var nodeOwners: KeyframeNodeOwner[] = clipStateInfo._nodeOwners;
-                    for (var k: number = 0, p: number = ownersNodes.length; k < p; k++) {
-                        if (isLink)
-                            this._addKeyframeNodeOwner(nodeOwners, ownersNodes[k], sprite);
-                        else
-                            this._removeKeyframeNodeOwner(nodeOwners, ownersNodes[k]);
-                    }
-                }
-            }
+    _update(delta: number, now: number = performance.now()): void {
+        this._resolveManager();
+        if (this._manager) {
+            this._manager.tickOneManual(this, delta);
         }
-    }
-
-    /**
-     * @internal
-     */
-    onUpdate(): void {
-        let now = performance.now();
-        let timer = this.owner._scene.timer;
-        let delta = timer.delta / 1000.0;//Laya.timer.delta已包含Laya.timer.scale
-        delta = this._applyUpdateMode(delta);
-        this._update(delta, now);
-    }
-
-
-    /**
-     * @internal
-     * @perfTag PerformanceDefine.T_AnimatorUpdate
-     */
-    _update(delta:number, now = performance.now()): void {
-        if (this._speed === 0 || delta === 0)//delta为0无需更新,可能造成crossWeight计算值为NaN
-            return;
-        if (!Stat.enableAnimatorUpdate)
-            return;
-        var needRender = true;//TODO:有渲染节点才可将needRender变为true
-        var i, n;
-        this._updateMark++;
-        for (i = 0, n = this._controllerLayers.length; i < n; i++) {
-            var controllerLayer: AnimatorControllerLayer = this._controllerLayers[i];
-            if (!controllerLayer.enable)
-                continue;
-            var playStateInfo: AnimatorPlayState = controllerLayer._playStateInfo!;
-            if (this.sleep && playStateInfo._finish && controllerLayer._playType == 0) {
-                continue;
-            }
-            var crossPlayStateInfo: AnimatorPlayState = controllerLayer._crossPlayStateInfo!;
-            addtive = controllerLayer.blendingMode !== AnimatorControllerLayer.BLENDINGMODE_OVERRIDE;
-            switch (controllerLayer._playType) {
-                case 0:
-                    var animatorState: AnimatorState = playStateInfo.currentState!;
-                    var clip: AnimationClip = animatorState._clip!;
-                    var speed: number = this._speed * animatorState.speed;
-                    var finish: boolean = playStateInfo._finish;//提前取出finish,防止最后一帧跳过
-                    finish || this._updatePlayer(animatorState, playStateInfo, delta * speed, animatorState.islooping, i);
-                    if (needRender) {
-                        var addtive: boolean = controllerLayer.blendingMode !== AnimatorControllerLayer.BLENDINGMODE_OVERRIDE;
-                        this._updateClipDatas(animatorState, addtive, playStateInfo, controllerLayer.avatarMask);//clipDatas为逐动画文件,防止两个使用同一动画文件的Animator数据错乱,即使动画停止也要updateClipDatas
-                        this._setClipDatasToNode(animatorState, addtive, controllerLayer.defaultWeight, i === 0, controllerLayer);//多层动画混合时即使动画停止也要设置数据
-                        finish || this._updateEventScript(animatorState, playStateInfo);
-                    }
-                    finish || this._updateStateFinish(animatorState, playStateInfo);
-                    break;
-                case 1:
-                    animatorState = playStateInfo.currentState!;
-                    clip = animatorState._clip!;
-                    var crossState: AnimatorState = controllerLayer._crossPlayState;
-                    var crossClip: AnimationClip = crossState._clip!;
-                    var crossDuratuion: number = controllerLayer._crossDuration;
-                    var startPlayTime: number = crossPlayStateInfo._startPlayTime;
-                    var crossClipDuration: number = crossClip._duration - startPlayTime;
-                    var crossScale: number = (crossDuratuion > crossClipDuration && 0 != crossClipDuration) ? crossClipDuration / crossDuratuion : 1.0;//如果过度时间大于过度动作时间,则减慢速度
-                    var crossSpeed: number = this._speed * crossState.speed;
-                    this._updatePlayer(crossState, crossPlayStateInfo, delta * crossScale * crossSpeed, crossClip.islooping, i);
-
-                    var crossWeight: number = ((crossPlayStateInfo._elapsedTime - startPlayTime) / crossScale) / crossDuratuion;
-                    var needUpdateFinishcurrentState = false;
-                    if (crossWeight >= 1.0) {
-                        if (needRender) {
-                            this._updateClipDatas(crossState, addtive, crossPlayStateInfo, controllerLayer.avatarMask);
-                            this._setClipDatasToNode(crossState, addtive, controllerLayer.defaultWeight, i === 0, controllerLayer);
-
-                            controllerLayer._playType = 0;//完成融合,切换到正常播放状态
-                            playStateInfo.currentState = crossState;
-                            this._switchState(animatorState, crossState);
-                            crossPlayStateInfo._cloneTo(playStateInfo);
-                        }
-                    } else {
-                        if (!playStateInfo._finish) {
-                            speed = this._speed * animatorState.speed;
-                            needUpdateFinishcurrentState = true;
-                            this._updatePlayer(animatorState, playStateInfo, delta * speed, animatorState.islooping, i);
-                            if (needRender)
-                                this._updateClipDatas(animatorState, addtive, playStateInfo, controllerLayer.avatarMask);
-                        }
-                        if (needRender) {
-                            this._updateClipDatas(crossState, addtive, crossPlayStateInfo, controllerLayer.avatarMask);
-                            this._setCrossClipDatasToNode(controllerLayer, animatorState, crossState, crossWeight, i === 0);
-                        }
-                    }
-                    if (needRender) {
-                        this._updateEventScript(animatorState, playStateInfo);
-                        this._updateEventScript(crossState, crossPlayStateInfo);
-                    }
-                    this._updateStateFinish(crossState, crossPlayStateInfo);
-                    needUpdateFinishcurrentState && this._updateStateFinish(playStateInfo.currentState, playStateInfo);
-                    break;
-                case 2:
-                    crossState = controllerLayer._crossPlayState;
-                    crossClip = crossState._clip!;
-                    crossDuratuion = controllerLayer._crossDuration;
-                    startPlayTime = crossPlayStateInfo._startPlayTime;
-                    crossClipDuration = crossClip._duration - startPlayTime;
-                    crossScale = crossDuratuion > crossClipDuration ? crossClipDuration / crossDuratuion : 1.0;//如果过度时间大于过度动作时间,则减慢速度
-                    crossSpeed = this._speed * crossState.speed;
-                    this._updatePlayer(crossState, crossPlayStateInfo, delta * crossScale * crossSpeed, crossState.islooping, i);
-                    if (needRender) {
-                        crossWeight = ((crossPlayStateInfo._elapsedTime - startPlayTime) / crossScale) / crossDuratuion;
-                        if (crossWeight >= 1.0) {
-                            this._updateClipDatas(crossState, addtive, crossPlayStateInfo, controllerLayer.avatarMask);
-                            this._setClipDatasToNode(crossState, addtive, 1.0, i === 0, controllerLayer);
-                            controllerLayer._playType = 0;//完成融合,切换到正常播放状态
-                            playStateInfo.currentState = crossState;
-                            this._switchState(animatorState, crossState);
-                            crossPlayStateInfo._cloneTo(playStateInfo);
-                        } else {
-                            this._updateClipDatas(crossState, addtive, crossPlayStateInfo, controllerLayer.avatarMask);
-                            this._setFixedCrossClipDatasToNode(controllerLayer, crossState, crossWeight, i === 0);
-                        }
-                        this._updateEventScript(crossState, crossPlayStateInfo);
-                    }
-                    this._updateStateFinish(crossState, crossPlayStateInfo);
-                    break;
-            }
-        }
-        this._LateUpdateEvents.invoke();
-        this._LateUpdateEvents.clear();
         LayaGL.statAgent.recordTimeData(StatElement.T_AnimatorUpdate, performance.now() - now);
     }
 
@@ -1497,6 +336,14 @@ export class Animator extends Component {
     }
 
     /**
+     * @en Reset the base values for additive animations. Call this when you manually modify animated properties and want the additive animation to use the new values as base.
+     * @zh 重置additive动画的基础值。当手动修改了被动画控制的属性，并希望additive动画基于新值叠加时调用此方法。
+     */
+    resetAdditiveBaseValues(): void {
+        this._updateDefaultValues();
+    }
+
+    /**
      * @en Gets the default animation state.
      * @param layerIndex The layer index.
      * @returns The default animation state.
@@ -1512,7 +359,7 @@ export class Animator extends Component {
     /**
      * @en Adds an animation state.
      * @param state The animation state to add.
-     * @param layerIndex The layer index. 
+     * @param layerIndex The layer index.
      * @zh 添加动画状态。
      * @param state 动画状态。
      * @param   layerIndex 层索引。
@@ -1547,6 +394,8 @@ export class Animator extends Component {
         this._controllerLayers.push(controllerLayer);
         controllerLayer._animator = this;//TODO:可以复用,不应该这么设计
         controllerLayer._addReference();
+        // 若 slot 已就绪（enable 后），同步 layers 数组长度
+        this._taskSlot?.resizeLayers(this._controllerLayers.length);
         var states: AnimatorState[] = controllerLayer._states;
         for (var i: number = 0, n: number = states.length; i < n; i++)
             this._getOwnersByClip(states[i]);
@@ -1583,12 +432,13 @@ export class Animator extends Component {
             var playStateInfo: AnimatorPlayState = controllerLayer._playStateInfo!;
             var curPlayState: AnimatorState = playStateInfo.currentState!;
 
-
             var animatorState: AnimatorState = name ? controllerLayer.getAnimatorState(name) : defaultState;
             if (!animatorState || !animatorState._clip) {
-                throw new Error("Animator:must have clip value,please set clip property.");
+                console.warn("Animator:must have clip value,please set clip property.");
                 return;
             }
+
+            if (this._hasAdditiveLayer()) this._updateDefaultValues();
 
             var clipDuration: number = animatorState._clip!._duration;
             var calclipduration = animatorState._clip!._duration * (animatorState.clipEnd - animatorState.clipStart);
@@ -1608,16 +458,11 @@ export class Animator extends Component {
                     playStateInfo._resetPlayState(clipDuration * animatorState.clipStart, calclipduration);
                 }
             }
-            this._switchState(curPlayState, animatorState);
-            var scripts: AnimatorStateScript[] = animatorState._scripts!;
+            if (curPlayState) curPlayState._eventSwitch(animatorState);
             animatorState._eventStart(this, layerIndex);
 
-        }
-        else {
+        } else {
             console.warn("Invalid layerIndex " + layerIndex + ".");
-        }
-        if (this.owner._scene) {
-            this.onUpdate();
         }
     }
 
@@ -1634,16 +479,17 @@ export class Animator extends Component {
      * @param normalizedTime 归一化的播放起始时间。
      */
     crossFade(name: string, transitionDuration: number, layerIndex: number = 0, normalizedTime: number = Number.NEGATIVE_INFINITY): void {
-        //console.log("name:" + name + "," + "transitionDuration" + transitionDuration + "," + "layerIndex" + layerIndex);
         var controllerLayer = this._controllerLayers[layerIndex];
         if (controllerLayer) {
             var destAnimatorState = controllerLayer.getAnimatorState(name);
             if (destAnimatorState) {
                 var playType = controllerLayer._playType;
-                if (playType === -1) {//如果未曾调用过play则回滚到play方法
+                if (playType === -1) {
                     this.play(name, layerIndex, normalizedTime);
                     return;
                 }
+
+                if (this._hasAdditiveLayer()) this._updateDefaultValues();
 
                 var crossPlayStateInfo = controllerLayer._crossPlayStateInfo;
                 var crossNodeOwners = controllerLayer._crossNodesOwners;
@@ -1736,6 +582,9 @@ export class Animator extends Component {
                                 }
                             }
                         }
+                        // RT 后端：上面的 saveCrossFixedValue 只写了 JS 端 PlainOwnerData，native 的
+                        // crossFixedValue 需从 native value 单独快照（主线程、flush 并行区外，多线程安全）。
+                        this._saveCrossFixedValues(crossNodeOwners, crossCount);
                         break;
                     default:
                 }
@@ -1831,18 +680,10 @@ export class Animator extends Component {
         return this._animatorParams[id];
     }
 
-
     /**
-     * @deprecated 请使用animator.getControllerLayer(layerIndex).getCurrentPlayState()替换。use animator.getControllerLayer(layerIndex).getCurrentPlayState() instead
-     * 获取当前的播放状态。
-     * @param   layerIndex 层索引。
-     * @return  动画播放状态。
+     * @deprecated 请使用animator.getControllerLayer(layerIndex).getCurrentPlayState()替换。
      */
     getCurrentAnimatorPlayState(layerIndex: number = 0): AnimatorPlayState {
         return this._controllerLayers[layerIndex]._playStateInfo!;
     }
 }
-
-const _tempVector31: Vector3 = new Vector3();
-const _tempColor: Color = new Color();
-const _tempQuaternion1: Quaternion = new Quaternion();

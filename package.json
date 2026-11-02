@@ -1,12 +1,15 @@
 {
   "name": "layaair",
-  "version": "3.3.7",
-  "description": "LayaAir3.3 Engine",
+  "version": "3.4.1",
+  "description": "LayaAir3.4 Engine",
   "main": "layaAir.config.js",
   "scripts": {
     "start": "npm-run-all clean copyShaders copyJsLibs --parallel watchShaders watchSamples",
     "build": "node scripts/buildEngine.mjs",
+    "check:js-bytecode": "node scripts/checkJsBytecode.mjs",
     "buildSamples": "node scripts/buildSamples.mjs",
+    "esbuildSamplesWebGL": "node scripts/watchSamples.mjs webgl",
+    "esbuildSamplesWebGPU": "node scripts/watchSamples.mjs webgpu",
     "buildApi": "node scripts/buildApiDoc.mjs",
     "watchShaders": "copy-and-watch --skip-initial-copy --watch src/**/*.{glsl,vs,fs} bin/tsc/",
     "watchSamples": "cd ./src/samples && tsc -b --force --watch",
@@ -38,7 +41,8 @@
     "rollup": "^2.74.0",
     "rollup-plugin-glsl": "^1.3.0",
     "rollup-plugin-sourcemaps": "^0.6.3",
-    "rollup-plugin-typescript2": "^0.21.2",
+    "rollup-plugin-typescript2": "^0.36.0",
+    "rollup-pluginutils": "^2.8.2",
     "ts-morph": "^24.0.0",
     "typedoc": "^0.26.0",
     "typescript": "^4.9.5",
@@ -50,7 +54,9 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "i18next": "^23.11.2"
+    "dpdm": "^3.14.0",
+    "i18next": "^23.11.2",
+    "rollup-plugin-esbuild": "^6.2.1"
   },
   "bugs": {
     "url": "https://ask.layaAir.com/"

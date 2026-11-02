@@ -16,6 +16,15 @@ import { RepaintFlag, SpriteConst, SubPassFlag } from "./SpriteConst";
  */
 export class PostProcess2D extends EventDispatcher {
 
+   /** @internal 待回收的 PostProcess2D 集合 */
+   static _pendingPostRender: Set<PostProcess2D> = new Set();
+
+   /** @internal 全局统一回收后处理中间 RT */
+   static postRenderAll(): void {
+      PostProcess2D._pendingPostRender.forEach(pp => pp._afterRender());
+      PostProcess2D._pendingPostRender.clear();
+   }
+
    private _effects: PostProcess2DEffect[] = [];
    private _enabled: boolean = true;
    /**@internal */
@@ -43,7 +52,6 @@ export class PostProcess2D extends EventDispatcher {
    set enabled(value: boolean) {
       if (this._enabled != value) {
          this._enabled = value;
-         this._context.command.clear(true);
          this._onChangeRender();
       }
    }
@@ -94,6 +102,7 @@ export class PostProcess2D extends EventDispatcher {
          }
          else {
             this._owner._renderType &= ~SpriteConst.POSTPROCESS;
+            this.clearCMD();//
          }
          this._owner.setSubpassFlag(SubPassFlag.PostProcess);
          
@@ -183,7 +192,6 @@ export class PostProcess2D extends EventDispatcher {
     * @zh 渲染后期处理效果。
     */
    _render(): void {
-      this._context.command.clear(true);
       this._context.indirectTarget = this._context.source;
       this._context.destination = this._context.source;
       for (var i: number = 0, n: number = this._effects.length; i < n; i++) {
@@ -194,13 +202,25 @@ export class PostProcess2D extends EventDispatcher {
          }
       }
       this._hasCleanRT = false;
+      this._owner?._oriRenderPass?.updatePostProcess();
+      PostProcess2D._pendingPostRender.add(this);
+   }
+
+   /** @internal 渲染完成后回收中间RT，保留 destination */
+   _afterRender(): void {
+      if (this._hasCleanRT) return;
+      for (let i = 0, n = this._effects.length; i < n; i++) {
+         this._effects[i].clearRT(this._context);
+      }
+      this._hasCleanRT = true;
    }
 
    /**
     * @en Clear all post-processing effects.
     * @zh 清除所有后期处理效果。
     */
-   clear() {
+   clear(): void {
+      this.recoverAllRTS();
       for (let i = 0; i < this._effects.length; i++) {
          this._effects[i].destroy();
       }
@@ -209,39 +229,39 @@ export class PostProcess2D extends EventDispatcher {
    }
 
    /**
-    * @en Clear the post-processing command buffer.
-    * @zh 清除后期处理指令流。
+    * @en Detach retained post-processing state, clear its command buffer, and release effect input textures.
+    * @zh 解除保留的后处理状态、清理指令流并释放效果输入纹理。
     */
-   clearCMD() {
+   clearCMD(): void {
       this._context.command.clear();
+      this._releaseInputTextureBindings();
    }
 
-   /**
-    * @en Destroy the post-processing instance.
-    * @zh 销毁后期处理实例。
-    */
+   private _releaseInputTextureBindings(): void {
+      for (let i = 0, n = this._effects.length; i < n; i++) {
+         this._effects[i].releaseInputTextureBindings();
+      }
+   }
+
    /**
     * @en Recover all RTs used in post-processing effects.
     * @zh 回收后处理效果中使用的所有RT。
     */
    recoverAllRTS(): void {
-      
+      this.clearCMD();
       this._context.destination = null;
       // 回收所有效果中的RT
       for (let effect of this._effects) {
          effect.clearRT(this._context);
       }
+      this._context.source = null;
+      this._context.indirectTarget = null;
+      this._context.destination = null;
       this._hasCleanRT = true;
-      // 回收deferredReleaseTextures中的RT
-      // for (let rt of this._context.deferredReleaseTextures) {
-      //    if (rt && !rt.destroyed) {
-      //       RenderTexture2D.recoverToPool(rt);
-      //    }
-      // }
-      // this._context.deferredReleaseTextures.length = 0;
+      PostProcess2D._pendingPostRender.delete(this);
    }
 
-   apply() {
+   apply(): void {
       // console.log("apply", this._hasCleanRT);
       if (this._hasCleanRT) {//恢复
          this.clearCMD();
@@ -251,7 +271,7 @@ export class PostProcess2D extends EventDispatcher {
       
       this._context._apply();
 
-      //保留最后一个后处理的RT
+      this._releaseInputTextureBindings();
       for (let i = 0 , n = this._effects.length; i < n; i++) {
          let effect = this._effects[i];
          effect.clearRT(this._context);
@@ -259,7 +279,12 @@ export class PostProcess2D extends EventDispatcher {
       this._hasCleanRT = true;
    }
 
+   /**
+    * @en Destroy the post-processing instance.
+    * @zh 销毁后期处理实例。
+    */
    destroy(): void {
+      this.recoverAllRTS();
       this.owner = null;
       this._context.compositeShaderData.destroy();
       this._context.compositeShaderData = null;

@@ -224,7 +224,7 @@ export class Text extends Sprite {
         this._lines = [];
         this._padding = [0, 0, 0, 0];
         this._fontSizeScale = 1;
-        this.graphics._useSpriteRect = true;
+        this.graphics._useSpriteRect = false;
     }
 
     /**
@@ -314,7 +314,7 @@ export class Text extends Sprite {
         let rect = this._scrollRect || new Rectangle();
         let rectWidth = this._isWidthSet ? this._width : this._textWidth;
         let rectHeight = this._isHeightSet ? this._height : this._textHeight;
-        rect.setTo(0, 0, rectWidth, rectHeight);
+        rect.setTo(0, 0, Math.max(0, rectWidth - this._padding[1]), Math.max(0, rectHeight - this._padding[2]));
         this.scrollRect = rect;
     }
 
@@ -603,6 +603,81 @@ export class Text extends Sprite {
     }
 
     /**
+     * @en Letter spacing (in pixels).
+     * @zh 字间距（以像素为单位）。
+     */
+    get letterSpacing(): number {
+        return this._textStyle.letterSpacing;
+    }
+
+    set letterSpacing(value: number) {
+        if (this._textStyle.letterSpacing != value) {
+            this._textStyle.letterSpacing = value;
+            this.markChanged();
+        }
+    }
+
+    /**
+     * @en Shadow offset X (in pixels).
+     * @zh 阴影偏移X（以像素为单位）。
+     */
+    get shadowOffsetX(): number {
+        return this._textStyle.shadowOffsetX;
+    }
+
+    set shadowOffsetX(value: number) {
+        if (this._textStyle.shadowOffsetX !== value) {
+            this._textStyle.shadowOffsetX = value;
+            this.markChanged();
+        }
+    }
+
+    /**
+     * @en Shadow offset Y (in pixels).
+     * @zh 阴影偏移Y（以像素为单位）。
+     */
+    get shadowOffsetY(): number {
+        return this._textStyle.shadowOffsetY;
+    }
+
+    set shadowOffsetY(value: number) {
+        if (this._textStyle.shadowOffsetY !== value) {
+            this._textStyle.shadowOffsetY = value;
+            this.markChanged();
+        }
+    }
+
+    /**
+     * @en Shadow blur (in pixels).
+     * @zh 阴影模糊度（以像素为单位）。
+     */
+    get shadowBlur(): number {
+        return this._textStyle.shadowBlur;
+    }
+
+    set shadowBlur(value: number) {
+        if (this._textStyle.shadowBlur !== value) {
+            this._textStyle.shadowBlur = value;
+            this.markChanged();
+        }
+    }
+
+    /**
+     * @en Shadow color, represented as a string.
+     * @zh 阴影颜色，以字符串表示。
+     */
+    get shadowColor(): string {
+        return this._textStyle.shadowColor;
+    }
+
+    set shadowColor(value: string) {
+        if (this._textStyle.shadowColor != value) {
+            this._textStyle.shadowColor = value;
+            this.markChanged();
+        }
+    }
+
+    /**
      * @en Margin information.
      * Data format: [top margin, right margin, bottom margin, left margin] (margins in pixels).
      * @zh 边距信息。
@@ -713,11 +788,12 @@ export class Text extends Sprite {
     set overflow(value: string) {
         if (this._overflow != value) {
             this._overflow = value;
-            if (value !== Text.VISIBLE) {
+            if (value == Text.HIDDEN || value == Text.SCROLL) {
                 this._updateScrollRect();
             }
             else
                 this.scrollRect = null;
+            this.markChanged();
         }
     }
 
@@ -1109,6 +1185,7 @@ export class Text extends Sprite {
         let wordWrap = this._wordWrap || this._overflow == Text.ELLIPSIS;
         let noBreakWord = this._wordWrap;
         let padding = this._padding;
+        let spacing = this._textStyle.letterSpacing;
         let rectWidth: number;
         if (this._isWidthSet)
             rectWidth = this._width - padding[3] - padding[1];
@@ -1134,23 +1211,21 @@ export class Text extends Sprite {
 
         let getTextWidth = (text: string) => {
             if (bfont)
-                return bfont.getTextWidth(text, fontSize);
-            else {
-                let ret = Browser.context.measureText(text);
-                return ret ? ret.width : 100;
-            }
+                return bfont.getTextWidth(text, fontSize) + spacing * text.length;
+            else
+                return Browser.context.measureText(text).width + spacing * text.length;
         };
 
         let getTextWidth2 = (text: string, font: string, fontSize: number) => {
             if (bfont) {
-                return bfont.getTextWidth(text, fontSize);
+                return bfont.getTextWidth(text, fontSize) + spacing * text.length;
             }
             else {
                 let t = Browser.context.font;
                 Browser.context.font = font;
-                let ret = Browser.context.measureText(text);
+                let ret = Browser.context.measureText(text).width + spacing * text.length;
                 Browser.context.font = t;
-                return ret ? ret.width : 100;
+                return ret;
             }
         };
 
@@ -1714,7 +1789,7 @@ export class Text extends Sprite {
                 let rect = this._objContainer.scrollRect || new Rectangle();
                 let rectWidth = this._isWidthSet ? this._width : this._textWidth;
                 let rectHeight = this._isHeightSet ? this._height : this._textHeight;
-                this._objContainer.scrollRect = rect.setTo(0, 0, rectWidth, rectHeight);
+                this._objContainer.scrollRect = rect.setTo(0, 0, Math.max(0, rectWidth - padding[1]), Math.max(0, rectHeight - padding[2]));
             }
             else
                 this._objContainer.scrollRect = null;
@@ -1744,9 +1819,10 @@ export class Text extends Sprite {
         let rectHeight = this._isHeightSet ? this._height : this._textHeight;
         let bottom = rectHeight - padding[2];
         let clipped = this._overflow == Text.HIDDEN || this._overflow == Text.SCROLL;
+        let letterSpacing = this._textStyle.letterSpacing;
+        let shadow = this._textStyle.shadowOffsetX !== 0 || this._textStyle.shadowOffsetY !== 0;
 
-        rectWidth -= (padding[3] + padding[1]);
-        rectHeight -= (padding[0] + padding[2]);
+        let contentWidth = Math.max(0, rectWidth - padding[1]);
 
         let x = 0, y = 0;
         let lines = this._lines;
@@ -1793,7 +1869,7 @@ export class Text extends Sprite {
                             if (g) {
                                 if (g.texture)
                                     graphics.drawImage(g.texture, x + cmd.x + tx + g.x * scale, y + cmd.y + g.y * scale, g.width * scale, g.height * scale, color);
-                                tx += Math.round(g.advance * scale);
+                                tx += Math.round(g.advance * scale) + letterSpacing;
                             }
                         }
                     } else {
@@ -1802,6 +1878,13 @@ export class Text extends Sprite {
                         gcmd.fontSize = cmd.fontSize;
                         gcmd.bold = cmd.style.bold;
                         gcmd.italic = cmd.style.italic;
+                        gcmd.letterSpacing = letterSpacing;
+                        if (shadow) {
+                            gcmd.shadowOffsetX = this._textStyle.shadowOffsetX;
+                            gcmd.shadowOffsetY = this._textStyle.shadowOffsetY;
+                            gcmd.shadowColor = this._textStyle.shadowColor;
+                            gcmd.shadowBlur = this._textStyle.shadowBlur;
+                        }
                         gcmd.singleCharRender = this._singleCharRender;
                         gcmd._preMeasuredWidth = cmd.width;
                         graphics.addCmd(gcmd);
@@ -1827,7 +1910,7 @@ export class Text extends Sprite {
             }
 
             if (curLink) {
-                curLink.addRect(linkStartX, y, rectWidth - linkStartX + paddingLeft, line.height);
+                curLink.addRect(linkStartX, y, contentWidth - linkStartX, line.height);
                 linkStartX = paddingLeft;
             }
         }
@@ -1952,7 +2035,7 @@ const ellipsisStr = "…";
 const maxWordLength = 20;
 
 function getReplaceStr(word: string): string {
-    return escapeSequence[word];
+    return escapeSequence[word] ?? word;
 }
 
 function isHighSurrogate(c: number): boolean {

@@ -7,8 +7,9 @@
             "es2019",
             "dom"
         ],
+        "sourceMap": true,
         "composite": true,
-        "stripInternal": false,
+        "stripInternal": true,
         "removeComments": false,
         "preserveConstEnums": false,
         "noImplicitAny": true,

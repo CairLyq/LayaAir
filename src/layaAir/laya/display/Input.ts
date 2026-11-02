@@ -214,11 +214,17 @@ export class Input extends Text {
         if (value == null)
             value = "";
 
-        value = Text.langPacks?.[value] || value;
         if (this._prompt != value) {
             this._prompt = value;
             this.markChanged();
         }
+    }
+
+    get localizedPrompt(): string {
+        let text = Text.langPacks?.[this._prompt] || this._prompt;
+        if (this._onTranslate)
+            text = this._onTranslate(text, null, 1);
+        return text;
     }
 
     /**
@@ -287,8 +293,7 @@ export class Input extends Text {
      * @param endIndex 光标结束位置。
      */
     setSelection(startIndex: number, endIndex: number): void {
-        this.focus = true;
-        PAL.textInput.setSelection(startIndex, endIndex);
+        PAL.textInput.setSelectionFor(this, startIndex, endIndex);
     }
 
     /**
@@ -296,8 +301,7 @@ export class Input extends Text {
      * @zh 选中当前实例的所有文本。
      */
     select(): void {
-        this.focus = true;
-        PAL.textInput.setSelection(0, -1);
+        this.setSelection(0, -1);
     }
 
     /** @internal @blueprintEvent */

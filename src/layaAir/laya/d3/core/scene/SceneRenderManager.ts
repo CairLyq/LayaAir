@@ -1,6 +1,8 @@
+import { Config3D } from "../../../../Config3D";
 import { ISceneRenderManager } from "../../../RenderDriver/DriverDesign/3DRenderPass/ISceneRenderManager";
-import { IBaseRenderNode } from "../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
+import { BaseRenderType, IBaseRenderNode } from "../../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
 import { SingletonList } from "../../../utils/SingletonList";
+import { Profiler } from "../../../utils/Profiler";
 import { Laya3DRender } from "../../RenderObjs/Laya3DRender";
 import { BaseRender } from "../render/BaseRender";
 import { RenderContext3D } from "../render/RenderContext3D";
@@ -13,7 +15,8 @@ import { RenderContext3D } from "../render/RenderContext3D";
 export class SceneRenderManager {
     /**@internal */
     _sceneManagerOBJ: ISceneRenderManager;
-
+    /** @internal */
+    _list: SingletonList<BaseRender> = new SingletonList();
     /**
      * @ignore
      * @en Creates an instance of SceneRenderManager.
@@ -21,6 +24,12 @@ export class SceneRenderManager {
      */
     constructor() {
         this._sceneManagerOBJ = Laya3DRender.Render3DPassFactory.createSceneRenderManager();
+        if (Laya3DRender.Render3DPassFactory.createMeshRenderBatchModule) {
+            this._sceneManagerOBJ.registerBatchModuleAgent(BaseRenderType.MeshRender, Laya3DRender.Render3DPassFactory.createMeshRenderBatchModule());
+        }
+        if (Laya3DRender.Render3DPassFactory.createSimpleSkinRenderBatchModule) {
+            this._sceneManagerOBJ.registerBatchModuleAgent(BaseRenderType.SimpleSkinRender, Laya3DRender.Render3DPassFactory.createSimpleSkinRenderBatchModule());
+        }
     }
 
 
@@ -30,10 +39,11 @@ export class SceneRenderManager {
      * @zh 渲染列表。
      */
     get list(): SingletonList<BaseRender> {
-        return this._sceneManagerOBJ.list;
+        return this._list;
     }
 
     set list(value: SingletonList<BaseRender>) {
+        this._list = value;
         this._sceneManagerOBJ.list = value;
     }
 
@@ -44,6 +54,7 @@ export class SceneRenderManager {
      * @param object 要添加的渲染对象。
      */
     addRenderObject(object: BaseRender): void {
+        this._list.add(object);
         this._sceneManagerOBJ.addRenderObject(object);
     }
 
@@ -54,6 +65,7 @@ export class SceneRenderManager {
      * @param object 要移除的渲染对象。
      */
     removeRenderObject(object: BaseRender): void {
+        this._list.remove(object);
         this._sceneManagerOBJ.removeRenderObject(object);
     }
 
@@ -81,9 +93,9 @@ export class SceneRenderManager {
      */
     renderUpdate(): void {
         var context: RenderContext3D = RenderContext3D._instance;
-        let lists = this._sceneManagerOBJ.list.elements;
-        for (let i = 0, n = this.list.length; i < n; i++) {
-            lists[i].renderUpdate(context);
+        let elemnts = this._list.elements;
+        for (let i = 0, n = this._list.length; i < n; i++) {
+            elemnts[i].renderUpdate(context);
         }
     }
 
@@ -102,7 +114,20 @@ export class SceneRenderManager {
      * @zh 销毁并清理管理器资源。
      */
     destroy(): void {
+        this._list.clear();
         this._sceneManagerOBJ.destroy();
     }
 
+}
+
+if (Profiler.enabled) {
+    const renderUpdate = SceneRenderManager.prototype.renderUpdate;
+    SceneRenderManager.prototype.renderUpdate = function (): void {
+        let profileZone = Profiler.start("scene/render_update");
+        try {
+            renderUpdate.call(this);
+        } finally {
+            Profiler.end(profileZone);
+        }
+    };
 }

@@ -10,14 +10,19 @@ import { Matrix } from "../../../../maths/Matrix";
 
 export class RTRender2DPass implements IRender2DPass {
    _nativeObj: any;
-   private _enable: boolean = false;
+
+   /** @internal Pass2DProps 共享块：JS 写、C++(RTRender2DPass/LayaXRender2DPass) 读，零跨界。
+    * 槽 0-3(i32)=enable/isSupport/repaint/doClearColor；槽 4-9(f32)=offsetMatrix(a,b,c,d,tx,ty)；槽 10-13(f32)=clearColor(r,g,b,a) */
+   private _propsBuf = new ArrayBuffer(14 * 4);
+   private _propsI32 = new Int32Array(this._propsBuf);
+   private _propsF32 = new Float32Array(this._propsBuf);
+
    public get enable(): boolean {
-      return this._enable;
+      return this._propsI32[0] !== 0;
    }
 
    public set enable(value: boolean) {
-      this._enable = value;
-      this._nativeObj.enable = value;
+      this._propsI32[0] = value ? 1 : 0;
    }
 
    private _enableBatch: boolean = false;
@@ -30,14 +35,12 @@ export class RTRender2DPass implements IRender2DPass {
       this._nativeObj.enableBatch = value;
    }
 
-   private _isSupport = false;
    public get isSupport(): boolean {
-      return this._isSupport;
+      return this._propsI32[1] !== 0;
    }
 
    public set isSupport(value: boolean) {
-      this._isSupport = value;
-      this._nativeObj.isSupport = value;
+      this._propsI32[1] = value ? 1 : 0;
    }
    private _root: RTRenderStruct2D = null;
    public get root(): RTRenderStruct2D {
@@ -49,15 +52,15 @@ export class RTRender2DPass implements IRender2DPass {
       this._nativeObj.setRoot(value ? value._nativeObj : null);
    }
 
-   private _doClearColor: boolean;
    public set doClearColor(value: boolean) {
-      this._doClearColor = value;
-      this._nativeObj.doClearColor = value;
+      this._propsI32[3] = value ? 1 : 0;
    }
    public get doClearColor(): boolean {
-      return this._doClearColor;
+      return this._propsI32[3] !== 0;
    }
    postProcess: PostProcess2D = null;
+   private _enablePostProcess: boolean = false;
+   private _postProcessShaderDataRef: GLESShaderData = null;
 
    private _mask: RTRenderStruct2D;
    public set mask(value: RTRenderStruct2D) {
@@ -68,14 +71,12 @@ export class RTRender2DPass implements IRender2DPass {
       return this._mask;
    }
 
-   private _repaint: boolean;
    public get repaint(): boolean {
-      return this._repaint;
+      return this._propsI32[2] !== 0;
    }
 
    public set repaint(value: boolean) {
-      this._repaint = value;
-      this._nativeObj.repaint = value;
+      this._propsI32[2] = value ? 1 : 0;
    }
 
    private _renderTexture: RenderTexture2D;
@@ -112,65 +113,95 @@ export class RTRender2DPass implements IRender2DPass {
    private _renderOffset: Matrix = new Matrix();
    set offsetMatrix(value: Matrix) {
       this._renderOffset = value;
-      this._nativeObj.offsetMatrix = value;
+      this._propsF32[4] = value.a;
+      this._propsF32[5] = value.b;
+      this._propsF32[6] = value.c;
+      this._propsF32[7] = value.d;
+      this._propsF32[8] = value.tx;
+      this._propsF32[9] = value.ty;
    }
    get offsetMatrix(): Matrix {
       return this._renderOffset;
    }
 
    needRender(): boolean {
-      return (this._enable && !this._isSupport && (this._repaint || !this._renderTexture));
+      return (this._propsI32[0] !== 0 && this._propsI32[1] === 0 && (this._propsI32[2] !== 0 || !this._renderTexture));
    }
 
 
    setClearColor(r: number, g: number, b: number, a: number): void {
-      this._nativeObj.setClearColor(r, g, b, a);
+      this._propsF32[10] = r;
+      this._propsF32[11] = g;
+      this._propsF32[12] = b;
+      this._propsF32[13] = a;
    }
 
-   constructor() {
+   constructor(skipNative?: boolean) {
       this._shaderData = LayaGL.renderDeviceFactory.createShaderData(null) as GLESShaderData;
-      this._nativeObj = new (window as any).conchRTRender2DPass(this._shaderData._nativeObj);
-      this._nativeObj.setRenderCallback(this.renderCallBack.bind(this));
-      this.enable = true;
-      this.enableBatch = true;
-      this.isSupport = false;
-      this.doClearColor = true;
-      this.repaint = true;
-      this.priority = 0;
-      this.offsetMatrix = new Matrix();
+      if (!skipNative) {
+         this._nativeObj = new (window as any).conchRTRender2DPass(this._shaderData._nativeObj);
+         this._nativeObj.bindPass2DBuffer(this._propsBuf);
+         this.enable = true;
+         this.enableBatch = true;
+         this.isSupport = false;
+         this.doClearColor = true;
+         this.repaint = true;
+         this.priority = 0;
+         this.offsetMatrix = new Matrix();
+      }
    }
 
    /**
     * pass 2D 渲染
     * @param context 
     */
-   fowardRender(context: GLESRenderContext2D) {
+   fowardRender(context: GLESRenderContext2D, renderTime: number) {
       let rt = this.renderTexture;
       if (rt) {
          context.invertY = rt._invertY;
       }
-      this._nativeObj.fowardRender(context._nativeObj);
+      this._nativeObj.fowardRender(context._nativeObj, renderTime);
    }
 
-   // /**
-   //  * 渲染
-   //  * @param context 
-   //  */
-   // render(context: GLESRenderContext2D): void {
-   //    this._nativeObj.render(context._nativeObj);
-   // }
-   private renderCallBack(context: GLESRenderContext2D): void {
-      // 处理后期处理
-      if (this.postProcess && this.postProcess.enabled) {
-         this.postProcess.apply();
+   updatePostProcess(): void {
+      let pp = this.postProcess;
+      if (pp?._checkEnabled()) {
+         let command = pp._context.command;
+         // 把 CommandBuffer2D 的 shaderData 同步给 native：
+         // native fowardRender 在跑 _postProcessCMDs 前会缓存 context.passData，
+         // 把它克隆到这块 shaderData 后切换 passData，再在结束时还原。
+         // 等价于 TS CommandBuffer2D.apply() 的 passData 切换逻辑。
+         this._postProcessShaderDataRef = command.shaderData as GLESShaderData;
+         this._nativeObj.setPostProcessShaderData(this._postProcessShaderDataRef._nativeObj);
+         this._nativeObj.setPostProcess(
+            this._getRenderCMDArray(command._renderCMDs)
+         );
+         this._nativeObj.setEnablePostProcess(true);
+         this._enablePostProcess = true;
+      } else if (this._enablePostProcess) {
+         this._nativeObj.setEnablePostProcess(false);
+         this._nativeObj.setPostProcessShaderData(null);
+         this._postProcessShaderDataRef = null;
+         this._enablePostProcess = false;
       }
    }
+
+
+   private _getRenderCMDArray(cmds: any[]): any[] {
+      let nativeobCMDs: any[] = [];
+      cmds.forEach(element => {
+         nativeobCMDs.push((element as any)._nativeObj);
+      });
+      return nativeobCMDs;
+   }
+
    destroy(): void {
       //lvtodo
       this._nativeObj.destroy();
       this.root = null;
       this.renderTexture = null;
       this.postProcess = null;
+      this._postProcessShaderDataRef = null;
       this.shaderData = null;
    }
 }
@@ -186,8 +217,8 @@ export class RTRender2DPassManager implements IRender2DPassManager {
       this._nativeObj.removePass(pass._nativeObj);
    }
 
-   apply(context: GLESRenderContext2D): void {
-      this._nativeObj.apply(context._nativeObj);
+   apply(context: GLESRenderContext2D, renderTime: number): void {
+      this._nativeObj.apply(context._nativeObj, renderTime);
    }
 
    clear(): void {

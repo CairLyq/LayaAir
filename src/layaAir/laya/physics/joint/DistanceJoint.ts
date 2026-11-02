@@ -161,7 +161,7 @@ export class DistanceJoint extends JointBase {
                 this.selfBody.owner.on("bodyCreated", this, this._createJoint);
                 return;
             }
-            def.localAnchorB.setValue(point.x * ILaya.stage.clientScaleX, point.y * ILaya.stage.clientScaleY);
+            def.localAnchorB.setValue(point.x, point.y);
             this.selfBody.owner.on("shapeChange", this, this._refeahJoint);
             if (this.otherBody) {
                 def.bodyA = this.otherBody.getBox2DBody();
@@ -171,13 +171,10 @@ export class DistanceJoint extends JointBase {
                     return;
                 }
                 point = this.getBodyAnchor(this.otherBody, this.otherAnchor[0], this.otherAnchor[1]);
-                def.localAnchorA.setValue(point.x * ILaya.stage.clientScaleX, point.y * ILaya.stage.clientScaleY);
+                def.localAnchorA.setValue(point.x, point.y);
                 this.otherBody.owner.on("shapeChange", this, this._refeahJoint);
             } else {
-                if (!Physics2D.I._emptyBody) {
-                    Physics2D.I._emptyBody = Physics2D.I._factory.createBody(this._physics2DManager.box2DWorld, null);
-                }
-                def.bodyA = Physics2D.I._emptyBody;
+                def.bodyA = this._physics2DManager.getEmptyBody();
                 def.localAnchorA.setValue(this.otherAnchor[0], this.otherAnchor[1]);
             }
 

@@ -70,16 +70,11 @@ export class JointBase extends Component {
 
     /**@internal */
     protected getBodyAnchor(body: ColliderBase, anchorx: number, anchory: number): Point {
-        Point.TEMP.setTo(anchorx, anchory)
-        let node = body.owner;
-        if (node) {
-            if (node.transform) {
-                node.transform.transformPointN(Point.TEMP)
-            } else {
-                Point.TEMP.x *= node.scaleX;
-                Point.TEMP.y *= node.scaleY;
-            }
-        }
+        const node = body.owner;
+        Point.TEMP.setTo(
+            anchorx * Physics2D.getDesignScaleX(node),
+            anchory * Physics2D.getDesignScaleY(node)
+        );
         return Point.TEMP;
     }
 
@@ -101,7 +96,7 @@ export class JointBase extends Component {
 
     /**@internal */
     protected _onDisable(): void {
-        if (this._joint && this._factory.getJoint_userData(this._joint) && !this._factory.getJoint_userData_destroy(this._joint)) {
+        if (this._factory.isValidJoint(this._joint)) {
             Physics2D.I._factory.removeJoint(this._physics2DManager.box2DWorld, this._joint);
         }
         this._joint = null;

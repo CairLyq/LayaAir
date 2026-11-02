@@ -1,6 +1,7 @@
 // ShurikenParticle2DSystem
 
 import { Sprite } from "../../display/Sprite";
+import { Rand } from "../../maths/Rand";
 import { Point } from "../../maths/Point";
 import { Vector4 } from "../../maths/Vector4";
 import { ClassUtils } from "../../utils/ClassUtils";
@@ -9,7 +10,7 @@ import { ColorOverLifetimeModule } from "../common/module/ColorOverLifetimeModul
 import { EmissionBurst, EmissionModule } from "../common/module/EmissionModule";
 import { TextureSheetAnimationModule } from "../common/module/TextureSheetAnimationModule";
 import { ParticleControler } from "../common/ParticleController";
-import { ParticleMinMaxCurveMode } from "../common/ParticleMinMaxCurve";
+import { ParticleMinMaxCurve, ParticleMinMaxCurveMode } from "../common/ParticleMinMaxCurve";
 import { ParticleMinMaxGradientMode } from "../common/ParticleMinMaxGradient";
 import { ParticleInfo } from "../common/ParticlePool";
 import { Main2DModule } from "./module/Main2DModule";
@@ -20,6 +21,7 @@ import { Velocity2DOverLifetimeModule } from "./module/Velocity2DOverLifetimeMod
 import { Particle2DVertexMesh } from "./Particle2DVertexMesh";
 
 const _globalPoint: Point = new Point();
+const _simulateStep: number = 1.0 / 60.0;
 
 /** @internal */
 export enum Particle2DSystemDirtyFlagBits {
@@ -27,7 +29,8 @@ export enum Particle2DSystemDirtyFlagBits {
     ColorOverLifetimeBit = 1 << 1,
     Size2DOverLifetimeBit = 1 << 2,
     Rotation2DOverLifetimeBit = 1 << 3,
-    TextureSheetAnimationBit = 1 << 4
+    TextureSheetAnimationBit = 1 << 4,
+    GradientKeyCountBit = 1 << 5
 }
 
 export class ShurikenParticle2DSystem extends ParticleControler implements IClone {
@@ -35,6 +38,23 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
     owner: Sprite;
 
     _dirtyFlags: number = ~0;
+
+    private _gradientKeyCount8 = false;
+
+    /** Whether numeric lifetime curves use eight keys instead of the default four. */
+    public get gradientKeyCount8(): boolean {
+        return this._gradientKeyCount8;
+    }
+    public set gradientKeyCount8(value: boolean) {
+        if (this._gradientKeyCount8 === value)
+            return;
+        this._gradientKeyCount8 = value;
+        // Changing capacity also changes the ranges uploaded by lifetime modules.
+        this._dirtyFlags = ~0;
+    }
+
+    private _rand: Rand = new Rand(0);
+    private _randomSeeds: Uint32Array = new Uint32Array(16);
 
     private _main: Main2DModule;
 
@@ -114,8 +134,32 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
         this._dirtyFlags = ~0;
     }
 
+    private _getFloat(seedIndex: number): number {
+        if (this.main.autoRandomSeed) {
+            return Math.random();
+        }
+        this._rand.seed = this._randomSeeds[seedIndex];
+        let value = this._rand.getFloat();
+        this._randomSeeds[seedIndex] = this._rand.seed;
+        return value;
+    }
+
+    private _getShapeRandom = (): number => {
+        return this._getFloat(14);
+    }
+
     play(): void {
         super.play();
+
+        if (!this.main.autoRandomSeed) {
+            this._rand.seed = this.main.randomSeed;
+            for (let i = 0; i < this._randomSeeds.length; i++) {
+                this._randomSeeds[i] = this._rand.getUint();
+            }
+        }
+
+        this.emission._emitAccumulator = 0;
+
         let globalPoint = _globalPoint;
         this.owner.globalTrans.getPos(globalPoint);
         this.emission._lastPosition.setValue(globalPoint.x, globalPoint.y, 0);
@@ -124,7 +168,7 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
     protected getPositionAndDirection(): Vector4 {
 
         if (this.shape && this.shape.enable && this.shape.shape) {
-            return this.shape.shape.getPositionAndDirection();
+            return this.shape.shape.getPositionAndDirection(this._getShapeRandom);
         }
         else {
             return Vector4.UnitW;
@@ -144,26 +188,26 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
         let duration = main.duration;
         let normalizedTime = this.time / duration;
 
-        let lifetimeRandom = curveNeedRandom(main.startLifetime.mode) ? Math.random() : 0;
+        let lifetimeRandom = curveNeedRandom(main.startLifetime.mode) ? this._getFloat(0) : 0;
         let lifetime = main.startLifetime.evaluate(normalizedTime, lifetimeRandom);
 
         let normalizedAge = age / lifetime;
 
-        let startDelayRandom = curveNeedRandom(main.startDelay.mode) ? Math.random() : 0;
+        let startDelayRandom = curveNeedRandom(main.startDelay.mode) ? this._getFloat(1) : 0;
         let startDelay = main.startDelay.evaluate(normalizedTime, startDelayRandom);
 
-        let startSpeedRandom = curveNeedRandom(main.startSpeed.mode) ? Math.random() : 0;
+        let startSpeedRandom = curveNeedRandom(main.startSpeed.mode) ? this._getFloat(2) : 0;
         let startSpeed = main.startSpeed.evaluate(normalizedTime, startSpeedRandom);
 
-        let startSizeXRandom = curveNeedRandom(main.startSizeX.mode) ? Math.random() : 0;
+        let startSizeXRandom = curveNeedRandom(main.startSizeX.mode) ? this._getFloat(3) : 0;
         let startSizeX = main.startSizeX.evaluate(normalizedTime, startSizeXRandom);
         let startSizeY = startSizeX;
         if (main.startSize2D) {
-            let startSizeYRandom = curveNeedRandom(main.startSizeY.mode) ? Math.random() : 0;
+            let startSizeYRandom = curveNeedRandom(main.startSizeY.mode) ? this._getFloat(4) : 0;
             startSizeY = main.startSizeY.evaluate(normalizedTime, startSizeYRandom);
         }
 
-        let startRotationRandom = curveNeedRandom(main.startRotation.mode) ? Math.random() : 0;
+        let startRotationRandom = curveNeedRandom(main.startRotation.mode) ? this._getFloat(5) : 0;
         let startRotation = main.startRotation.evaluate(normalizedTime, startRotationRandom);
         let startRadians = -startRotation * Math.PI / 180;
 
@@ -178,14 +222,49 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
         particle.setSize(startSizeX, startSizeY);
         particle.setSpeed(startSpeed);
         particle.setGravity(main._gravity.x, main._gravity.y);
-        particle.setRot(Math.cos(startRadians), Math.sin(startRadians));
+
+        let rotCos = Math.cos(startRadians);
+        let rotSin = Math.sin(startRadians);
+
+        // AlignToDirection（= Unity ShapeModule.alignToDirection）：出生时按初始运动方向定向，叠加在 startRotation 上
+        if (this.shape && this.shape.enable && this.shape.alignToDirection) {
+            let dirX = startPosAndDir.z;
+            let dirY = startPosAndDir.w;
+            let dirLen = Math.sqrt(dirX * dirX + dirY * dirY);
+            if (dirLen > 1e-6) {
+                // 基础旋转：mesh -y 对齐运动方向
+                let baseCos = dirY / dirLen;
+                let baseSin = -dirX / dirLen;
+
+                // 补偿发射器旋转 φ（取世界旋转，未初始化时跳过）
+                let cosPhi = main._spriteRotAndScale.x;
+                let sinPhi = main._spriteRotAndScale.y;
+                let phiLen = Math.sqrt(cosPhi * cosPhi + sinPhi * sinPhi);
+                if (phiLen > 1e-6) {
+                    cosPhi /= phiLen;
+                    sinPhi /= phiLen;
+                } else {
+                    cosPhi = 1;
+                    sinPhi = 0;
+                }
+                let cosDir = cosPhi * baseCos + sinPhi * baseSin;
+                let sinDir = -sinPhi * baseCos + cosPhi * baseSin;
+
+                // 复合 startRotation
+                let cosTotal = rotCos * cosDir - rotSin * sinDir;
+                let sinTotal = rotSin * cosDir + rotCos * sinDir;
+                rotCos = cosTotal;
+                rotSin = sinTotal;
+            }
+        }
+        particle.setRot(rotCos, rotSin);
 
         let colorOverLifetimeRandom = 0;
         if (this.colorOverLifetime && this.colorOverLifetime.enable) {
             let color = this.colorOverLifetime.color;
             switch (color.mode) {
                 case ParticleMinMaxGradientMode.TwoGradients:
-                    colorOverLifetimeRandom = Math.random();
+                    colorOverLifetimeRandom = this._getFloat(7);
                     break;
                 default:
                     break;
@@ -198,8 +277,8 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
             switch (mode) {
                 case ParticleMinMaxCurveMode.TwoConstants:
                 case ParticleMinMaxCurveMode.TwoCurves:
-                    velocityOverLifetimeRandomX = Math.random();
-                    velocityOverLifetimeRandomY = Math.random();
+                    velocityOverLifetimeRandomX = this._getFloat(8);
+                    velocityOverLifetimeRandomY = this._getFloat(9);
                     break;
                 default:
                     break;
@@ -211,7 +290,7 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
             switch (mode) {
                 case ParticleMinMaxCurveMode.TwoConstants:
                 case ParticleMinMaxCurveMode.TwoCurves:
-                    rotation2DOverLifetimeRandom = Math.random();
+                    rotation2DOverLifetimeRandom = this._getFloat(10);
                     break;
                 default:
                     break;
@@ -247,26 +326,26 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
                             let sizeMaxX = this.size2DOverLifetime.x.constantMax;
                             let sizeMaxY = this.size2DOverLifetime.y.constantMax;
 
-                            let sizeX = sizeMinX + Math.random() * (sizeMaxX - sizeMinX);
-                            let sizeY = sizeMinY + Math.random() * (sizeMaxY - sizeMinY);
+                            let sizeX = sizeMinX + this._getFloat(11) * (sizeMaxX - sizeMinX);
+                            let sizeY = sizeMinY + this._getFloat(12) * (sizeMaxY - sizeMinY);
                             particle.setSize(startSizeX * sizeX, startSizeY * sizeY);
                         }
                         else {
                             let sizeMin = this.size2DOverLifetime.size.constantMin;
                             let sizeMax = this.size2DOverLifetime.size.constantMax;
 
-                            let size = sizeMin + Math.random() * (sizeMax - sizeMin);
+                            let size = sizeMin + this._getFloat(11) * (sizeMax - sizeMin);
                             particle.setSize(startSizeX * size, startSizeY * size);
                         }
                         break;
                     }
                 case ParticleMinMaxCurveMode.TwoCurves:
                     if (this.size2DOverLifetime.separateAxes) {
-                        sizeOverLifetimeRandomX = Math.random();
-                        sizeOverLifetimeRandomY = Math.random();
+                        sizeOverLifetimeRandomX = this._getFloat(11);
+                        sizeOverLifetimeRandomY = this._getFloat(12);
                     }
                     else {
-                        sizeOverLifetimeRandomX = sizeOverLifetimeRandomY = Math.random();
+                        sizeOverLifetimeRandomX = sizeOverLifetimeRandomY = this._getFloat(11);
                     }
                     break;
                 default:
@@ -281,7 +360,7 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
             switch (mode) {
                 case ParticleMinMaxCurveMode.TwoConstants:
                 case ParticleMinMaxCurveMode.TwoCurves:
-                    textureSheetAnimationRandom = Math.random();
+                    textureSheetAnimationRandom = this._getFloat(13);
                     break;
                 default:
                     break;
@@ -296,7 +375,7 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
         particle.setSpriteTrans(spriteTransAndSpace.x, spriteTransAndSpace.y);
         particle.setSimulationSpace(spriteTransAndSpace.z);
 
-        let startColorRandom = gradientNeedRandom(main.startColor.mode) ? Math.random() : 0;
+        let startColorRandom = gradientNeedRandom(main.startColor.mode) ? this._getFloat(6) : 0;
         let color = main.startColor.evaluate(normalizedTime, startColorRandom);
         particle.setColor(color.r, color.g, color.b, color.a);
 
@@ -312,26 +391,17 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
         return true;
     }
 
-    _emitOverTime(elapsedTime: number) {
-        let currentTime = this.totalTime;
-        let lastEmitTime = this._lastEmitTime;
+    _emitOverTime(deltaTime: number) {
+        let normalizedTime = this.time / this.main.duration;
+        let rateOverTime = this.emission.rateOverTime;
+        let random = curveNeedRandom(rateOverTime.mode) ? this._getFloat(15) : 0;
+        let rate = rateOverTime.evaluate(normalizedTime, random);
 
-        // 上次发射到现在经过的时间
-        let duration = currentTime - lastEmitTime;
-        let emissionInterval = this.emission._emissionInterval;
-        if (duration >= emissionInterval) {
-            let count = Math.floor(duration / emissionInterval);
-            for (let i = 1; i <= count; i++) {
-                let emitTime = i * emissionInterval + lastEmitTime;
-                let age = currentTime - emitTime;
+        this.emission._emitAccumulator += rate * deltaTime;
 
-                this._emit(emitTime, age);
-
-                // 超过最大粒子数跳过渲染时
-                // 也要更新 _laseEmitTime，否则下次发射会还原跳过的粒子
-                this._lastEmitTime = emitTime;
-
-            }
+        while (this.emission._emitAccumulator >= 1) {
+            this._emit(this.totalTime, 0);
+            this.emission._emitAccumulator -= 1;
         }
     }
 
@@ -397,14 +467,11 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
     }
 
     _update(deltaTime: number) {
+        this._updateParticles(deltaTime * this.main.simulationSpeed);
+    }
 
+    private _updateParticles(deltaTime: number) {
         if (this.isPlaying) {
-            // simulation speed
-            {
-                let simulationSpeed = this.main.simulationSpeed;
-                deltaTime *= simulationSpeed;
-            }
-
             if (deltaTime <= 0) {
                 return;
             }
@@ -436,29 +503,78 @@ export class ShurikenParticle2DSystem extends ParticleControler implements IClon
         }
     }
 
-    // todo
+    /**
+     * @en Advance the particle simulation by a specified time and pause playback.
+     * @param time The time to advance the simulation. If restart is true, the particle playback time will be reset to zero before updating progress.
+     * @param restart Whether to reset the playback state. Default is true.
+     * @zh 通过指定时间增加粒子播放进度，并暂停播放。
+     * @param time 进度时间。如果 restart 为 true，粒子播放时间会归零后再更新进度。
+     * @param restart 是否重置播放状态。默认为 true。
+     */
+    private _getMaxCurveValue(curve: ParticleMinMaxCurve): number {
+        let maxValue = Math.max(0, curve.constant, curve.constantMin, curve.constantMax);
+        let gradients = [curve.curveMin, curve.curveMax];
+        for (let gradient of gradients) {
+            for (let i = 0; i < gradient.gradientCount; i++) {
+                maxValue = Math.max(maxValue, gradient.getValueByIndex(i));
+            }
+        }
+        return Number.isFinite(maxValue) ? maxValue : 0;
+    }
+
+    private _skipCompletedLoops(time: number): number {
+        let duration = this.main.duration;
+        if (!this.main.looping || duration <= 0) {
+            return time;
+        }
+
+        let maxLifetime = this._getMaxCurveValue(this.main.startLifetime);
+        let maxStartDelay = this._getMaxCurveValue(this.main.startDelay);
+        let simulationWindow = Math.max(duration * 2, duration + maxLifetime + maxStartDelay);
+        let skippedLoopCount = Math.floor((time - simulationWindow) / duration);
+        if (skippedLoopCount <= 0) {
+            return time;
+        }
+
+        // Keep the simulated clock near zero. Particle timestamps are uploaded
+        // as float values, so carrying a very large absolute time to the GPU
+        // would lose precision when calculating particle age.
+        return time - skippedLoopCount * duration;
+    }
+
     simulate(time: number, restart: boolean = true) {
-        if (this.isPlaying) {
+        if (this.isPlaying && Number.isFinite(time)) {
             if (restart) {
                 this.stop();
                 this.play();
             }
 
-            this._update(time);
+            let remainingTime = Math.max(0, time);
+            if (restart) {
+                remainingTime = this._skipCompletedLoops(remainingTime);
+            }
+            while (remainingTime > _simulateStep && this.isPlaying) {
+                this._updateParticles(_simulateStep);
+                remainingTime -= _simulateStep;
+            }
+            if (this.isPlaying) {
+                this._updateParticles(remainingTime);
+            }
 
             this.pause();
         }
     }
 
     cloneTo(destObject: ShurikenParticle2DSystem): void {
+        destObject.gradientKeyCount8 = this.gradientKeyCount8;
         this.main.cloneTo(destObject.main);
         this.emission.cloneTo(destObject.emission);
-        this.shape.cloneTo(destObject.shape);
-        this.velocity2DOverLifetime.cloneTo(destObject.velocity2DOverLifetime);
-        this.colorOverLifetime.cloneTo(destObject.colorOverLifetime);
-        this.size2DOverLifetime.cloneTo(destObject.size2DOverLifetime);
-        this.rotation2DOverLifetime.cloneTo(destObject.rotation2DOverLifetime);
-        this.textureSheetAnimation.cloneTo(destObject.textureSheetAnimation);
+        destObject.shape = this.shape?.clone();
+        destObject.velocity2DOverLifetime = this.velocity2DOverLifetime?.clone();
+        destObject.colorOverLifetime = this.colorOverLifetime?.clone();
+        destObject.size2DOverLifetime = this.size2DOverLifetime?.clone();
+        destObject.rotation2DOverLifetime = this.rotation2DOverLifetime?.clone();
+        destObject.textureSheetAnimation = this.textureSheetAnimation?.clone();
     }
 
     clone() {
@@ -497,5 +613,3 @@ function gradientNeedRandom(mode: ParticleMinMaxGradientMode) {
             return false;
     }
 }
-
-

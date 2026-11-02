@@ -4,7 +4,7 @@ import { Texture } from "../../resource/Texture"
 import { ClassUtils } from "../../utils/ClassUtils";
 import { ColorUtils } from '../../utils/ColorUtils';
 import { Pool } from "../../utils/Pool";
-import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { GraphicsCommandDependency, type GraphicsCommandInfo, GraphicsCommandLayoutRefresh, IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
 import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
 
 const className = "DrawTextureCmd";
@@ -25,22 +25,6 @@ export class DrawTextureCmd implements IGraphicsCmd {
 
     /** @internal */
     _texture: Texture | null = null;
-    /**
-     * @en The texture to be drawn.
-     * @zh 要绘制的纹理。
-     */
-    get texture(): Texture | null {
-        return this._texture;
-    }
-    /**
-     * @en The texture to be drawn.
-     * @zh 要绘制的纹理。
-     */
-    set texture(val: Texture) { //修复场景或预制体加载时没有添加资源引用
-        !!val && val._addReference();
-        this._texture?._removeReference();
-        this._texture = val;
-    }
 
     /**
      * @en (Optional) X-axis offset.
@@ -149,6 +133,23 @@ export class DrawTextureCmd implements IGraphicsCmd {
     }
 
     /**
+     * @en The texture to be drawn.
+     * @zh 要绘制的纹理。
+     */
+    get texture(): Texture | null {
+        return this._texture;
+    }
+    /**
+     * @en The texture to be drawn.
+     * @zh 要绘制的纹理。
+     */
+    set texture(val: Texture) {
+        !!val && val._addReference();
+        this._texture?._removeReference();
+        this._texture = val;
+    }
+
+    /**
      * @en Execute the draw texture command.
      * @param runner The rendering context.
      * @param gx Starting X coordinate.
@@ -207,6 +208,17 @@ export class DrawTextureCmd implements IGraphicsCmd {
      */
     needsLayoutRepaint(): number {
         return this.percent ? 1 : 0;
+    }
+
+    /** @internal */
+    getGraphicsCommandInfo(out: GraphicsCommandInfo): GraphicsCommandInfo {
+        out.dependency = this.percent ? GraphicsCommandDependency.SizePayload : GraphicsCommandDependency.None;
+        out.layoutRefresh = this.percent
+            ? (this.matrix ? GraphicsCommandLayoutRefresh.RerunCommand : GraphicsCommandLayoutRefresh.MarkDirty)
+            : GraphicsCommandLayoutRefresh.None;
+        out.scaleTessellationKey = 0;
+        out.isStateCommand = false;
+        return out;
     }
 }
 

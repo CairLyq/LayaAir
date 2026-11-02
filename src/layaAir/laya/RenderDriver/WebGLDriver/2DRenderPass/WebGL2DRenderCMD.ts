@@ -1,11 +1,10 @@
 import { Color } from "../../../maths/Color";
 import { Vector4 } from "../../../maths/Vector4";
-import { Viewport } from "../../../maths/Viewport";
 import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
 import { ShaderDefines2D } from "../../../webgl/shader/d2/ShaderDefines2D";
+import { RenderState2D } from "../../../webgl/utils/RenderState2D";
 import { Blit2DQuadCMD, Draw2DElementCMD, SetRendertarget2DCMD } from "../../DriverDesign/2DRenderPass/IRender2DCMD";
 import { IRenderContext2D } from "../../DriverDesign/2DRenderPass/IRenderContext2D";
-import { IRenderElement2D } from "../../DriverDesign/2DRenderPass/IRenderElement2D";
 import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
 import { RenderCMDType } from "../../DriverDesign/RenderDevice/IRenderCMD";
 import { ShaderDefine } from "../../RenderModuleData/Design/ShaderDefine";
@@ -24,6 +23,9 @@ export class WebGLSetRendertarget2DCMD extends SetRendertarget2DCMD {
     apply(context: IRenderContext2D): void {
         if (this.rt) context.invertY = this.invertY;
         else context.invertY = false;
+        let targetHeight = this.rt ? this.size.y : RenderState2D.height;
+        let vpY = context.invertY ? this.viewportY : targetHeight - this.viewportY - this.size.y;
+        context.setOffscreenView(this.size.x, this.size.y, this.viewportX, vpY);
         context.setRenderTarget(this.rt, this.clearColor, this.clearColorValue);
         context.passData.setVector2(ShaderDefines2D.UNIFORM_SIZE, this.size);
     }
@@ -91,19 +93,20 @@ export class WebGLBlit2DQuadCMD extends Blit2DQuadCMD {
     }
 
     apply(context: WebglRenderContext2D): void {
-        let cacheInvert = context.invertY;
-        if (!this._dest) {
-            context.invertY = false;
+        let dest = this._dest as WebGLInternalRT || context._destRT;
+        if (!dest || dest._textures[0].gammaCorrection != 1) {
             this.element.materialShaderData.addDefine(WebGLBlit2DQuadCMD.GammaCorrect);
         } else {
             this.element.materialShaderData.removeDefine(WebGLBlit2DQuadCMD.GammaCorrect);
         }
 
+        if (!dest) {
+            context.invertY = false;
+        }
         this.element.materialShaderData._setInternalTexture(WebGLBlit2DQuadCMD.SCREENTEXTURE_ID, this._source);
         this.element.materialShaderData.setVector(WebGLBlit2DQuadCMD.SCREENTEXTUREOFFSETSCALE_ID, this._offsetScale);
         this.element.materialShaderData.setVector(WebGLBlit2DQuadCMD.MAINTEXTURE_TEXELSIZE_ID, this._sourceTexelSize);
         context.setRenderTarget(this._dest as WebGLInternalRT, false, Color.BLACK);
         context.drawRenderElementOne(this.element as WebGLRenderElement2D);
-        context.invertY = cacheInvert;
     }
 }

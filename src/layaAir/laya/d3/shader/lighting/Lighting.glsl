@@ -111,7 +111,7 @@ Light getLight(in SpotLight spotLight, in vec3 normalWS, in vec3 positionWS)
 
 	    #ifdef DIRECTIONLIGHT
 uniform vec3 u_DirLightColor;
-uniform vec3 u_DirLightDirection;
+// u_DirLightDirection 已在 Scene.glsl（SceneCommon.glsl）中声明（单光源模式下作为场景 UBO 成员），此处不再重复声明。
 uniform int u_DirLightMode;
 	    #endif // DIRECTIONLIGHT
 

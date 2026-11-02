@@ -1,0 +1,713 @@
+import { LayaGL } from "../../../../layagl/LayaGL";
+import { IBufferState } from "../../../../RenderDriver/DriverDesign/RenderDevice/IBufferState";
+import { IRenderGeometryElement } from "../../../../RenderDriver/DriverDesign/RenderDevice/IRenderGeometryElement";
+import { DrawType } from "../../../../RenderEngine/RenderEnum/DrawType";
+import { IndexFormat } from "../../../../RenderEngine/RenderEnum/IndexFormat";
+import { MeshTopology } from "../../../../RenderEngine/RenderEnum/RenderPologyMode";
+import { Material } from "../../../../resource/Material";
+import { SpineShaderInit } from "../../../shader/SpineShaderInit";
+import { SpineConst } from "../../../SpineConst";
+import { SpineRenderUpdater } from "./SpineRenderUpdater";
+import { SpineTexture } from "../../SpineTexture";
+import { IRenderBatch, ISpineNormalUpdater } from "../../IWebSpine";
+import { FrameRenderCache } from "./AnimationRender";
+import { BufferUsage } from "../../../../RenderEngine/RenderEnum/BufferTargetType";
+
+const QUAD_TRIANGLES = [0, 1, 2, 2, 3, 0];
+
+/**
+ * @en Buffer info for a single submesh (vertices + indices).
+ * @zh 单个 submesh 的缓冲区信息（顶点 + 索引）。
+ */
+interface SubMeshBuffer {
+    vertexData: Float32Array;
+    indexData: Uint16Array;
+    vertexLength: number;  // 实际使用的顶点数据长度
+    indexLength: number;   // 实际使用的索引数据长度
+    bufferState: IBufferState;  // 每个submesh独立的bufferState
+    cacheVertex: Float32Array;  // 缓存的原始顶点数据（变换前）
+    cacheIndex: Uint16Array;    // 缓存的原始索引数据
+    offsetX: number;            // X 轴偏移
+    offsetY: number;            // Y 轴偏移
+}
+
+/**
+ * @en Render batch structure - unified management of geometry, buffer and material.
+ * @zh 渲染批次结构 - 统一管理 geometry、buffer 和 material。
+ */
+export interface SpineRenderBatch extends IRenderBatch{
+    buffer: SubMeshBuffer;
+    materialIndex: number;
+}
+
+export class SpineNormalRenderUpdater implements ISpineNormalUpdater {
+    /** @internal */
+    static _TEMP_COLOR: spine.Color;
+    /** @internal */
+    static _TEMP_COLOR2: spine.Color;
+
+    static positions: Float32Array;
+
+    static __init__(): void {
+        SpineNormalRenderUpdater.positions = new Float32Array(SpineConst.NORMAL_MAX_VERTEX * 2);
+        SpineNormalRenderUpdater._TEMP_COLOR = new spine.Color();
+        SpineNormalRenderUpdater._TEMP_COLOR2 = new spine.Color();
+    }
+
+    private clipper = new spine.SkeletonClipping();
+
+    /**
+     * @en Render batches array - each batch contains geometry, buffer and material.
+     * @zh 渲染批次数组 - 每个批次包含 geometry、buffer 和 material。
+     */
+    batches: SpineRenderBatch[] = [];
+   
+    /**
+     * @en Current batch index being built.
+     * @zh 当前正在构建的批次索引。
+     */
+    private _currentBatchIndex = -1;
+
+    /**
+     * @en Maximum vertices per buffer (Uint16 max index value + 1).
+     * @zh 每个缓冲区的最大顶点数（Uint16 最大索引值 + 1）。
+     */
+    private static readonly MAX_VERTICES_PER_BUFFER = 65536;
+
+    _internalMaterials: Material[] = [];
+
+    materials: Material[] = [];
+
+    /** @internal */
+    _materialIndex = 0;
+
+    needUpdate = false;
+
+    subMeshes: IRenderGeometryElement[] = [];
+
+    // 自动缓存模式
+    autoCacheEnabled: boolean = false;
+
+    /**
+     * @en Restore rendering data from cache.
+     * @param cache Cached frame data.
+     * @param offsetX X axis offset.
+     * @param offsetY Y axis offset.
+     * @zh 从缓存恢复渲染数据。
+     * @param cache 缓存的帧数据。
+     * @param offsetX X轴偏移。
+     * @param offsetY Y轴偏移。
+     */
+    restoreFromCache(cache: FrameRenderCache, offsetX: number = 0, offsetY: number = 0): void {
+        if (!cache) return;
+
+        const blockCount = cache.renderBlocks.length;
+
+        // 确保 renderBatches 数组长度足够
+        if (this.batches.length < blockCount) {
+            for (let i = this.batches.length; i < blockCount; i++) {
+                // Create bufferState with vertex and index buffers
+                const vertexDeclaration = SpineShaderInit.SpineNormalVertexDeclaration;
+                const vertexBuffer = LayaGL.renderDeviceFactory.createVertexBuffer(
+                    BufferUsage.Dynamic
+                );
+                vertexBuffer.vertexDeclaration = vertexDeclaration;
+
+                const indexBuffer = LayaGL.renderDeviceFactory.createIndexBuffer(
+                    BufferUsage.Dynamic
+                );
+
+                const bufferState = LayaGL.renderDeviceFactory.createBufferState();
+                bufferState.applyState([vertexBuffer], indexBuffer);
+
+                const buffer: SubMeshBuffer = {
+                    vertexData: new Float32Array(SpineConst.VERTEX_INITIAL_CAPACITY * SpineConst.VERTEX_TWOCOLOR),
+                    indexData: new Uint16Array(SpineConst.VERTEX_INITIAL_CAPACITY * 3),
+                    vertexLength: 0,
+                    indexLength: 0,
+                    bufferState: bufferState,
+                    cacheVertex: null,
+                    cacheIndex: null,
+                    offsetX: 0,
+                    offsetY: 0
+                };
+
+                const geometry = LayaGL.renderDeviceFactory.createRenderGeometryElement(
+                    MeshTopology.Triangles,
+                    DrawType.DrawElement
+                );
+                geometry.indexFormat = IndexFormat.UInt16;
+                // 整合 bufferState 和 geometry
+                geometry.bufferState = bufferState;
+
+                // 从缓存中获取材质索引（如果缓存中有materialIndex，否则使用i）
+                const materialIndex = i < cache.materials.length ? i : cache.materials.length - 1;
+                const material = cache.materials[materialIndex] || null as any;
+
+                this.batches[i] = {
+                    geometry: geometry,
+                    buffer: buffer,
+                    material: material,
+                    materialIndex: materialIndex
+                };
+            }
+        }
+
+        // 填充每个批次的数据
+        for (let i = 0; i < blockCount; i++) {
+            const block = cache.renderBlocks[i];
+            const batch = this.batches[i];
+            const subMeshBuffer = batch.buffer;
+            const geometry = batch.geometry;
+
+            subMeshBuffer.cacheVertex = block.vertexData;
+            subMeshBuffer.vertexLength = block.vertexLength;
+            subMeshBuffer.offsetX = offsetX;
+            subMeshBuffer.offsetY = offsetY;
+
+            subMeshBuffer.cacheIndex = block.indexData;
+            subMeshBuffer.indexLength = block.indexLength;
+
+            this.uploadBuffer(subMeshBuffer, true);
+            geometry.clearRenderParams();
+            geometry.setDrawElemenParams(block.indexLength, 0);
+
+            if (i < cache.materials.length) {
+                batch.material = cache.materials[i];
+                batch.materialIndex = i;
+            }
+        }
+
+        // 从 renderBatches 提取生成提交数组（subMeshes 和 materials）
+        this._currentBatchIndex = blockCount - 1;
+        this._syncRenderBatches(blockCount);
+        this._materialIndex = blockCount;
+
+        // 标记需要更新
+        this.needUpdate = true;
+    }
+
+    /**
+     * @en Get or create current render batch.
+     * @zh 获取或创建当前渲染批次。
+     */
+    private getCurrentBatch(): SpineRenderBatch {
+        let batch = this.batches[this._currentBatchIndex];
+        if (!batch) {
+            const vertexDeclaration = SpineShaderInit.SpineNormalVertexDeclaration;
+            const vertexBuffer = LayaGL.renderDeviceFactory.createVertexBuffer(
+                BufferUsage.Dynamic
+            );
+            vertexBuffer.vertexDeclaration = vertexDeclaration;
+
+            const indexBuffer = LayaGL.renderDeviceFactory.createIndexBuffer(
+                BufferUsage.Dynamic
+            );
+
+            const bufferState = LayaGL.renderDeviceFactory.createBufferState();
+            bufferState.applyState([vertexBuffer], indexBuffer);
+
+            const buffer: SubMeshBuffer = {
+                vertexData: new Float32Array(SpineConst.NORMAL_VERTEX_LENGTH * SpineConst.VERTEX_TWOCOLOR),
+                indexData: new Uint16Array(SpineConst.NORMAL_VERTEX_LENGTH * 3),
+                vertexLength: 0,
+                indexLength: 0,
+                bufferState: bufferState,
+                cacheVertex: null,
+                cacheIndex: null,
+                offsetX: 0,
+                offsetY: 0
+            };
+
+            const geometry = LayaGL.renderDeviceFactory.createRenderGeometryElement(
+                MeshTopology.Triangles,
+                DrawType.DrawElement
+            );
+            geometry.indexFormat = IndexFormat.UInt16;
+            // 整合 bufferState 和 geometry
+            geometry.bufferState = bufferState;
+
+            // 默认使用当前材质索引，材质继承由 startNewBatch 处理
+            const materialIndex = this._materialIndex - 1;
+            const material = materialIndex >= 0 ? this._internalMaterials[materialIndex] : null as any;
+
+            batch = {
+                geometry: geometry,
+                buffer: buffer,
+                material: material,
+                materialIndex: materialIndex
+            };
+            this.batches[this._currentBatchIndex] = batch;
+        }
+
+        return batch;
+    }
+
+    /**
+     * @en Publishes only drawable batches. Render geometry and materials must remain a dense, parallel pair.
+     * @zh 仅提交可绘制批次。渲染几何体和材质必须保持稠密且一一对应。
+     */
+    private _syncRenderBatches(batchCount: number): void {
+        this.subMeshes.length = 0;
+        this.materials.length = 0;
+
+        for (let i = 0; i < batchCount; i++) {
+            const batch = this.batches[i];
+            if (!batch || !batch.material || batch.buffer.vertexLength === 0 || batch.buffer.indexLength === 0)
+                continue;
+
+            this.subMeshes.push(batch.geometry);
+            this.materials.push(batch.material);
+        }
+    }
+
+    /**
+     * @en Get current submesh buffer (for compatibility).
+     * @zh 获取当前 submesh 缓冲区（用于兼容性）。
+     */
+    private getCurrentSubMeshBuffer(): SubMeshBuffer {
+        return this.getCurrentBatch().buffer;
+    }
+
+    private ensureVerticesCapacity(buffer: SubMeshBuffer, requiredLength: number) {
+        if (requiredLength > buffer.vertexData.length) {
+            const newLength = Math.max(requiredLength, buffer.vertexData.length * 2);
+            const newVertices = new Float32Array(newLength);
+            newVertices.set(buffer.vertexData);
+            buffer.vertexData = newVertices;
+        }
+    }
+
+    private ensureIndicesCapacity(buffer: SubMeshBuffer, requiredLength: number) {
+        if (requiredLength > buffer.indexData.length) {
+            const newLength = Math.max(requiredLength, buffer.indexData.length * 2);
+            const newIndices = new Uint16Array(newLength);
+            newIndices.set(buffer.indexData);
+            buffer.indexData = newIndices;
+        }
+    }
+
+    renderUpdate(   
+        time: number,
+        skeleton: spine.Skeleton, updater: SpineRenderUpdater,
+        slotRangeStart?: number, slotRangeEnd?: number,
+        offsetX: number = 0, offsetY: number = 0
+    ): void {
+        let clipper = this.clipper;
+        let twoColorTint = true;
+        let blendMode: spine.BlendMode | null = null;
+
+        let uvs: spine.NumberArrayLike;
+        let triangles: spine.NumberArrayLike;
+        let drawOrder = skeleton.drawOrder;
+        let attachmentColor: spine.Color;
+        let skeletonColor = skeleton.color;
+
+        let vertexStride: number = SpineConst.VERTEX_TWOCOLOR;
+
+        let inRange = false;
+        if (slotRangeStart == -1) inRange = true;
+        let spineTex;
+        let positions = SpineNormalRenderUpdater.positions;
+
+        let _TEMP_COLOR = SpineNormalRenderUpdater._TEMP_COLOR;
+        let _TEMP_COLOR2 = SpineNormalRenderUpdater._TEMP_COLOR2;
+
+        this._materialIndex = 0;
+        this._currentBatchIndex = -1;
+
+        const startNewBatch = () => {
+            // 如果当前批次有数据，先上传并完成当前批次
+            if (this._currentBatchIndex >= 0) {
+                const currentBatch = this.batches[this._currentBatchIndex];
+                if (currentBatch && currentBatch.buffer.vertexLength > 0) {
+                    currentBatch.geometry.clearRenderParams();
+                    currentBatch.geometry.setDrawElemenParams(currentBatch.buffer.indexLength, 0);
+                    this.uploadBuffer(currentBatch.buffer);
+                }
+            }
+
+            this._currentBatchIndex++;
+            const batch = this.getCurrentBatch();
+
+            batch.buffer.vertexLength = 0;
+            batch.buffer.indexLength = 0;
+            // 清理缓存数据
+            batch.buffer.cacheVertex = null;
+            batch.buffer.cacheIndex = null;
+            batch.buffer.offsetX = offsetX;
+            batch.buffer.offsetY = offsetY;
+
+            const materialIndex = this._materialIndex - 1;
+            batch.material = materialIndex >= 0 ? this._internalMaterials[materialIndex] : null;
+            batch.materialIndex = materialIndex;
+        };
+
+        for (let i = 0, n = drawOrder.length; i < n; i++) {
+            let clippedVertexStride = clipper.isClipping() ? 2 : vertexStride;
+            let slot = drawOrder[i];
+            let boneOrSlot = SpineConst.NEED_SLOT ? slot : slot.bone;
+
+            if (!slot.bone.active) {
+                clipper.clipEndWithSlot(slot);
+                continue;
+            }
+
+            if (slotRangeStart >= 0 && slotRangeStart == slot.data.index) {
+                inRange = true;
+            }
+
+            if (!inRange) {
+                clipper.clipEndWithSlot(slot);
+                continue;
+            }
+
+            if (slotRangeEnd >= 0 && slotRangeEnd == slot.data.index) {
+                inRange = false;
+            }
+
+            let attachment = slot.getAttachment();
+            let texture: SpineTexture;
+            let verticesLength = 0;
+
+            if (attachment instanceof window.spine.RegionAttachment) {
+                let region = <spine.RegionAttachment>attachment;
+                verticesLength = clippedVertexStride << 2;
+
+                if (attachment.sequence != null)
+                    attachment.sequence.apply(slot, attachment);
+
+                region.computeWorldVertices(boneOrSlot as any, positions, 0, clippedVertexStride);
+                triangles = QUAD_TRIANGLES;
+                uvs = region.uvs;
+                texture = <SpineTexture>(region.region as any).page.texture;
+                attachmentColor = region.color;
+
+            } else if (attachment instanceof window.spine.MeshAttachment) {
+                let mesh = <spine.MeshAttachment>attachment;
+                verticesLength = (mesh.worldVerticesLength >> 1) * clippedVertexStride;
+                if (verticesLength > positions.length) {
+                    positions = new Float32Array(verticesLength);
+                    SpineNormalRenderUpdater.positions = positions;
+                }
+
+                mesh.computeWorldVertices(slot, 0, mesh.worldVerticesLength, positions, 0, clippedVertexStride);
+                triangles = mesh.triangles;
+                texture = <SpineTexture>(mesh.region as any).page.texture;
+                uvs = mesh.uvs;
+                attachmentColor = mesh.color;
+            } else if (attachment instanceof window.spine.ClippingAttachment) {
+                this.clipper.clipStart(slot, attachment);
+                continue;
+            } else {
+                clipper.clipEndWithSlot(slot);
+                continue;
+            }
+
+            if (texture) {
+                let slotColor = slot.color;
+                let finalColor = _TEMP_COLOR;
+                finalColor.r = skeletonColor.r * slotColor.r * attachmentColor.r;
+                finalColor.g = skeletonColor.g * slotColor.g * attachmentColor.g;
+                finalColor.b = skeletonColor.b * slotColor.b * attachmentColor.b;
+                finalColor.a = skeletonColor.a * slotColor.a * attachmentColor.a;
+
+                let darkColor = _TEMP_COLOR2;
+                if (!slot.darkColor)
+                    darkColor.set(0, 0, 0, 1.0);
+                else {
+                    darkColor.setFromColor(slot.darkColor);
+                }
+
+                let slotBlendMode = slot.data.blendMode;
+                let needNewMat = false;
+                if (slotBlendMode != blendMode) {
+                    blendMode = slotBlendMode;
+                    needNewMat = true;
+                }
+                if (spineTex != texture) {
+                    spineTex = texture;
+                    needNewMat = true;
+                }
+
+                if (needNewMat) {
+                    const needsNewBatch = this._currentBatchIndex < 0 || this.batches[this._currentBatchIndex].buffer.vertexLength > 0;
+                    // 如果有当前批次且有数据，先完成当前批次
+                    this.addMaterial(updater.owner._getMaterial(texture.realTexture, blendMode));
+                    if (needsNewBatch) {
+                        startNewBatch();
+                    } else {
+                        const currentBatch = this.batches[this._currentBatchIndex];
+                        currentBatch.material = this._internalMaterials[this._materialIndex - 1];
+                        currentBatch.materialIndex = this._materialIndex - 1;
+                    }
+                }
+
+                if (clipper.isClipping()) {
+                    clipper.clipTriangles(positions, verticesLength, triangles, triangles.length, uvs, finalColor, darkColor, twoColorTint);
+
+                    if (!this.canAppend(clipper.clippedVertices.length)) {
+                        startNewBatch();  // 使用上一个材质
+                    }
+
+                    this.appendVerticesClip(clipper.clippedVertices, clipper.clippedTriangles, vertexStride, offsetX, offsetY);
+                } else {
+                    if (!this.canAppend(verticesLength)) {
+                        startNewBatch();  // 使用上一个材质
+                    }
+
+                    if (finalColor.a != 0) {
+                        this.appendVertices(positions, uvs, finalColor, darkColor, verticesLength, triangles, triangles.length, vertexStride, offsetX, offsetY);
+                    }
+                }
+            }
+            clipper.clipEndWithSlot(slot);
+        }
+        clipper.clipEnd();
+
+        if (this._currentBatchIndex >= 0) {
+            const currentBatch = this.batches[this._currentBatchIndex];
+            if (currentBatch.buffer.vertexLength > 0) {
+                currentBatch.geometry.clearRenderParams();
+                currentBatch.geometry.setDrawElemenParams(currentBatch.buffer.indexLength, 0);
+                this.uploadBuffer(currentBatch.buffer);
+            }
+        }
+
+        const totalBatchCount = this._currentBatchIndex + 1;
+        
+        if (totalBatchCount < this.batches.length) {
+            for (let i = totalBatchCount; i < this.batches.length; i++) {
+                this.destroyBatch(this.batches[i]);
+            }
+        }
+        this.batches.length = totalBatchCount;
+        
+        this._syncRenderBatches(totalBatchCount);
+
+        this.needUpdate = true;
+
+        if (this.autoCacheEnabled && updater && !updater.owner._hasExternalSkin) {
+            let frameIndex = updater.cacheFrameIndex;
+            let cacheTarget = updater.currentData;
+            if (frameIndex >= 0 && !cacheTarget.renderCache[frameIndex]) {
+                let renderBlocks = [];
+                for (let i = 0; i < totalBatchCount; i++) {
+                    const batch = this.batches[i];
+                    if (batch && batch.material && batch.buffer.vertexLength > 0 && batch.buffer.indexLength > 0) {
+                        renderBlocks.push({
+                            vertexData: batch.buffer.vertexData.slice(0, batch.buffer.vertexLength),
+                            vertexLength: batch.buffer.vertexLength,
+                            indexData:batch.buffer.indexData.slice(0, batch.buffer.indexLength),
+                            indexLength: batch.buffer.indexLength
+                        });
+                    }
+                }
+
+                let frameCache: FrameRenderCache = {
+                    renderBlocks: renderBlocks,
+                    materials: this.materials.slice()
+                };
+                cacheTarget.renderCache[frameIndex] = frameCache;
+            }
+        }
+    }
+
+    private destroyBatch(batch: SpineRenderBatch): void {
+        let _vertexBuffers = batch.buffer.bufferState._vertexBuffers;
+        for (let i = 0; i < _vertexBuffers.length; i++) {
+            _vertexBuffers[i].destroy();
+        }
+
+        batch.buffer.bufferState._bindedIndexBuffer.destroy();
+        batch.buffer.bufferState.destroy();
+        batch.geometry.destroy();
+    }
+
+    private addMaterial(material: Material): void {
+        if (this._internalMaterials[this._materialIndex] === material) {
+            this._materialIndex++;
+            return;
+        }
+        this._internalMaterials[this._materialIndex] = material;
+        this._materialIndex++;
+        this.needUpdate = true;
+    }
+
+    /**
+     * @en Check if the current submesh can append more vertices.
+     * @param verticesLength Number of vertices to be appended.
+     * @returns True if can append, false otherwise.
+     * @zh 检查当前 submesh 是否能够添加更多的顶点。
+     * @param verticesLength 要添加的顶点数量。
+     * @returns 如果可以添加则返回 true，否则返回 false。
+     */
+    canAppend(verticesLength: number) {
+        if (this._currentBatchIndex < 0) return true;
+        const currentBatch = this.batches[this._currentBatchIndex];
+        if (!currentBatch) return true;
+        const currentBuffer = currentBatch.buffer;
+        const currentVertexCount = currentBuffer.vertexLength / SpineConst.VERTEX_TWOCOLOR;
+        const newVertexCount = verticesLength / SpineConst.VERTEX_TWOCOLOR;
+        return (currentVertexCount + newVertexCount) < SpineNormalRenderUpdater.MAX_VERTICES_PER_BUFFER;
+    }
+
+    private uploadBuffer(subMeshBuffer: SubMeshBuffer , useCache = false): void {
+        if (!subMeshBuffer || !subMeshBuffer.bufferState) return;
+
+        const vbByteLength = subMeshBuffer.vertexLength * 4;
+        const ibByteLength = subMeshBuffer.indexLength * 2;
+
+        let vertexBuffer = subMeshBuffer.bufferState._vertexBuffers[0];
+        vertexBuffer.setDataLength(vbByteLength);
+        if (useCache && subMeshBuffer.cacheVertex) {
+            vertexBuffer.setData(subMeshBuffer.cacheVertex.buffer as ArrayBuffer, 0, 0, vbByteLength);
+        }else{
+            vertexBuffer.setData(subMeshBuffer.vertexData.buffer as ArrayBuffer, 0, 0, vbByteLength);
+        }
+
+        let indexBuffer = subMeshBuffer.bufferState._bindedIndexBuffer;
+        indexBuffer._setIndexDataLength(ibByteLength);
+        if (useCache && subMeshBuffer.cacheIndex) {
+            indexBuffer.setData(subMeshBuffer.cacheIndex.buffer as ArrayBuffer, 0, 0, ibByteLength);
+        }else{
+            indexBuffer.setData(subMeshBuffer.indexData.buffer as ArrayBuffer, 0, 0, ibByteLength);
+        }
+    }
+
+    /**
+     * @en Append clipped vertices and indices (cache raw data, apply offset on upload)
+     * @param vertices Array of vertex data.
+     * @param indices Array of index data.
+     * @param stride Vertex stride.
+     * @param offsetX Offset X.
+     * @param offsetY Offset Y.
+     * @zh 裁剪后的顶点和索引（缓存原始数据，上传时应用偏移）。
+     * @param vertices 顶点数据数组。
+     * @param indices 索引数据数组。
+     * @param stride 顶点步长。
+     * @param offsetX 偏移X。
+     * @param offsetY 偏移Y。
+     */
+    appendVerticesClip(vertices: ArrayLike<number>, indices: ArrayLike<number>, stride: number, offsetX: number, offsetY: number) {
+        let verticesLength = vertices.length;
+        if (verticesLength == 0)
+            return;
+        let indicesLength = indices.length;
+
+        const currentBuffer = this.getCurrentSubMeshBuffer();
+
+        this.ensureVerticesCapacity(currentBuffer, currentBuffer.vertexLength + verticesLength);
+        this.ensureIndicesCapacity(currentBuffer, currentBuffer.indexLength + indicesLength);
+
+        let vertexData = currentBuffer.vertexData;
+        let indexData = currentBuffer.indexData;
+        let before = currentBuffer.vertexLength;
+        let indexStart = before / stride;
+
+        let vlen = before;
+        for (let j = 0; j < verticesLength; vlen += stride, j += stride) {
+            vertexData[vlen] = vertices[j + 6];
+            vertexData[vlen + 1] = vertices[j + 7];
+            vertexData[vlen + 2] = vertices[j + 2];
+            vertexData[vlen + 3] = vertices[j + 3];
+            vertexData[vlen + 4] = vertices[j + 4];
+            vertexData[vlen + 5] = vertices[j + 5];
+            vertexData[vlen + 6] = vertices[j] + offsetX;
+            vertexData[vlen + 7] = vertices[j + 1] + offsetY;
+            vertexData[vlen + 8] = vertices[j + 8];
+            vertexData[vlen + 9] = vertices[j + 9];
+            vertexData[vlen + 10] = vertices[j + 10];
+            vertexData[vlen + 11] = vertices[j + 11];
+        }
+
+        currentBuffer.vertexLength = before + verticesLength;
+
+        for (let i = currentBuffer.indexLength, j = 0; j < indicesLength; i++, j++)
+            indexData[i] = indices[j] + indexStart;
+
+        currentBuffer.indexLength += indicesLength;
+    }
+
+    appendVertices(
+        positions: spine.NumberArrayLike, uvs: spine.NumberArrayLike, finalColor: spine.Color, darkColor: spine.Color,
+        verticesLength: number,
+        indices: spine.NumberArrayLike, indicesLength: number,
+        stride: number, offsetX: number, offsetY: number
+    ): void {
+        if (verticesLength == 0)
+            return;
+
+        const currentBuffer = this.getCurrentSubMeshBuffer();
+
+        this.ensureVerticesCapacity(currentBuffer, currentBuffer.vertexLength + verticesLength);
+        this.ensureIndicesCapacity(currentBuffer, currentBuffer.indexLength + indicesLength);
+
+        let vertexData = currentBuffer.vertexData;
+        let indexData = currentBuffer.indexData;
+        let before = currentBuffer.vertexLength;
+        let indexStart = before / stride;
+
+        for (let u = 0, v = 0, n = verticesLength; v < n; v += stride, u += 2) {
+            let size = before + v;
+            // 缓存原始数据（不应用 offset）
+            vertexData[size] = uvs[u];
+            vertexData[size + 1] = uvs[u + 1];
+            vertexData[size + 2] = finalColor.r;
+            vertexData[size + 3] = finalColor.g;
+            vertexData[size + 4] = finalColor.b;
+            vertexData[size + 5] = finalColor.a;
+            vertexData[size + 6] = positions[v] + offsetX;
+            vertexData[size + 7] = positions[v + 1] + offsetY;
+
+            vertexData[size + 8] = darkColor.r;
+            vertexData[size + 9] = darkColor.g;
+            vertexData[size + 10] = darkColor.b;
+            vertexData[size + 11] = darkColor.a;
+        }
+
+        for (let i = currentBuffer.indexLength, j = 0; j < indicesLength; i++, j++)
+            indexData[i] = indices[j] + indexStart;
+
+        currentBuffer.vertexLength = before + verticesLength;
+        currentBuffer.indexLength += indicesLength;
+    }
+
+    /**
+     * @en Export current render data to cache format.
+     * @returns Frame cache data.
+     * @zh 导出当前渲染数据为缓存格式。
+     * @returns 帧缓存数据。
+     */
+    exportToCache(): FrameRenderCache {
+        let renderBlocks = [];
+        for (let i = 0; i <= this._currentBatchIndex; i++) {
+            const batch = this.batches[i];
+            if (batch) {
+                renderBlocks.push({
+                    vertexData: new Float32Array(batch.buffer.vertexData.subarray(0, batch.buffer.vertexLength)),
+                    vertexLength: batch.buffer.vertexLength,
+                    indexData: new Uint16Array(batch.buffer.indexData.subarray(0, batch.buffer.indexLength)),
+                    indexLength: batch.buffer.indexLength
+                });
+            }
+        }
+
+        return {
+            renderBlocks: renderBlocks,
+            materials: this.materials.slice(0, this._materialIndex)
+        };
+    }
+
+    destroy() {
+        this.batches.forEach((batch) => {
+            this.destroyBatch(batch);
+        });
+
+        this.subMeshes.forEach(mesh => {
+            mesh.destroy();
+        });
+        this.subMeshes.length = 0;
+        this.batches.length = 0;
+    }
+}

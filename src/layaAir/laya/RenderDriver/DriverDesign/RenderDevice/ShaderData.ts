@@ -13,6 +13,10 @@ import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { ShaderDefine } from "../../RenderModuleData/Design/ShaderDefine";
 import { InternalTexture } from "./InternalTexture";
 import { IDeviceBuffer } from "./IDeviceBuffer";
+import { InternalRenderTarget } from "./InternalRenderTarget";
+import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
+import { UniformBufferField } from "./UniformBufferManager/UniformBufferField";
+import type { UniformBufferBlock } from "./UniformBufferManager/UniformBufferBlock";
 
 export enum ShaderDataType {
     None,
@@ -22,6 +26,7 @@ export enum ShaderDataType {
     Vector2,
     Vector3,
     Vector4,
+    Vector4u,
     Color,
     Matrix4x4,
     Buffer,
@@ -45,6 +50,49 @@ export function isUboBufferShaderType(type: ShaderDataType): boolean {
         type === ShaderDataType.Texture3D ||
         type === ShaderDataType.TextureCube ||
         type === ShaderDataType.Texture2DArray)
+}
+
+export function isBlendProperty(index: number) {
+    return index == Shader3D.BLEND ||
+        index == Shader3D.BLEND_SRC ||
+        index == Shader3D.BLEND_DST ||
+        index == Shader3D.BLEND_SRC_RGB ||
+        index == Shader3D.BLEND_DST_RGB ||
+        index == Shader3D.BLEND_SRC_ALPHA ||
+        index == Shader3D.BLEND_DST_ALPHA ||
+        index == Shader3D.BLEND_EQUATION ||
+        index == Shader3D.BLEND_EQUATION_RGB ||
+        index == Shader3D.BLEND_EQUATION_ALPHA;
+}
+
+function isDephtProperty(index: number) {
+    return index == Shader3D.DEPTH_TEST ||
+        index == Shader3D.DEPTH_WRITE ||
+        index == Shader3D.DEPTH_BIAS ||
+        index == Shader3D.DEPTH_BIAS_CONSTANT ||
+        index == Shader3D.DEPTH_BIAS_SLOPESCALE ||
+        index == Shader3D.DEPTH_BIAS_CLAMP;
+}
+
+function isStencilProperty(index: number) {
+    return index == Shader3D.STENCIL_TEST ||
+        index == Shader3D.STENCIL_WRITE ||
+        index == Shader3D.STENCIL_WRITE_MASK ||
+        index == Shader3D.STENCIL_READ_MASK ||
+        index == Shader3D.STENCIL_Ref ||
+        index == Shader3D.STENCIL_Op;
+}
+
+export function isDepthStencilProperty(index: number) {
+    return isDephtProperty(index) || isStencilProperty(index);
+}
+
+export function isCullProperty(index: number) {
+    return index == Shader3D.CULL;
+}
+
+export function isRenderStateProperty(index: number) {
+    return isBlendProperty(index) || isDepthStencilProperty(index) || isCullProperty(index);
 }
 
 export function checkShaderDataValueLegal(value: any, shaderType: ShaderDataType) {
@@ -183,6 +231,36 @@ export class ShaderData implements IClone {
      */
     clearData(): void {
         throw new NotImplementedError();
+    }
+
+    /**
+     * @internal
+     * UBO 布局版本号:_uniformBuffersPropertyMap 变动(建块 / clearData)即 +1,供 UniformBufferField 廉价过期校验。
+     */
+    _uboLayoutVersion: number = 0;
+
+    /**
+     * @internal
+     * 取持有属性 index 的池化 cluster 块;独立 UBO 或不存在返回 null。仅供 UniformBufferField 重解析。
+     */
+    _getUniformBlockByProperty(index: number): UniformBufferBlock {
+        return null;
+    }
+
+    /**
+     * 取属性 index 的直写句柄(最优路径):跳过 _data 与逐属性 map 查找,直写块 view + 标脏。
+     * 句柄由调用方缓存复用,生命期跟绑定走;setXxx 返回 false 表示该属性当前未池化成 cluster 块
+     * (如 WebGL 节点变换、独立 UBO)或句柄失效,调用方据此回退 setXxx。
+     *
+     * 注意:通过返回的 field 写入不会同步 ShaderData 内部数据。之后调用 getXxx、getShaderData
+     * 或 clone 取得的仍是上一次普通 ShaderData setter 写入的值,可能已经过期或尚未初始化。
+     * field 仅适用于无需从 ShaderData 回读、并由调用方持续重推的属性。
+     */
+    getUniformField(index: number): UniformBufferField {
+        const field = new UniformBufferField();
+        field._owner = this;
+        field._index = index;
+        return field;
     }
 
 
@@ -466,10 +544,16 @@ export class ShaderData implements IClone {
     /**
      * @private
      */
-    _setInternalTexture(index: number, value: InternalTexture): void {
+    _setInternalTexture(index: number, value: InternalTexture | InternalRenderTarget): void {
         throw new NotImplementedError();
     }
 
+    /**
+     * @private
+     */
+    update(name: string) {
+        throw new NotImplementedError();
+    }
 
     /**
      * 克隆。

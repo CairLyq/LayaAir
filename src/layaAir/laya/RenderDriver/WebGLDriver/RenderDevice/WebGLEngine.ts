@@ -29,10 +29,10 @@ import { IDefineDatas } from "../../RenderModuleData/Design/IDefineDatas";
 import { WebGLInternalTex } from "./WebGLInternalTex";
 import { EventDispatcher } from "../../../events/EventDispatcher";
 import { WebGLInternalRT } from "./WebGLInternalRT";
-import { RenderTargetFormat } from "../../../RenderEngine/RenderEnum/RenderTargetFormat";
-import { Config3D } from "../../../../Config3D";
 import { WebGLUniformBufferManager } from "./WebGLUniformBufferManager";
 import { Config } from "../../../../Config";
+import { RenderState } from "../../RenderModuleData/Design/RenderState";
+import { BlendType } from "../../../RenderEngine/RenderEnum/BlendType";
 
 /**
  * 封装Webgl
@@ -115,6 +115,7 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
     //bind clearColor
     private _lastClearColor: Color = new Color;
     private _lastClearDepth: number = -1;
+    private _attachmentClearColor = new Float32Array(4);
 
     private _globalWidth: number;
     private _globalHeight: number;
@@ -246,9 +247,9 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         this._GLTextureContext = this.isWebGL2 ? new GL2TextureContext(this) : new GLTextureContext(this);
         this._GLRenderDrawContext = new GLRenderDrawContext(this);
 
-        canvas.addEventListener("webglcontextlost", this.webglContextLost)
+        canvas.addEventListener("webglcontextlost", this.webglContextLost.bind(this))
         Config._uniformBlock = Config.enableUniformBufferObject && this.getCapable(RenderCapable.UnifromBufferObject);
-        Config.matUseUBO = Config.matUseUBO && this.getCapable(RenderCapable.UnifromBufferObject);
+        Config.matUseUBO = Config.matUseUBO && this.getCapable(RenderCapable.UnifromBufferObject) && Config.enableUniformBufferObject;
         this._initBufferBlock();
     }
 
@@ -343,15 +344,34 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
 
 
 
-    clearRenderTexture(clearFlag: RenderClearFlag, clearcolor: Color = null, clearDepth: number = 1, clearStencilValue = 0) {
+    clearRenderTexture(clearFlag: RenderClearFlag, clearcolor: Color = null, clearDepth: number = 1, clearStencilValue = 0,
+        clearColorValues?: readonly (Color | null)[]) {
         var flag: number;
         //this.gl.enable(this._gl.SCISSOR_TEST)
         if (clearFlag & RenderClearFlag.Color) {
-            if (clearcolor && !this._lastClearColor.equal(clearcolor)) {
-                this._context.clearColor(clearcolor.r, clearcolor.g, clearcolor.b, clearcolor.a);
-                clearcolor.cloneTo(this._lastClearColor);
+            if (clearColorValues) {
+                if (!this._isWebGL2)
+                    throw new Error("Per-attachment clear colors require WebGL2.");
+                const gl = this._context as WebGL2RenderingContext;
+                const values = this._attachmentClearColor;
+                const colorFormats = this._GLTextureContext.currentActiveRT?.colorFormats;
+                // MRT formats currently expose normalized/floating-point, not integer, attachments.
+                for (let i = 0; i < clearColorValues.length; i++) {
+                    const color = clearColorValues[i];
+                    if (!color || (colorFormats && colorFormats[i] == null)) continue;
+                    values[0] = color.r;
+                    values[1] = color.g;
+                    values[2] = color.b;
+                    values[3] = color.a;
+                    gl.clearBufferfv(gl.COLOR, i, values);
+                }
+            } else {
+                if (clearcolor && !this._lastClearColor.equal(clearcolor)) {
+                    this._context.clearColor(clearcolor.r, clearcolor.g, clearcolor.b, clearcolor.a);
+                    clearcolor.cloneTo(this._lastClearColor);
+                }
+                flag |= this.gl.COLOR_BUFFER_BIT;
             }
-            flag |= this.gl.COLOR_BUFFER_BIT;
         }
         if (clearFlag & RenderClearFlag.Depth) {
             if (this._lastClearDepth != clearDepth) {
@@ -364,6 +384,7 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         if (clearFlag & RenderClearFlag.Stencil) {
             this._context.clearStencil(clearStencilValue);
             this._GLRenderState.setStencilWrite(true);
+            this._GLRenderState.setStencilWriteMask(0xFF);
             flag |= this._context.STENCIL_BUFFER_BIT;
         }
         if (flag)
@@ -477,7 +498,9 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
             var one: any/*ShaderVariable*/ = shaderUniform[i];
             if (uploadUnTexture || one.textureID !== -1) {//如uniform为纹理切换Shader时需要重新上传
                 var value: any = data[one.dataOffset];
-                if (value != null)
+                // Texture uniforms must always be uploaded. Otherwise a missing texture keeps
+                // the previous binding of the texture unit and makes rendering order-dependent.
+                if (value != null || one.textureID !== -1)
                     shaderCall += one.fun.call(one.caller, one, value);
             }
         }
@@ -501,6 +524,101 @@ export class WebGLEngine extends EventDispatcher implements IRenderEngine {
         this._GLBindVertexArray = null;
     }
 
+
+
+    /**
+     * 
+     * @param renderState 
+     */
+    hashRenderState(renderState: RenderState) {
+
+        let rasterMask = 0;
+        {
+            let bitOffset = 0;
+
+            rasterMask |= (renderState.cull & 0x3) << bitOffset;
+            bitOffset += 2;
+
+            rasterMask |= (renderState.blend & 0x3) << bitOffset;
+            bitOffset += 2;
+
+            switch (renderState.blend) {
+                case BlendType.BLEND_DISABLE:
+                    // padding for rgb and alpha
+                    bitOffset += (4 + 4 + 3) * 2;
+                    break;
+                case BlendType.BLEND_ENABLE_ALL:
+                    rasterMask |= (renderState.srcBlend & 0xF) << bitOffset;
+                    bitOffset += 4;
+                    rasterMask |= (renderState.dstBlend & 0xF) << bitOffset;
+                    bitOffset += 4;
+                    rasterMask |= (renderState.blendEquation & 0x7) << bitOffset;
+                    bitOffset += 3;
+
+                    // padding for alpha
+                    bitOffset += 4 + 4 + 3;
+                    break;
+                case BlendType.BLEND_ENABLE_SEPERATE:
+                    rasterMask |= (renderState.srcBlendRGB & 0xF) << bitOffset;
+                    bitOffset += 4;
+                    rasterMask |= (renderState.dstBlendRGB & 0xF) << bitOffset;
+                    bitOffset += 4;
+                    rasterMask |= (renderState.blendEquationRGB & 0x7) << bitOffset;
+                    bitOffset += 3;
+
+                    rasterMask |= (renderState.srcBlendAlpha & 0xF) << bitOffset;
+                    bitOffset += 4;
+                    rasterMask |= (renderState.dstBlendAlpha & 0xF) << bitOffset;
+                    bitOffset += 4;
+                    rasterMask |= (renderState.blendEquationAlpha & 0x7) << bitOffset;
+                    bitOffset += 3;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        let depthStencilMask = 0;
+        {
+            let bitOffset = 0;
+            depthStencilMask |= (renderState.depthTest & 0xF) << bitOffset;
+            bitOffset += 4;
+            depthStencilMask |= (renderState.depthWrite ? 1 : 0) << bitOffset;
+            bitOffset += 1;
+            depthStencilMask |= (renderState.depthBias ? 1 : 0) << bitOffset;
+            bitOffset += 1;
+
+            depthStencilMask |= (renderState.stencilTest & 0xF) << bitOffset;
+            bitOffset += 4;
+            depthStencilMask |= (renderState.stencilOp.x & 0x7) << bitOffset;
+            bitOffset += 3;
+            depthStencilMask |= (renderState.stencilOp.y & 0x7) << bitOffset;
+            bitOffset += 3;
+            depthStencilMask |= (renderState.stencilOp.z & 0x7) << bitOffset;
+            bitOffset += 3;
+            depthStencilMask |= (renderState.stencilWrite ? 1 : 0) << bitOffset;
+            bitOffset += 1;
+        }
+
+        let stencilMask = 0;
+        {
+            let bitOffset = 0;
+            stencilMask |= (renderState.stencilReadMask & 0xFF) << bitOffset;
+            bitOffset += 8;
+            stencilMask |= (renderState.stencilWriteMask & 0xFF) << bitOffset;
+            bitOffset += 8;
+            stencilMask |= (renderState.stencilRef & 0xFF) << bitOffset;
+            bitOffset += 8;
+        }
+
+        renderStateHashF32[0] = renderState.depthBiasConstant;
+        renderStateHashF32[1] = renderState.depthBiasSlopeScale;
+        renderStateHashF32[2] = renderState.depthBiasClamp;
+
+        return `${rasterMask}_${depthStencilMask}_${stencilMask}_${renderStateHashU32.join()}`;
+    }
+
 }
 
-
+const renderStateHashF32 = new Float32Array(3);
+const renderStateHashU32 = new Uint32Array(renderStateHashF32.buffer);

@@ -36,6 +36,10 @@ export class ReflectionProbeManager implements IVolumeManager {
         return this._sceneReflectionProbe;
     }
 
+    hasUserProbe(): boolean {
+        return this._reflectionProbes.length > 0;
+    }
+
     set sceneReflectionProbe(value: ReflectionProbe) {
         this._sceneReflectionProbe = value;
         this._needUpdateAllRender = true;//update Reflection
@@ -152,8 +156,9 @@ export class ReflectionProbeManager implements IVolumeManager {
             probe.destroy();
         }
         this._reflectionProbes.length = 0;
-        this._sceneReflectionProbe.destroy();
+        const sceneReflectionProbe = this._sceneReflectionProbe;
         this._sceneReflectionProbe = null;
+        sceneReflectionProbe?._destroyByManager();
     }
 }
 

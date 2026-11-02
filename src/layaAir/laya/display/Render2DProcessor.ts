@@ -2,6 +2,7 @@ import { LayaGL } from "../layagl/LayaGL";
 import { StatElement } from "../layagl/StatisticsContext";
 import { IRenderContext2D } from "../RenderDriver/DriverDesign/2DRenderPass/IRenderContext2D";
 import { IRender2DPass, IRender2DPassManager } from "../RenderDriver/RenderModuleData/Design/2D/IRender2DPass";
+import { GraphicsCompileContext } from "./Scene2DSpecial/GraphicsRenderPipeline/GraphicsCompileContext";
 import { GraphicsRunner } from "./Scene2DSpecial/GraphicsRunner";
 
 /**
@@ -10,10 +11,14 @@ import { GraphicsRunner } from "./Scene2DSpecial/GraphicsRunner";
 export class Render2DProcessor {
 
     static rendercontext2D: IRenderContext2D;
+    static renderTime: number = 0;
     static runner: GraphicsRunner;
+    /** @internal Shared retained compiler; Graphics compilation is synchronous. */
+    static compileContext: GraphicsCompileContext;
 
     static __init__() {
         Render2DProcessor.runner = new GraphicsRunner();
+        Render2DProcessor.compileContext = new GraphicsCompileContext();
         Render2DProcessor.rendercontext2D = LayaGL.render2DRenderPassFactory.createRenderContext2D();
     }
 
@@ -52,9 +57,9 @@ export class Render2DProcessor {
      * 渲染所有 Pass
      * @param context2D 2D 渲染上下文
      */
-    apply(context2D: IRenderContext2D): void {
+    apply(context2D: IRenderContext2D, renderTime: number = Render2DProcessor.renderTime): void {
         let t = performance.now();
-        this._manager.apply(context2D);
+        this._manager.apply(context2D, renderTime);
         LayaGL.statAgent.recordTimeData(StatElement.T_2DPass, performance.now() - t);
     }
 

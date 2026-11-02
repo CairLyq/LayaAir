@@ -140,6 +140,7 @@ export class GlowEffect2D extends PostProcess2DEffect {
         (!this._blitmat) && (this._blitmat = new Material());
         this._blitmat.lock = true;
         this._blitmat.setShaderName("ColorEffect2D");
+        this._blitmat.lock = true;
         if (!this._blitElement) {
             this._blitElement = LayaGL.render2DRenderPassFactory.createRenderElement2D();
             this._blitElement.geometry = Blit2DCMD.InvertQuadGeometry;
@@ -164,11 +165,11 @@ export class GlowEffect2D extends PostProcess2DEffect {
             this._glowElement.subShader = this._glowMat.shader.getSubShaderAt(0);
         }
 
-
         //compositemat
         (!this._compositeMat) && (this._compositeMat = new Material());
         this._compositeMat.lock = true;
         this._compositeMat.setShaderName("ColorEffect2D");
+        this._compositeMat.lock = true;
         if (!this._compositeElement) {
             this._compositeElement = LayaGL.render2DRenderPassFactory.createRenderElement2D();
             this._compositeElement.geometry = Blit2DCMD.InvertQuadGeometry;
@@ -200,8 +201,8 @@ export class GlowEffect2D extends PostProcess2DEffect {
         //glow rt
         this._glowMat.setVector2("u_centerScale", Vector2.ONE);
         this._glowMat.setTexture("u_MainTex", this._blitExtendRT);
-        this._sv_blurInfo2.x = width;
-        this._sv_blurInfo2.y = height;
+        this._sv_blurInfo2.x = texwidth;
+        this._sv_blurInfo2.y = texheight;
         this._glowMat.setVector4("u_blurInfo2", this._sv_blurInfo2);
         context.command.setRenderTarget(this._destRT, true, Color.CLEAR);
         context.command.drawRenderElement(this._glowElement, Matrix.EMPTY);
@@ -233,6 +234,13 @@ export class GlowEffect2D extends PostProcess2DEffect {
         if (!this._blitExtendRT) {
             this._blitExtendRT = context.getRenderTexture(width, height, RenderTargetFormat.R8G8B8A8, RenderTargetFormat.None);
         }
+    }
+
+    /** @internal */
+    releaseInputTextureBindings(): void {
+        this._blitmat && this._blitmat.setTexture("u_MainTex", null);
+        this._glowMat && this._glowMat.setTexture("u_MainTex", null);
+        this._compositeMat && this._compositeMat.setTexture("u_MainTex", null);
     }
 
     /** @ignore */

@@ -35,7 +35,7 @@ export class SeparableSSSRenderMaterial extends Material {
             'sssssDiffuseTexture': ShaderDataType.Texture2D,
             'sssssSpecularTexture': ShaderDataType.Texture2D,
             'u_TilingOffset': ShaderDataType.Vector4,
-            'u_MvpMatrix': ShaderDataType.Matrix4x4
+            'u_MvpMatrix': ShaderDataType.Matrix4x4,
         };
         var subShader: SubShader = new SubShader(attributeMap, uniformMap);
         shader.addSubShader(subShader);

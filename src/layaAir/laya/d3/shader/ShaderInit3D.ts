@@ -1,13 +1,16 @@
 
 import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
 import UtilsGLSL from "./utils/Utils.glsl";
-import OutputTransformGLSL from "./common/OutputTransform.glsl";
 import BakedBoneMatrixSamplerGLSL from "./utils/BakedBoneMatrixSampler.glsl";
 import MorphTargetGLSL from "./common/MorphTarget.glsl";
 import VertexGLSL from "./common/VertexCommon.glsl";
 import ShadingCommonGLSL from "./common/ShadingCommon.glsl";
 import ShadingVertexGLSL from "./common/ShadingVertex.glsl";
 import ShadingFragGLSL from "./common/ShadingFrag.glsl";
+import GBufferGLSL from "./common/GBuffer.glsl";
+import MotionVectorCommonGLSL from "./common/MotionVectorCommon.glsl";
+import MotionVectorVertexGLSL from "./common/MotionVectorVertex.glsl";
+import MotionVectorFragGLSL from "./common/MotionVectorFrag.glsl";
 import SceneGLSL from "./common/SceneCommon.glsl";
 import CameraGLSL from "./common/CameraCommon.glsl";
 import SkyCommon from "./common/SkyCommon.glsl";
@@ -30,6 +33,8 @@ import GridHelpersGLSL from "./lighting/volumetricGI/GridHelpers.glsl";
 import VolumetricGIGLSL from "./lighting/volumetricGI/VolumetricGI.glsl";
 import BlinnPhongLightingGLSL from "./lightingmode/BlinnPhongLighting.glsl";
 import PBRLightingGLSL from "./lightingmode/PBRLighting.glsl";
+
+
 import { BlitScreenShaderInit } from "./postprocess/BlitScreenShaderInit";
 import { UnlitShaderInit } from "./unlit/UnlitShaderInit";
 import { BlinnPhongShaderInit } from "./blinnphong/BlinnPhongShaderInit";
@@ -38,10 +43,12 @@ import { PBRStandardShaderInit } from "./pbr/PBRStandardShaderInit";
 import { SkyBoxShaderInit } from "./sky/SkyBoxShaderInit";
 import { SkyProceduralShaderInit } from "./sky/SkyProceduralShaderInit";
 import { SkyPanoramicShaderInit } from "./sky/SkyPanoramicShaderInit";
+import { PlanarShadowShaderInit } from "./planarshadow/PlanarShadowShaderInit";
+
 
 /**
  * @internal
- * <code>ShaderInit</code> 类用于初始化内置Shader。
+ * &lt;code&gt;ShaderInit&lt;/code&gt; 类用于初始化内置Shader。
  */
 export class ShaderInit3D {
 	/**
@@ -58,8 +65,11 @@ export class ShaderInit3D {
 		Shader3D.addInclude("ShadingCommon.glsl", ShadingCommonGLSL);
 		Shader3D.addInclude("ShadingVertex.glsl", ShadingVertexGLSL);
 		Shader3D.addInclude("ShadingFrag.glsl", ShadingFragGLSL);
+		Shader3D.addInclude("GBuffer.glsl", GBufferGLSL);
+		Shader3D.addInclude("MotionVectorCommon.glsl", MotionVectorCommonGLSL);
+		Shader3D.addInclude("MotionVectorVertex.glsl", MotionVectorVertexGLSL);
+		Shader3D.addInclude("MotionVectorFrag.glsl", MotionVectorFragGLSL);
 
-	
 
 		// scene
 		Shader3D.addInclude("Scene.glsl", SceneGLSL);
@@ -113,6 +123,7 @@ export class ShaderInit3D {
 		SkyBoxShaderInit.init();
 		SkyProceduralShaderInit.init();
 		SkyPanoramicShaderInit.init();
+		PlanarShadowShaderInit.init();
 
 		///////////////////////////////////////////////////////////////////////
 		Shader3D.SHADERDEFINE_LEGACYSINGALLIGHTING = Shader3D.getDefineByName("LEGACYSINGLELIGHTING");

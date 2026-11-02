@@ -5,6 +5,7 @@ import { RigidBody2DType } from "./factory/IPhysics2DFactory";
 import { Physics2D } from "./Physics2D";
 import { RigidBody } from "./RigidBody";
 import { Physics2DShapeBase } from "./Shape/Physics2DShapeBase";
+import { Point } from "../maths/Point";
 
 /**
  * @en 2Dphysics Static Collider
@@ -43,8 +44,11 @@ export class StaticCollider extends ColliderBase {
         return this._shapes;
     }
     public set shapes(value: Physics2DShapeBase[]) {
-        this._shapes = value;
-        if (!value) return;
+        const next = value || [];
+        for (const shape of this._shapes || []) {
+            if (next.indexOf(shape) < 0) shape.destroy();
+        }
+        this._shapes = value = next;
         value.forEach((shape) => {
             shape.setCollider(this);
         });
@@ -57,8 +61,9 @@ export class StaticCollider extends ColliderBase {
     private _setBodyDefValue(): void {
         // 静态刚体这样设置
         let owner: Sprite = this.owner;
-        this._bodyDef.position.setValue(owner.globalTrans.x, owner.globalTrans.y);
-        this._bodyDef.angle = Utils.toRadian(owner.globalTrans.rotation);
+        Physics2D.getDesignPosition(owner, _tempPosition);
+        this._bodyDef.position.setValue(_tempPosition.x, _tempPosition.y);
+        this._bodyDef.angle = Utils.toRadian(Physics2D.getDesignRotation(owner));
         this._bodyDef.allowSleep = false;
         this._bodyDef.angularVelocity = 0;
         this._bodyDef.angularDamping = 0;
@@ -92,19 +97,49 @@ export class StaticCollider extends ColliderBase {
         }
     }
 
+    /** @internal Rebuild Shapes fixtures only when their effective physics scale changes. */
+    protected _onPhysicsScaleChanged(): void {
+        if (this._rigidbody) {
+            super._onPhysicsScaleChanged();
+            return;
+        }
+
+        if (!this._shapes) return;
+        for (let i = 0, n = this._shapes.length; i < n; i++) {
+            this._shapes[i].setCollider(this);
+        }
+    }
+
     _removeShapeAndDestroyData() {
-        if (!this._rigidbody) {
-            if (!this._shapes) return;
-            for (let i = 0; i < this.shapes.length; i++) {
-                let shape = this._shapes[i];
-                shape.destroy();
+        if (this._rigidbody) {
+            // Collider 挂在 RigidBody 节点上，body 由 RigidBody 管理
+            // 只移除自己的 fixture，不销毁 body
+            let body = this._box2DBody;
+            if (body && !body.destroyed && this._box2DShape) {
+                Physics2D.I._factory.destroyShape(this._physics2DManager.box2DWorld, body, this._box2DShape);
+            }
+        } else {
+            // 独立 StaticCollider，自己拥有 body
+            if (this._shapes) {
+                for (let i = 0; i < this._shapes.length; i++) {
+                    let shape = this._shapes[i];
+                    shape.destroy();
+                }
+            }
+            // DestroyBody 会连带销毁 body 上所有 fixture，之后不可再对 fixture 调用 __destroy__
+            if (this._box2DBody) {
+                Physics2D.I._factory.removeBody(this._physics2DManager.box2DWorld, this._box2DBody);
             }
         }
-        this._rigidbody && (this._box2DBody = this._rigidbody.getBox2DBody());
-        this._box2DBody && (Physics2D.I._factory.removeBody(this._physics2DManager.box2DWorld, this._box2DBody));
+        // filter 和 shapeDef 是独立分配的 WASM 对象，需要单独释放
         this._box2DFilter && Physics2D.I._factory.destroyData(this._box2DFilter);
+        // Destroy the template b2Shape allocated in createShapeDef before destroying the b2FixtureDef
+        if (this._box2DShapeDef && this._box2DShapeDef._shape) {
+            Physics2D.I._factory.destroyData(this._box2DShapeDef._shape);
+            this._box2DShapeDef._shape = null;
+        }
         this._box2DShapeDef && Physics2D.I._factory.destroyData(this._box2DShapeDef);
-        this._box2DShape && Physics2D.I._factory.destroyData(this._box2DShape);
+        // _box2DShape (b2Fixture) 已在上面被 DestroyBody 或 DestroyFixture 释放，不可再 destroyData
         this._box2DBody = null;
         this._box2DFilter = null;
         this._box2DShape = null;
@@ -113,11 +148,16 @@ export class StaticCollider extends ColliderBase {
 
     protected _onDisable(): void {
         this._removeShapeAndDestroyData();
+        // super._onDisable handles _box2DBodyDef destruction and event listener cleanup
+        // _box2DBody is already null from _removeShapeAndDestroyData, so removeBody is a no-op
+        super._onDisable();
     }
 
     protected _onDestroy(): void {
         this._shapeDef = null;
         this._removeShapeAndDestroyData();
+        this._shapes = null;
+        super._onDestroy();
     }
 
     // ----------------------- deprecated 废弃方法与参数 兼容使用 ---------------------
@@ -128,12 +168,20 @@ export class StaticCollider extends ColliderBase {
     */
     createShape(collider: RigidBody): void {
         if (!collider) return;
+        const body = collider.getBox2DBody();
+        // Property changes while the rigid body is disabled are applied on re-enable.
+        if (!body || body.destroyed) return;
         this._getPhysicsManager();
         this._setRigidbodyValue(collider);
         this._rigidbody = collider;
-        this._box2DBody = collider.getBox2DBody();
+        this._box2DBody = body;
         if (this._box2DShape) {
             Physics2D.I._factory.destroyShape(this._physics2DManager.box2DWorld, this._box2DBody, this._box2DShape);
+            // Destroy the template b2Shape allocated in createShapeDef before destroying the b2FixtureDef
+            if (this._box2DShapeDef && this._box2DShapeDef._shape) {
+                Physics2D.I._factory.destroyData(this._box2DShapeDef._shape);
+                this._box2DShapeDef._shape = null;
+            }
             Physics2D.I._factory.destroyData(this._box2DShapeDef);
             this._box2DShape = null;
             this._box2DShapeDef = null;
@@ -171,3 +219,5 @@ export class StaticCollider extends ColliderBase {
     // ----------------------- deprecated 废弃方法与参数 兼容使用 ---------------------
 
 }
+
+const _tempPosition = new Point();

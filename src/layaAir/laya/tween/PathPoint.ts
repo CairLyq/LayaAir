@@ -23,6 +23,23 @@ export enum CurveType {
      */
     Straight
 }
+export enum RotationType {
+    /**
+     * @en No rotation.
+     * @zh 不旋转。
+     */
+    NoRotation,
+    /**
+     * @en Rotate along the path curve.
+     * @zh 沿路径曲线旋转。
+     */
+    RotateAlongPathCurve,
+    /**
+     * @en Rotate along the motion path.
+     * @zh 沿运动路径旋转。
+     */
+    RotateAlongMotionPath,
+}
 
 export class PathPoint {
     /**
@@ -48,6 +65,17 @@ export class PathPoint {
      * @zh 曲线类型。
      */
     curve: CurveType = 0;
+
+    /**
+     * @en Whether it's a smooth curve. Used for cubic Bezier curves. Indicates whether the first control point of this path point is symmetric to the second control point of the previous path point to achieve a smooth transition.
+     * @zh 是否平滑曲线。用于三次贝塞尔曲线。表示这个路径点的第一个控制器点是否与前一个路径点的第二个控制器点成对称关系，以实现平滑过渡。
+     */
+    smooth: boolean = true;
+
+    /**
+     * 0或者null为不旋转，1为沿路径曲线路径旋转，2为沿运动路径旋转
+     */
+    rotationType: RotationType;
 
     /**
      * @en Create a cardinalspline curve point.
@@ -80,6 +108,7 @@ export class PathPoint {
         this.c1.cloneTo(pt.c1);
         this.c2.cloneTo(pt.c2);
         pt.curve = this.curve;
+        pt.smooth = this.smooth;
         return pt;
     }
 
@@ -91,6 +120,7 @@ export class PathPoint {
         this.c1.set(0, 0, 0);
         this.c2.set(0, 0, 0);
         this.curve = 0;
+        this.smooth = true;
     }
 }
 

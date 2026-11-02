@@ -43,10 +43,16 @@ export interface IBaseRenderNode {
     transform: Transform3D;
     distanceForSort: number;
     sortingFudge: number;
+    /** Renderer order within a render queue; lower values are submitted first. */
+    renderOrder: number;
     castShadow: boolean;
     receiveShadow: boolean;
     enable: boolean;
     renderbitFlag: number;
+    //裁剪范围
+    visibalRangeBit: number;
+    visibalMin: number;
+    visibalMax: number;
     layer: number;
     bounds: Bounds;
     baseGeometryBounds: Bounds;
@@ -62,12 +68,24 @@ export interface IBaseRenderNode {
     lightProbUpdateMark: number;
     irradientMode: IrradianceMode;
     ismoved: Vector2;
+    perCameraUpdate: boolean;
     set_renderUpdatePreCall(call: any, fun: any): void;
     set_caculateBoundingBox(call: any, fun: any): void;
     /**
+     * LayaX 专有（Web/RT 驱动不实现，调用处用 `?.`）：bounds 来源模式下沉 ECS。
+     * 0=Auto(geometryBounds×WorldMat) 1=Explicit(直推世界AABB) 2=AlwaysVisible(不剔除)
+     */
+    setBoundsMode?(mode: number): void;
+    /** LayaX 专有：世界空间加性 pad（Auto 模式算完 world AABB 后叠加，如粒子重力偏移）。 */
+    setBoundsWorldPad?(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): void;
+    /** LayaX 专有：Explicit 模式直推世界 AABB（拖尾/UI3D 等 ECS 无法自算的）。 */
+    setWorldBounds?(minX: number, minY: number, minZ: number, maxX: number, maxY: number, maxZ: number): void;
+    /** LayaX 专有：退订每帧 native bounds 回调（bounds 输入改经 ECS 下沉）。 */
+    disableNativeBoundsCallback?(): void;
+    /**
      * @param value 
      */
-    setRenderelements(value: IRenderElement3D[]): void;
+    setRenderelements(value: IRenderElement3D[], deferUntilSubmit?: boolean): void;
     /**
      * @internal
      * @param value 
@@ -95,7 +113,6 @@ export interface IBaseRenderNode {
 }
 
 export interface IMeshRenderNode extends IBaseRenderNode {
-
 }
 
 export interface ISkinRenderNode extends IMeshRenderNode {

@@ -1,0 +1,255 @@
+import { BufferTargetType, BufferUsage } from "../../../../RenderEngine/RenderEnum/BufferTargetType";
+import { DrawType } from "../../../../RenderEngine/RenderEnum/DrawType";
+import { VertexMesh } from "../../../../RenderEngine/RenderShader/VertexMesh";
+import { MeshSprite3DShaderDeclaration } from "../../../../d3/core/MeshSprite3DShaderDeclaration";
+import { RenderableSprite3D } from "../../../../d3/core/RenderableSprite3D";
+import { SimpleSkinnedMeshSprite3D } from "../../../../d3/core/SimpleSkinnedMeshSprite3D";
+import { FastSinglelist } from "../../../../utils/SingletonList";
+import { BaseRenderType } from "../../../RenderModuleData/Design/3D/I3DRenderModuleData";
+import { WebDefineDatas } from "../../../RenderModuleData/WebModuleData/WebDefineDatas";
+import { WebGLBufferState } from "../../RenderDevice/WebGLBufferState";
+import { WebGLRenderGeometryElement } from "../../RenderDevice/WebGLRenderGeometryElement";
+import { WebGLShaderInstance } from "../../RenderDevice/WebGLShaderInstance";
+import { WebGLVertexBuffer } from "../../RenderDevice/WebGLVertexBuffer";
+import { WebGLRenderContext3D } from "../WebGLRenderContext3D";
+import { WebGLRenderElement3D } from "../WebGLRenderElement3D";
+export interface WebGLInstanceStateInfo {
+    state: WebGLBufferState;
+    worldInstanceVB?: WebGLVertexBuffer;
+    lightmapScaleOffsetVB?: WebGLVertexBuffer;
+    simpleAnimatorVB?: WebGLVertexBuffer;
+}
+export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
+    /**
+     * get Instance BufferState
+     */
+    static _instanceBufferStateMap: Map<number, WebGLInstanceStateInfo> = new Map();
+
+    static getInstanceBufferState(geometry: WebGLRenderGeometryElement, renderType: number, spriteDefine: WebDefineDatas) {
+        let stateinfo = WebGLInstanceRenderElement3D._instanceBufferStateMap.get(geometry._id);
+        if (!stateinfo) {
+            stateinfo = { state: new WebGLBufferState() };
+            let oriBufferState = geometry.bufferState;
+            let vertexArray = oriBufferState._vertexBuffers.slice();
+            let worldMatVertex = new WebGLVertexBuffer(BufferTargetType.ARRAY_BUFFER, BufferUsage.Dynamic);
+            worldMatVertex.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 20 * 4);
+            worldMatVertex.vertexDeclaration = VertexMesh.instanceWorldMatrixDeclaration;
+            worldMatVertex.instanceBuffer = true;
+            vertexArray.push(worldMatVertex);
+            stateinfo.worldInstanceVB = worldMatVertex;
+            switch (renderType) {
+                case BaseRenderType.MeshRender:
+                    if (spriteDefine.has(MeshSprite3DShaderDeclaration.SHADERDEFINE_UV1)) {
+                        let instanceLightMapVertexBuffer = new WebGLVertexBuffer(BufferTargetType.ARRAY_BUFFER, BufferUsage.Dynamic);
+                        instanceLightMapVertexBuffer.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 4 * 4);
+                        instanceLightMapVertexBuffer.vertexDeclaration = VertexMesh.instanceLightMapScaleOffsetDeclaration;
+                        instanceLightMapVertexBuffer.instanceBuffer = true;
+                        vertexArray.push(instanceLightMapVertexBuffer);
+                        stateinfo.lightmapScaleOffsetVB = instanceLightMapVertexBuffer;
+                    }
+                    break;
+                case BaseRenderType.SimpleSkinRender:
+                    let instanceSimpleAnimatorBuffer = new WebGLVertexBuffer(BufferTargetType.ARRAY_BUFFER, BufferUsage.Dynamic);
+                    instanceSimpleAnimatorBuffer.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 4 * 4);
+                    instanceSimpleAnimatorBuffer.vertexDeclaration = VertexMesh.instanceSimpleAnimatorDeclaration;
+                    instanceSimpleAnimatorBuffer.instanceBuffer = true;
+                    vertexArray.push(instanceSimpleAnimatorBuffer);
+                    stateinfo.simpleAnimatorVB = instanceSimpleAnimatorBuffer;
+                    break;
+            }
+            stateinfo.state.applyState(vertexArray, geometry.bufferState._bindedIndexBuffer);
+            WebGLInstanceRenderElement3D._instanceBufferStateMap.set(geometry._id, stateinfo);
+        }
+        return stateinfo;
+    }
+
+    /**
+     * max instance count
+     */
+    static readonly MaxInstanceCount: number = 1024;
+
+    /**
+     * pool of Buffer
+     * @internal
+     */
+    private _bufferPool: Map<number, Float32Array[]> = new Map();
+
+    _instanceBufferCreate(length: number): Float32Array {
+        let array = this._bufferPool.get(length);
+        if (!array) {
+            this._bufferPool.set(length, []);
+            array = this._bufferPool.get(length)
+        }
+
+        let element = array.pop() || new Float32Array(length);
+        return element;
+    }
+
+    instanceElementList: FastSinglelist<WebGLRenderElement3D>;
+
+    _vertexBuffers: Array<WebGLVertexBuffer> = [];
+    _updateData: Array<Float32Array> = [];
+    _updateDataNum: Array<number> = [];
+    _instanceStateInfo: WebGLInstanceStateInfo;
+
+    drawCount: number;
+    updateNums: number;
+
+    constructor() {
+        super();
+        this.instanceElementList = new FastSinglelist();
+        this.drawCount = 0;
+        this.updateNums = 0;
+        this.isRender = true;
+    }
+
+    addUpdateData(vb: WebGLVertexBuffer, elementLength: number, maxInstanceCount: number): Float32Array {
+        this._vertexBuffers[this.updateNums] = vb;
+        this._updateDataNum[this.updateNums] = elementLength;
+        let data = this._updateData[this.updateNums] = this._instanceBufferCreate(elementLength * maxInstanceCount);
+        this.updateNums++;
+        return data;
+    }
+
+    protected _compileShader(context: WebGLRenderContext3D) {
+        let passes = this._subShader._passes;
+        let renderCount = 0;
+
+        for (let i = 0; i < passes.length; i++) {
+            let pass = passes[i];
+            if (pass.pipelineMode != context.pipelineMode) continue;
+
+            if (this.renderShaderData) {
+                pass.nodeCommonMap = this.owner._commonUniformMap;
+            } else {
+                pass.nodeCommonMap = null;
+            }
+
+            pass.additionShaderData = null;
+            if (this.owner) {
+                pass.additionShaderData = this.owner._additionShaderDataKeys;
+            }
+
+            let comDef = this._getShaderInstanceDefines(context);
+            comDef.add(MeshSprite3DShaderDeclaration.SHADERDEFINE_GPU_INSTANCE);
+
+            let shaderIns = <WebGLShaderInstance>pass.withCompile(comDef, false, context._mrtColorAttachmentCount);
+            this._curDrawCacheInfo.shaderInss[renderCount] = shaderIns;
+            renderCount++
+        }
+        this._curDrawCacheInfo.shaderInss.length = renderCount;
+    }
+
+    _preUpdatePre(context: WebGLRenderContext3D): void {
+        super._preUpdatePre(context);
+        this._updateInstanceData();
+    }
+
+    _updateInstanceData() {
+        switch (this.owner.renderNodeType) {
+            case BaseRenderType.MeshRender: {
+                let worldMatrixData = this.addUpdateData(this._instanceStateInfo.worldInstanceVB, 20, WebGLInstanceRenderElement3D.MaxInstanceCount);
+                var insBatches = this.instanceElementList;
+                var elements: WebGLRenderElement3D[] = insBatches.elements;
+                var count: number = insBatches.length;
+                this.drawCount = count;
+                this.geometry.instanceCount = this.drawCount;
+                for (var i: number = 0; i < count; i++) {
+                    worldMatrixData.set(elements[i].transform.worldMatrix.elements, i * 20);
+                    elements[i].owner._worldParams.writeTo(worldMatrixData, i * 20 + 16);
+                }
+
+                let haveLightMap: boolean =
+                    this.renderShaderData.hasDefine(RenderableSprite3D.SAHDERDEFINE_LIGHTMAP) &&
+                    this.renderShaderData.hasDefine(MeshSprite3DShaderDeclaration.SHADERDEFINE_UV1);
+                if (haveLightMap) {
+                    let lightMapData = this.addUpdateData(this._instanceStateInfo.lightmapScaleOffsetVB, 4, WebGLInstanceRenderElement3D.MaxInstanceCount);
+                    for (var i: number = 0; i < count; i++) {
+                        let lightmapScaleOffset = elements[i].owner.lightmapScaleOffset;
+                        var offset: number = i * 4;
+                        lightMapData[offset] = lightmapScaleOffset.x;
+                        lightMapData[offset + 1] = lightmapScaleOffset.y;
+                        lightMapData[offset + 2] = lightmapScaleOffset.z;
+                        lightMapData[offset + 3] = lightmapScaleOffset.w;
+                    }
+                }
+                break;
+            }
+            case BaseRenderType.SimpleSkinRender: {
+                //worldMatrix
+                let worldMatrixData = this.addUpdateData(this._instanceStateInfo.worldInstanceVB, 20, WebGLInstanceRenderElement3D.MaxInstanceCount);
+                var insBatches = this.instanceElementList;
+                var elements: WebGLRenderElement3D[] = insBatches.elements;
+                var count: number = insBatches.length;
+                this.drawCount = count;
+                this.geometry.instanceCount = this.drawCount;
+                for (var i: number = 0; i < count; i++) {
+                    worldMatrixData.set(elements[i].transform.worldMatrix.elements, i * 20);
+                    elements[i].owner._worldParams.writeTo(worldMatrixData, i * 20 + 16);
+                }
+                //simpleAnimationData
+                let simpleAnimatorData = this.addUpdateData(this._instanceStateInfo.simpleAnimatorVB, 4, WebGLInstanceRenderElement3D.MaxInstanceCount);
+                for (var i: number = 0; i < count; i++) {
+                    var simpleAnimatorParams = elements[i].renderShaderData.getVector(SimpleSkinnedMeshSprite3D.SIMPLE_SIMPLEANIMATORPARAMS);
+                    var offset: number = i * 4;
+                    simpleAnimatorData[offset] = simpleAnimatorParams.x;
+                    simpleAnimatorData[offset + 1] = simpleAnimatorParams.y;
+                    simpleAnimatorData[offset + 2] = simpleAnimatorParams.z;
+                    simpleAnimatorData[offset + 3] = simpleAnimatorParams.w;
+                }
+                break;
+            }
+        }
+    }
+
+    /**
+     * get correct geometry
+     * @param geometry
+     */
+    setGeometry(geometry: WebGLRenderGeometryElement) {
+        if (!this.geometry) {
+            this.geometry = new WebGLRenderGeometryElement(geometry.mode, geometry.drawType);
+        }
+        geometry.cloneTo(this.geometry);
+        this.geometry.drawType = DrawType.DrawElementInstance;
+        this._instanceStateInfo = WebGLInstanceRenderElement3D.getInstanceBufferState(geometry, this.owner.renderNodeType, this.renderShaderData._defineDatas);
+        this.geometry.bufferState = this._instanceStateInfo.state;
+    }
+
+    /**
+     * render RenderElement
+     * context:GLESRenderContext3D
+     * @param context
+     */
+    _render(context: WebGLRenderContext3D): void {
+        for (let i = 0; i < this.updateNums; i++) {
+            let buffer = this._vertexBuffers[i];
+            if (!buffer) break;
+            let data = this._updateData[i];
+            buffer.orphanStorage();
+            buffer.setData(data.buffer, 0, 0, this.drawCount * this._updateDataNum[i] * 4);
+        }
+        super._render(context);
+        this.clearRenderData();
+    }
+
+    /**
+     * 清理单次渲染生成的数据
+     */
+    clearRenderData(): void {
+        this.drawCount = 0;
+        this.updateNums = 0;
+        this._vertexBuffers.length = 0;
+        this._updateData.forEach((data) => {
+            this._bufferPool.get(data.length).push(data);
+        });
+        this._updateData.length = 0;
+        this._updateDataNum.length = 0;
+    }
+
+
+    destroy(): void {
+        this._bufferPool.clear();
+        super.destroy();
+    }
+}

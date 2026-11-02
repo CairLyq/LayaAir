@@ -1,18 +1,21 @@
 import { ReflectionProbeMode } from "../../../../d3/component/Volume/reflectionProbe/ReflectionProbe";
 import { RenderableSprite3D } from "../../../../d3/core/RenderableSprite3D";
+import { Sprite3D } from "../../../../d3/core/Sprite3D";
 import { Transform3D } from "../../../../d3/core/Transform3D";
 import { IrradianceMode } from "../../../../d3/core/render/BaseRender";
 import { BoundFrustum } from "../../../../d3/math/BoundFrustum";
 import { Bounds } from "../../../../d3/math/Bounds";
+import { Matrix4x4 } from "../../../../maths/Matrix4x4";
 import { Vector4 } from "../../../../maths/Vector4";
 import { Material } from "../../../../resource/Material";
 import { IRenderContext3D, IRenderElement3D } from "../../../DriverDesign/3DRenderPass/I3DRenderPass";
 import { ShaderData } from "../../../DriverDesign/RenderDevice/ShaderData";
-import { ENodeCustomData, IBaseRenderNode } from "../../Design/3D/I3DRenderModuleData";
+import { BaseRenderType, ENodeCustomData, IBaseRenderNode } from "../../Design/3D/I3DRenderModuleData";
 import { WebLightmap } from "./WebLightmap";
 import { WebReflectionProbe } from "./WebReflectionProb";
 import { WebVolumetricGI } from "./WebVolumetricGI";
 import { Vector2 } from "../../../../maths/Vector2";
+import { WebDefineDatas } from "../WebDefineDatas";
 
 interface DynamicBaseRenderClass {
     new(): WebBaseRenderNode;
@@ -21,10 +24,11 @@ interface DynamicBaseRenderClass {
 
 export class WebBaseRenderNode implements IBaseRenderNode {
     static BaseRenderNodeClass: DynamicBaseRenderClass;
-    renderNodeType: number;
+    renderNodeType: BaseRenderType;
     boundsChange: boolean;
     distanceForSort: number;
     sortingFudge: number;
+    renderOrder: number = 0;
     castShadow: boolean;
     receiveShadow: boolean;
     enable: boolean;
@@ -43,19 +47,28 @@ export class WebBaseRenderNode implements IBaseRenderNode {
     lightmap: WebLightmap;
     probeReflection: WebReflectionProbe;
     volumetricGI: WebVolumetricGI;
-
+    visibalRangeBit: number;
+    visibalMin: number;
+    visibalMax: number;
     baseGeometryBounds: Bounds;
     transform: Transform3D;
     _worldParams: Vector4;
     _commonUniformMap: string[];
     _additionShaderDataKeys: string[];
     ismoved: Vector2 = new Vector2();
+
+    defineDataChangeFlag: Vector2 = new Vector2();
     private _bounds: Bounds;
     private _caculateBoundingBoxCall: any;
     private _caculateBoundingBoxFun: Function;
     private _renderUpdatePreCall: any;
     private _renderUpdatePreFun: Function;
     private _updateMark: number;
+    /**
+     * @en If true, _renderUpdatePre is called once per camera; otherwise once per frame.
+     * @zh 为 true 时 _renderUpdatePre 逐相机调用，否则逐帧调用。
+     */
+    perCameraUpdate: boolean = false;
 
     protected _additionShaderData: Map<string, ShaderData>;
 
@@ -66,7 +79,15 @@ export class WebBaseRenderNode implements IBaseRenderNode {
     }
 
     public set shaderData(value) {
-        this._shaderData = value;
+        if (this._shaderData != value) {
+            let oldCommandMap = this._commonUniformMap.slice();
+            if (this._shaderData) {
+                //移除之前的资源绑定
+                this.setCommonUniformMap([]);
+            }
+            this._shaderData = value;
+            this.setCommonUniformMap(oldCommandMap);
+        }
     }
 
 
@@ -75,14 +96,30 @@ export class WebBaseRenderNode implements IBaseRenderNode {
      * @internal
      */
     _renderUpdatePre(context3D: IRenderContext3D): void {
-        if (this._updateMark == context3D.cameraUpdateMask)
+        const mask = this.perCameraUpdate
+            ? context3D.cameraUpdateMask
+            : context3D.sceneUpdateMask;
+        if (this._updateMark == mask)
             return;
         this._renderUpdatePreFun.call(this._renderUpdatePreCall, context3D);
-        this._updateMark = context3D.cameraUpdateMask;
+        this._updateMark = mask;
     }
 
     _calculateBoundingBox() {
         this._caculateBoundingBoxFun.call(this._caculateBoundingBoxCall);
+    }
+
+    /**
+     * Transform uniform 更新入口。WebGPU render node 覆写为缓存 field 直写，
+     * 其他后端保留 ShaderData setter 语义。
+     */
+    protected _setTransformWorldMatrix(value: Matrix4x4): void {
+        this.shaderData.setMatrix4x4(Sprite3D.WORLDMATRIX, value);
+    }
+
+    /** @internal */
+    protected _setTransformWorldInvertFront(value: Vector4): void {
+        this.shaderData.setVector(Sprite3D.WORLDINVERTFRONT, value);
     }
 
     /**
@@ -103,10 +140,27 @@ export class WebBaseRenderNode implements IBaseRenderNode {
     public get additionShaderData(): Map<string, ShaderData> {
         return this._additionShaderData;
     }
+
     public set additionShaderData(value: Map<string, ShaderData>) {
+        if (this._additionShaderData && this._additionShaderData.size > 0) {
+            if (!value)
+                for (var [key, date] of this._additionShaderData) {//全删
+                    (date.getDefineData() as WebDefineDatas).removeChangeFlagInfo(this.defineDataChangeFlag);
+                }
+            else {
+                for (var [key, date] of this._additionShaderData) {//删部分
+                    if (!value.has(key)) {
+                        (date.getDefineData() as WebDefineDatas).removeChangeFlagInfo(this.defineDataChangeFlag);
+                    }
+                }
+            }
+        }
         this._additionShaderData = value;
-        if (value) {
+        if (value && value.size > 0) {
             this._additionShaderDataKeys = Array.from(this._additionShaderData.keys());
+            for (var [key, shaderdate] of value) {
+                (shaderdate.getDefineData() as WebDefineDatas).addChangeFlagInfo(this.defineDataChangeFlag);
+            }
         }
         else {
             this._additionShaderDataKeys = [];
@@ -122,6 +176,7 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         this.set_caculateBoundingBox(this, this._ownerCalculateBoundingBox);
         this._additionShaderData = new Map();
     }
+
 
     setNodeCustomData(dataSlot: ENodeCustomData, data: number): void {
         switch (dataSlot) {
@@ -181,6 +236,7 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         for (var i = 0; i < value.length; i++) {
             this.renderelements.push(value[i]);
             value[i].owner = this;
+            value[i].sortIndex = i;
         }
     }
 
@@ -213,6 +269,7 @@ export class WebBaseRenderNode implements IBaseRenderNode {
         value.forEach(element => {
             this._commonUniformMap.push(element);
         });
+        this._shaderData && (this._shaderData.getDefineData() as WebDefineDatas)?.addChangeFlagInfo(this.defineDataChangeFlag);
     }
 
     /**
@@ -273,6 +330,8 @@ export class WebBaseRenderNode implements IBaseRenderNode {
      */
     _applyReflection() {
         if (!this.probeReflection || this.reflectionMode == ReflectionProbeMode.off)
+            return;
+        if (!this.probeReflection.shaderData)
             return;
         if (this.probeReflection.needUpdate()) {
             this.probeReflection.applyRenderData();

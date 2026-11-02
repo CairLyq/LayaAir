@@ -1,5 +1,6 @@
 import { Config, PlayerConfig } from "../../Config";
 import { Laya } from "../../Laya";
+import { Event } from "../../laya/events/Event";
 import { BrowserAdapter } from "../../laya/platform/BrowserAdapter";
 import { PAL } from "../../laya/platform/PlatformAdapters";
 import { Render } from "../../laya/renders/Render";
@@ -7,6 +8,7 @@ import { Browser } from "../../laya/utils/Browser";
 import { WasmAdapter } from "../../laya/utils/WasmAdapter";
 
 export class NativeBrowserAdapter extends BrowserAdapter {
+    protected _visible: boolean = true;
     protected _canvas: any;
     init() {
         Config.fixedFrames = false;
@@ -37,7 +39,58 @@ export class NativeBrowserAdapter extends BrowserAdapter {
             });
         };
 
-        super.init();
+        let windowInfo = PAL.g.getWindowInfo();
+        this._pixelRatio = windowInfo.pixelRatio;
+        let deviceInfo = PAL.g.getDeviceInfo();
+        let platform: string = deviceInfo.platform || "";
+
+        this.setPlatform("", platform);
+
+        PAL.g.onShow(() => {
+            this._visible = true;
+            this.event(Event.VISIBILITY_CHANGE, true);
+            this.event(Event.FOCUS);
+        });
+        PAL.g.onHide(() => {
+            this._visible = false;
+            this.event(Event.VISIBILITY_CHANGE, false);
+            this.event(Event.BLUR);
+        });
+        if (PAL.hasAPI("onWindowResize")) {
+            PAL.g.onWindowResize(result => {
+                this.event(Event.RESIZE);
+            });
+        }
+    }
+    getVisibility(): boolean {
+        return this._visible;
+    }
+
+    setWindowSize(width: number, height: number): boolean {
+        if (!PAL.hasAPI("setWindowSize")) {
+            PAL.warnIncompatibility("setWindowSize");
+            return false;
+        }
+        return (PAL.g as any).setWindowSize(width, height);
+    }
+
+    setResolution(width: number, height: number, fullscreen: boolean): boolean {
+        if (PAL.hasAPI("setResolution"))
+            return (PAL.g as any).setResolution(width, height, fullscreen);
+
+        if (!fullscreen && PAL.hasAPI("setWindowSize"))
+            return (PAL.g as any).setWindowSize(width, height);
+
+        PAL.warnIncompatibility("setResolution");
+        return false;
+    }
+
+    setWindowedFullscreen(enabled: boolean): boolean {
+        if (!PAL.hasAPI("setWindowedFullscreen")) {
+            PAL.warnIncompatibility("setWindowedFullscreen");
+            return false;
+        }
+        return (PAL.g as any).setWindowedFullscreen(enabled);
     }
 
     createMainCanvas() {

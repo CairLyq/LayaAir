@@ -2,12 +2,14 @@ import { Pool } from "../../utils/Pool";
 import { ClassUtils } from "../../utils/ClassUtils";
 import { Config } from "../../../Config";
 import { Rectangle } from "../../maths/Rectangle";
-import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { IGraphicsBoundsAssembler, IGraphicsCmd, type IGraphicsCommandExecutor } from "../IGraphics";
 import { Browser } from "../../utils/Browser";
-import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
 import { Render2DProcessor } from "../Render2DProcessor";
+import type { TextRenderTextureSink } from "../../webgl/text/TextRender";
 
 const className = "FillTextCmd";
+const ITALIC_SKEW_RATIO = 0.231; // Math.tan(13 * Math.PI / 180)
+const FONT_OVERHANG_RATIO = 0.08;
 
 /**
  * @en Draw text command
@@ -80,6 +82,31 @@ export class FillTextCmd implements IGraphicsCmd {
      * @zh 是否单字分开渲染
      */
     singleCharRender: boolean;
+    /** 
+     * @en Letter spacing
+     * @zh 字间距
+     */
+    letterSpacing: number = 0;
+    /** 
+     * @en Shadow offset in the x direction
+     * @zh 阴影在x方向的偏移量
+     */
+    shadowOffsetX: number = 0;
+    /** 
+     * @en Shadow offset in the y direction
+     * @zh 阴影在y方向的偏移量
+     */
+    shadowOffsetY: number = 0;
+    /** 
+     * @en Shadow blur radius
+     * @zh 阴影模糊半径
+     */
+    shadowBlur: number = 0;
+    /** 
+     * @en Shadow color
+     * @zh 阴影颜色
+     */
+    shadowColor: string = '#000000';
 
     /** 
      * @internal 
@@ -126,6 +153,11 @@ export class FillTextCmd implements IGraphicsCmd {
         cmd.align = align ?? 'left';
         cmd.singleCharRender = false;
         cmd._preMeasuredWidth = null;
+        cmd.letterSpacing = 0;
+        cmd.shadowOffsetX = 0;
+        cmd.shadowOffsetY = 0;
+        cmd.shadowBlur = 0;
+        cmd.shadowColor = '#000000';
 
         return cmd;
     }
@@ -215,7 +247,16 @@ export class FillTextCmd implements IGraphicsCmd {
      * @param gx 全局X偏移
      * @param gy 全局Y偏移
      */
-    run(runner: GraphicsRunner, gx: number, gy: number): void {
+    run(runner: IGraphicsCommandExecutor, gx: number, gy: number): void {
+        this._renderText(runner, gx, gy);
+    }
+
+    /** @internal */
+    emitTextureQuads(runner: IGraphicsCommandExecutor, gx: number, gy: number, drawTexture: TextRenderTextureSink): void {
+        this._renderText(runner, gx, gy, drawTexture);
+    }
+
+    private _renderText(runner: IGraphicsCommandExecutor, gx: number, gy: number, drawTexture?: TextRenderTextureSink): void {
         if (!this.text) {
             if (this._renderInfo)
                 runner._textRender.freeRenderInfo(this._renderInfo);
@@ -235,8 +276,9 @@ export class FillTextCmd implements IGraphicsCmd {
         this._renderInfo = runner._textRender.draw(this.text, this.x + gx, this.y + gy,
             this.fontFamily ? this.fontFamily : Config.defaultFont,
             this.fontSize, this.bold, this.italic,
-            this.color, this.stroke, this.strokeColor, this.singleCharRender,
-            tw, this._renderInfo
+            this.color, this.stroke, this.strokeColor,
+            this.letterSpacing, this.shadowOffsetX, this.shadowOffsetY, this.shadowBlur, this.shadowColor,
+            this.singleCharRender, tw, this._renderInfo, drawTexture
         );
     }
 
@@ -267,7 +309,8 @@ export class FillTextCmd implements IGraphicsCmd {
         //留一些余量
         x -= 4;
         y -= this.fontSize / 2;
-        Rectangle.TEMP.setTo(x, y, tw + 8, this.fontSize * 2).getBoundPoints(assembler.points);
+        let correctionW = this.fontSize * (FONT_OVERHANG_RATIO + (this.italic ? ITALIC_SKEW_RATIO : 0));
+        Rectangle.TEMP.setTo(x, y, tw + 8 + correctionW, this.fontSize * 2).getBoundPoints(assembler.points);
     }
 
 }

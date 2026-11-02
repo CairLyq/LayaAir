@@ -27,7 +27,7 @@ type _$TextureData = {
 export class TextureInfo implements DynamicTexInfo{
 
     recover(){
-        this.owner.removeTexture(this.source.id, -1, false);
+        this.owner.removeByTexture2DId(this.textureId, -1, false);
     }
 
     owner: DynamicAtlasManager;
@@ -83,7 +83,8 @@ export interface DynamicAtlasConfig {
  */
 export class DynamicAtlasManager {
     private _largeTexManager: LargeTexManager;
-    private _textureMap: Map<number, TextureInfo> = new Map();
+    private _textureMap: Map<number, TextureInfo> = new Map(); // texture2D.id -> info
+    private _textureIdMap: Map<number, number> = new Map(); // texture.id -> texture2d.id mapping
     private _config: DynamicAtlasConfig;
     private _isDestroyed: boolean = false;
     private _autoReplace: boolean = false;
@@ -125,9 +126,41 @@ export class DynamicAtlasManager {
         this._totalDrawCount = this._config.extendSize > 0 ? 2 : 1;
     }
 
+    /**
+     * Helper method to consistently get Texture2D from URL
+     * @param url The texture URL
+     * @returns Texture2D object or null if not found
+     */
+    private _getTexture2DByUrl(url: string): Texture2D | null {
+        if (!url) return null;
+
+        // Try to get Texture2D directly
+        let texture2D = Laya.loader.getRes(url, Loader.TEXTURE2D) as Texture2D;
+        if (texture2D) return texture2D;
+
+        // Fallback: get Texture and extract bitmap
+        let texture = Laya.loader.getRes(url, Loader.IMAGE) as Texture;
+        if (texture && texture.bitmap) {
+            return texture.bitmap as Texture2D;
+        }
+
+        return null;
+    }
+
+    /**
+     * Get Texture2D ID from Texture ID using the mapping table
+     * @param textureId The Texture ID
+     * @returns Texture2D ID or null if not found
+     */
+    private _getTexture2DId(textureId: number): number | null {
+        return this._textureIdMap.get(textureId) || null;
+    }
+
     private _findSmallTexture(tex: Texture, info: TextureInfo) {
         let out = info.textureMap;
         let ot = tex.bitmap;
+        let texture2DId = info.textureId;
+
         const _find = (texture: Texture) => {
             let atlas = texture._atlas;
             if (atlas) {
@@ -135,13 +168,17 @@ export class DynamicAtlasManager {
                     if (_t.bitmap == ot) {
                         _t._dynamic = info;
                         out.set(_t.id, { texture: _t, uv: _t.uv });
+                        // Record texture.id -> texture2d.id mapping
+                        this._textureIdMap.set(_t.id, texture2DId);
                     }
                 });
-                
+
                 atlas.textures.forEach(_t => {
                     if (_t.bitmap == ot) {
                         _t._dynamic = info;
                         out.set(_t.id, { texture: _t, uv: _t.uv });
+                        // Record texture.id -> texture2d.id mapping
+                        this._textureIdMap.set(_t.id, texture2DId);
                     }
                 });
             }
@@ -151,6 +188,8 @@ export class DynamicAtlasManager {
         if (tex._dynamic != info) {
             out.set(tex.id, { texture: tex, uv: tex.uv });
             tex._dynamic = info;
+            // Record texture.id -> texture2d.id mapping
+            this._textureIdMap.set(tex.id, texture2DId);
         }
     }
 
@@ -186,6 +225,9 @@ export class DynamicAtlasManager {
             textureMap.set(texture.id, {
                 texture, uv: texture.uv
             });
+
+            // Record texture.id -> texture2d.id mapping
+            this._textureIdMap.set(texture.id, textureId);
 
             // this._replaceTexture(textureInfo , this._largeTexManager.getTexture(textureId, textureInfo.largeTextureIndex));
             //不能在当前帧切换，会影响渲染
@@ -285,15 +327,18 @@ export class DynamicAtlasManager {
      * @returns 是否添加成功
      */
     public addTextureByUrl(url: string, scale: number = 1.0, largeTextureIndex: number = -1): boolean {
-        if (this._isDestroyed
-            || !url
-        ) {
+        if (this._isDestroyed || !url) {
             return false;
         }
 
         let texture = ILaya.loader.getRes(url, Loader.IMAGE) as Texture;
         if (!texture) {
             console.warn(`DynamicAtlasManager: 纹理 ${url} 未加载，请先加载纹理`);
+            return false;
+        }
+
+        if (!texture.bitmap) {
+            console.warn(`DynamicAtlasManager: 纹理 ${url} 的 bitmap 为空，无法添加到图集`);
             return false;
         }
 
@@ -346,28 +391,41 @@ export class DynamicAtlasManager {
 
     /**
      * @en Remove texture from atlas
-     * @param textureId textureId to remove
+     * @param texture texture to remove or textureId to remove
      * @param largeTextureIndex largeTextureIndex to remove
      * @param event event to remove
      * @returns boolean whether remove texture from atlas successfully
      * @zh 从图集中移除纹理
-     * @param textureId 纹理ID
+     * @param texture 纹理或纹理ID
      * @param largeTextureIndex 大纹理索引，-1表示从所有大纹理中移除
      * @param event 是否触发事件，默认true
      * @returns 是否移除成功
      */
-    public removeTexture(textureId: number, largeTextureIndex: number = -1 , event: boolean = true): boolean {
+    public removeTexture(texture: Texture | number, largeTextureIndex: number = -1 , event: boolean = true): boolean {
+        if (this._isDestroyed) return false;
+        return this.removeByTexture2DId(this._getTexture2DId(typeof texture === 'number' ? texture : texture.id), largeTextureIndex);
+    }
+    
+    public removeByTexture2DId(texture2DId: number, largeTextureIndex: number = -1 , event: boolean = true): boolean {
         if (this._isDestroyed) return false;
 
-        let textureInfo = this._textureMap.get(textureId);
+        let textureInfo = this._textureMap.get(texture2DId);
         if (!textureInfo) return false;
 
-        this._largeTexManager.removeTexture(textureId, largeTextureIndex);
-        this._textureMap.delete(textureId);
+        this._largeTexManager.removeTexture(texture2DId, largeTextureIndex);
+        this._textureMap.delete(texture2DId);
 
-        //还原
-        let otexture2d = Laya.loader.getRes(textureInfo.url , Loader.TEXTURE2D) || textureInfo.source;
-        if (otexture2d.destroyed) {
+        // Restore original texture - prioritize source over URL loading
+        let otexture2d = textureInfo.source;
+        if (!otexture2d || otexture2d.destroyed) {
+            // Fallback to loading from URL if source is unavailable
+            if (textureInfo.url) {
+                otexture2d = Laya.loader.getRes(textureInfo.url, Loader.TEXTURE2D) as Texture2D;
+            }
+        }
+
+        // If we still don't have a valid texture, we can't restore
+        if (!otexture2d || otexture2d.destroyed) {
             return true;
         }
 
@@ -375,13 +433,15 @@ export class DynamicAtlasManager {
             texture.bitmap = otexture2d;
             texture.uv = uv;
             texture._dynamic = null;
+            // Clean up texture.id -> texture2d.id mapping
+            this._textureIdMap.delete(id);
             if (event) {
                 texture.event(Event.CHANGE);
             }
         })
+
         return true;
     }
-
     /**
      * @en Remove texture from atlas by url
      * @param url url of texture to remove
@@ -393,11 +453,26 @@ export class DynamicAtlasManager {
      * @returns 是否移除成功
      */
     public removeTextureByUrl(url: string, largeTextureIndex: number = -1): boolean {
-        let texture = Laya.loader.getRes(url, Loader.IMAGE) as Texture;
-        if (!texture) return false;
-        return this.removeTexture(texture.id, largeTextureIndex);
-    }
+        if (!url) return false;
 
+        // First try to get Texture and check if it has _dynamic info
+        let texture = Laya.loader.getRes(url, Loader.IMAGE) as Texture;
+        if (texture && texture._dynamic) {
+            // Texture is already in atlas, use the stored textureId
+            let textureInfo = texture._dynamic as TextureInfo;
+            return this.removeByTexture2DId(textureInfo.textureId, largeTextureIndex);
+        }
+
+        // Fallback: search through _textureMap to find matching URL
+        for (let [textureId, textureInfo] of this._textureMap) {
+            if (textureInfo.url === url) {
+                return this.removeByTexture2DId(textureId, largeTextureIndex);
+            }
+        }
+
+        console.warn(`DynamicAtlasManager: 纹理 ${url} 未在图集中找到`);
+        return false;
+    }
 
     private _replaceTexture(textureInfo: TextureInfo, textureOut: TextureOut): boolean {
         // 标记为已合并，避免重复处理
@@ -541,7 +616,12 @@ export class DynamicAtlasManager {
      * @returns 纹理信息，如果不存在返回null
      */
     public getTextureInfoByUrl(url: string): TextureInfo | null {
-        return this.getTextureInfo(Laya.loader.getRes(url, Loader.TEXTURE2D).id) || null;
+        if (!url) return null;
+
+        let texture2D = this._getTexture2DByUrl(url);
+        if (!texture2D) return null;
+
+        return this.getTextureInfo(texture2D.id) || null;
     }
 
     /**
@@ -584,6 +664,7 @@ export class DynamicAtlasManager {
         // todo 还原
         this._largeTexManager.clear();
         this._textureMap.clear();
+        this._textureIdMap.clear();
     }
 
     /**
@@ -637,7 +718,7 @@ export class DynamicAtlasManager {
         }
         
         for (const textureId of textureIdsToRemove) {
-            if (this.removeTexture(textureId)) {
+            if (this.removeByTexture2DId(textureId)) {
                 cleanedCount++;
             }
         }

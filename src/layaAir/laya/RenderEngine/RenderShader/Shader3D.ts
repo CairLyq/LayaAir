@@ -12,6 +12,7 @@ export interface IShaderObjStructor {
     supportVolumetricGI: boolean,
     attributeMap: any;
     shaderType: ShaderFeatureType | string;
+    previewType: string;
     uniformMap: any;
     defaultValue: any;
     shaderPass: Array<any>;
@@ -121,13 +122,11 @@ export class Shader3D {
     /**@internal 是否支持动态中断贴图采样 */
     static SHADERDEFINE_BREAK_TEXTURE_SAMPLE: ShaderDefine;
 
-    /**@internal 是否支持动态中断贴图采样 */
     static SHADERDEFINE_STORAGEBUFFER: ShaderDefine;
 
     /**@internal */
     static _propertyNameMap: any = {};
 
-    /**@internal */
     static _preCompileShader: { [key: string]: Shader3D } = {};
     /**@internal */
     static _debugShaderVariantInfo: any;
@@ -183,9 +182,10 @@ export class Shader3D {
      * 添加函数库引用。
      * @param fileName 文件名字。
      * @param txt 文件内容
+     * @param allowReplace 是否允许替换已有的函数库引用，默认false。
      */
-    static addInclude(fileName: string, txt: string): void {
-        ShaderCompile.addInclude(fileName, txt);
+    static addInclude(fileName: string, txt: string, allowReplace?: boolean): void {
+        ShaderCompile.addInclude(fileName, txt, allowReplace);
     }
 
     /**
@@ -269,6 +269,7 @@ export class Shader3D {
         let shader = Shader3D.add(data.name, data.enableInstancing, data.supportReflectionProbe);
         shader._supportVolumetricGI = data.supportVolumetricGI;
         shader.shaderType = data.shaderType as ShaderFeatureType;
+        shader.previewType = data.previewType;
 
         let subshader = new SubShader(data.attributeMap ? data.attributeMap : SubShader.DefaultAttributeMap, data.uniformMap, data.defaultValue);
         shader.addSubShader(subshader);
@@ -301,10 +302,20 @@ export class Shader3D {
     _supportReflectionProbe: boolean = false;
     /**@internal */
     _supportVolumetricGI: boolean = false;
-    /**@internal */
     _subShaders: SubShader[] = [];
 
+    /**
+     * @en Shader type, such as 2D, 3D, post-processing, etc., used to distinguish shader categories.
+     * @zh 着色器类型，例如2D、3D、后处理等，用于区分着色器类别。
+     */
     shaderType: ShaderFeatureType = ShaderFeatureType.None;
+
+    /**
+     * @en Preview type, used to specify the preview model for the shader in the editor, such as Plane, Sphere, etc.
+     * @zh 预览类型，用于在编辑器中指定着色器的预览模型，如Plane、Sphere等。
+     */
+    previewType: string = null;
+
     /**
      * 名字。
      */

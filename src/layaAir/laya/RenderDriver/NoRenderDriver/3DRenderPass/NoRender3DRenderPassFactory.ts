@@ -1,3 +1,5 @@
+import { Laya } from "../../../../Laya";
+import { Laya3DRender } from "../../../d3/RenderObjs/Laya3DRender";
 import { RenderClearFlag } from "../../../RenderEngine/RenderEnum/RenderClearFlag";
 import { SubShader } from "../../../RenderEngine/RenderShader/SubShader";
 import { Camera } from "../../../d3/core/Camera";
@@ -7,21 +9,25 @@ import { Color } from "../../../maths/Color";
 import { Vector4 } from "../../../maths/Vector4";
 import { Viewport } from "../../../maths/Viewport";
 import { FastSinglelist, SingletonList } from "../../../utils/SingletonList";
-import { IRender3DProcess, IRenderContext3D, IRenderElement3D, IInstanceRenderBatch, IInstanceRenderElement3D, ISkinRenderElement3D } from "../../DriverDesign/3DRenderPass/I3DRenderPass";
+import { IRender3DProcess, IRenderContext3D, IRenderElement3D, ISkinRenderElement3D } from "../../DriverDesign/3DRenderPass/I3DRenderPass";
 import { I3DRenderPassFactory } from "../../DriverDesign/3DRenderPass/I3DRenderPassFactory";
+import { IBatchModuleAgent } from "../../DriverDesign/3DRenderPass/IBatchModuleAgent";
 import { DrawNodeCMDData, BlitQuadCMDData, DrawElementCMDData, SetViewportCMD, SetRenderTargetCMD } from "../../DriverDesign/3DRenderPass/IRender3DCMD";
 import { ISceneRenderManager } from "../../DriverDesign/3DRenderPass/ISceneRenderManager";
-import { SetRenderDataCMD, SetShaderDefineCMD, IRenderCMD, RenderCMDType } from "../../DriverDesign/RenderDevice/IRenderCMD";
+import { SetRenderDataCMD, SetShaderDefineCMD, IRenderCMD, RenderCMDType, ComputeCommandAppatchCMD } from "../../DriverDesign/RenderDevice/IRenderCMD";
 import { IRenderGeometryElement } from "../../DriverDesign/RenderDevice/IRenderGeometryElement";
 import { InternalRenderTarget } from "../../DriverDesign/RenderDevice/InternalRenderTarget";
 import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
 import { ShaderData } from "../../DriverDesign/RenderDevice/ShaderData";
-import { ISceneNodeData, ICameraNodeData, IBaseRenderNode } from "../../RenderModuleData/Design/3D/I3DRenderModuleData";
+import { ISceneNodeData, ICameraNodeData, IBaseRenderNode, BaseRenderType } from "../../RenderModuleData/Design/3D/I3DRenderModuleData";
 import { WebBaseRenderNode } from "../../RenderModuleData/WebModuleData/3D/WebBaseRenderNode";
 import { NoRenderSetRenderData, NoRenderSetShaderDefine, NoRenderShaderData } from "../DriverDevice/NoRenderDeviceFactory";
 import { NoInternalRT } from "../DriverDevice/NoRenderEngineFactory";
 
 export class NoRender3DRenderPassFactory implements I3DRenderPassFactory {
+    createComputeCommandAppatchCMD?(): ComputeCommandAppatchCMD {
+        return new NoRenderComputeCommandAppatchCMD();
+    }
     createRender3DProcess(): IRender3DProcess {
         return new NoRenderRender3DProcess();
     }
@@ -30,12 +36,6 @@ export class NoRender3DRenderPassFactory implements I3DRenderPassFactory {
     }
     createRenderElement3D(): IRenderElement3D {
         return new NoRenderRenderElement3D();
-    }
-    createInstanceBatch(): IInstanceRenderBatch {
-        return new NoRenderInstanceRenderBatch();
-    }
-    createInstanceRenderElement3D(): IInstanceRenderElement3D {
-        return new NoRenderInstanceRenderElement3D;
     }
     createSkinRenderElement(): ISkinRenderElement3D {
         return new NoRenderSkinRenderElement3D();
@@ -66,6 +66,15 @@ export class NoRender3DRenderPassFactory implements I3DRenderPassFactory {
     }
 }
 
+class NoRenderComputeCommandAppatchCMD extends ComputeCommandAppatchCMD {
+    constructor() {
+        super();
+        this.type = RenderCMDType.ComputeCommandAppatch;
+    }
+    apply(_context: any): void {
+    }
+}
+
 export class NoRenderRender3DProcess implements IRender3DProcess {
     render3DManager: NoRenderSceneRenderManager;
     destroy(): void {
@@ -75,6 +84,13 @@ export class NoRenderRender3DProcess implements IRender3DProcess {
 }
 
 export class NoRenderSceneRenderManager implements ISceneRenderManager {
+    batchAgentList: Map<number, IBatchModuleAgent>;
+    registerBatchModuleAgent(renderNodeType: number | BaseRenderType, agent: IBatchModuleAgent): void {
+
+    }
+    updateProperty(object: BaseRender, property: string): void {
+
+    }
     addRenderObject(object: BaseRender): void {
 
     }
@@ -101,12 +117,13 @@ export class NoRenderSceneRenderManager implements ISceneRenderManager {
 }
 
 export class NoRenderRenderContext3D implements IRenderContext3D {
+    preDrawUniformMaps: Set<string>;
     globalShaderData: ShaderData;
     sceneData: ShaderData;
     sceneModuleData: ISceneNodeData;
     cameraModuleData: ICameraNodeData;
     cameraData: ShaderData;
-    sceneUpdataMask: number;
+    sceneUpdateMask: number;
     cameraUpdateMask: number;
     pipelineMode: string;
     invertY: boolean;
@@ -119,7 +136,7 @@ export class NoRenderRenderContext3D implements IRenderContext3D {
     setScissor(value: Vector4): void {
 
     }
-    setClearData(clearFlag: number, clolor: Color, depth: number, stencil: number): number {
+    setClearData(clearFlag: number, color: Color, depth: number, stencil: number, colorValues?: readonly Color[]): number {
         return 0;
     }
     drawRenderElementList(list: FastSinglelist<IRenderElement3D>): number {
@@ -137,13 +154,13 @@ export class NoRenderRenderContext3D implements IRenderContext3D {
     clearRenderTarget(): void {
         
     }
-
 }
 
 export class NoRenderRenderElement3D implements IRenderElement3D {
     geometry: IRenderGeometryElement;
     materialShaderData: ShaderData;
     materialRenderQueue: number;
+    sortIndex: number = 0;
     renderShaderData: ShaderData;
     transform: Transform3D;
     canDynamicBatch: boolean;
@@ -153,39 +170,6 @@ export class NoRenderRenderElement3D implements IRenderElement3D {
     materialId: number;
     destroy(): void {
     }
-}
-
-export class NoRenderInstanceRenderBatch implements IInstanceRenderBatch {
-    batch(elements: SingletonList<IRenderElement3D>): void {
-    }
-    clearRenderData(): void {
-    }
-    recoverData(): void {
-    }
-
-}
-
-export class NoRenderInstanceRenderElement3D implements IInstanceRenderElement3D {
-    instanceElementList: SingletonList<IRenderElement3D>;
-    setGeometry(geometry: IRenderGeometryElement): void {
-    }
-    clearRenderData(): void {
-    }
-    recover(): void {
-    }
-    geometry: IRenderGeometryElement;
-    materialShaderData: ShaderData;
-    materialRenderQueue: number;
-    renderShaderData: ShaderData;
-    transform: Transform3D;
-    canDynamicBatch: boolean;
-    isRender: boolean;
-    owner: IBaseRenderNode;
-    subShader: SubShader;
-    materialId: number;
-    destroy(): void {
-    }
-
 }
 
 export class NoRenderSkinRenderElement3D implements ISkinRenderElement3D {
@@ -394,6 +378,7 @@ export class NoRenderSetRenderTargetCMD extends SetRenderTargetCMD {
 
     set clearColorValue(value: Color) {
         value.cloneTo(this._clearColorValue);
+        this._clearColorValues = null;
     }
 
     get clearDepthValue(): number {
@@ -421,3 +406,8 @@ export class NoRenderSetRenderTargetCMD extends SetRenderTargetCMD {
     apply(context: NoRenderRenderContext3D): void {
     }
 }
+
+Laya.addBeforeInitCallback(() => {
+    if (!Laya3DRender.Render3DPassFactory)
+        Laya3DRender.Render3DPassFactory = new NoRender3DRenderPassFactory();
+});

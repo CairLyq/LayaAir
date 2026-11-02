@@ -77,6 +77,8 @@ export class BaseRenderNode2D extends Component {
     static SHADERDEFINE_LIGHT2D_SUBMODE: ShaderDefine;
     /** @readonly */
     static SHADERDEFINE_LIGHT2D_NORMAL_PARAM: ShaderDefine;
+    /** @readonly */
+    static SHADERDEFINE_UNITQUAD: ShaderDefine;
     /**
      * @internal
      */
@@ -84,7 +86,7 @@ export class BaseRenderNode2D extends Component {
         BaseRenderNode2D.BASERENDER2DCOLOR = Shader3D.propertyNameToID("u_baseRenderColor");
         BaseRenderNode2D.BASERENDER2DTEXTURE = Shader3D.propertyNameToID("u_baseRender2DTexture");
         BaseRenderNode2D.TILINGOFFSET = Shader3D.propertyNameToID("u_tilingOffset");
-        // BaseRenderNode2D.BASERENDERSIZE = Shader3D.propertyNameToID("u_baseRenderSize2D");
+        BaseRenderNode2D.BASERENDERSIZE = Shader3D.propertyNameToID("u_baseRenderSize2D");
 
         BaseRenderNode2D.NORMAL2DTEXTURE = Shader3D.propertyNameToID("u_normal2DTexture");
         BaseRenderNode2D.NORMAL2DSTRENGTH = Shader3D.propertyNameToID("u_normal2DStrength");
@@ -95,6 +97,7 @@ export class BaseRenderNode2D extends Component {
         BaseRenderNode2D.SHADERDEFINE_LIGHT2D_ADDMODE = Shader3D.getDefineByName("LIGHT2D_SCENEMODE_ADD");
         BaseRenderNode2D.SHADERDEFINE_LIGHT2D_SUBMODE = Shader3D.getDefineByName("LIGHT2D_SCENEMODE_SUB");
         BaseRenderNode2D.SHADERDEFINE_LIGHT2D_NORMAL_PARAM = Shader3D.getDefineByName("LIGHT2D_NORMAL_PARAM");
+        BaseRenderNode2D.SHADERDEFINE_UNITQUAD = Shader3D.getDefineByName("UNITQUAD");
 
         const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("BaseRender2D");
         commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_NMATRIX_0, "u_NMatrix_0", ShaderDataType.Vector3);
@@ -104,11 +107,10 @@ export class BaseRenderNode2D extends Component {
         commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDER2DCOLOR, "u_baseRenderColor", ShaderDataType.Color);
         commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDER2DTEXTURE, "u_baseRender2DTexture", ShaderDataType.Texture2D);
         commandUniform.addShaderUniform(BaseRenderNode2D.TILINGOFFSET, "u_tilingOffset", ShaderDataType.Vector4);
-        // commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDERSIZE, "u_baseRenderSize2D", ShaderDataType.Vector2);
+        commandUniform.addShaderUniform(BaseRenderNode2D.BASERENDERSIZE, "u_baseRenderSize2D", ShaderDataType.Vector2);
         commandUniform.addShaderUniform(BaseRenderNode2D.NORMAL2DTEXTURE, "u_normal2DTexture", ShaderDataType.Texture2D);
         commandUniform.addShaderUniform(BaseRenderNode2D.NORMAL2DSTRENGTH, "u_normal2DStrength", ShaderDataType.Float);
-        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_CLIPMATDIR, "u_clipMatDir", ShaderDataType.Vector4);
-        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_CLIPMATPOS, "u_clipMatPos", ShaderDataType.Vector4);
+        commandUniform.addShaderUniform(ShaderDefines2D.UNIFORM_CLIPOFFSET, "u_clipOffset", ShaderDataType.Vector2);
     }
 
     /**
@@ -118,6 +120,15 @@ export class BaseRenderNode2D extends Component {
         element.subShader = material._shader.getSubShaderAt(0);
         material._setOwner2DElement(element);
         element.materialShaderData = material._shaderValues;
+    }
+
+    /**
+    * @internal
+    */
+    static _removeRenderElement2DMaterial(element: IRenderElement2D, material: Material) {
+        if (material && !material.destroyed) {
+            material._removeOwnerElement(element);
+        }
     }
 
     /**
@@ -283,6 +294,11 @@ export class BaseRenderNode2D extends Component {
      */
     renderUpdate?(context: IRenderContext2D): void;
 
+    /** @internal 保留方法形式，供渲染节点查询其持续更新偏好。 */
+    getRenderUpdateMode(): boolean {
+        return this._lightReceive;
+    }
+
     protected _onAdded(): void {
         this.owner._initShaderData();
         this.owner.renderNode2D = this;
@@ -314,9 +330,23 @@ export class BaseRenderNode2D extends Component {
     }
 
     /**
+     * @internal
+     */
+    protected _getElementMaterial(index: number): Material {
+        return this._materials[index] || this._materials[0];
+    }
+
+    /**
      * override it
      */
     protected _onDestroy() {
+        for (let i = 0, n = this._renderElements.length; i < n; i++) {
+            let element = this._renderElements[i];
+            if (element) {
+                BaseRenderNode2D._removeRenderElement2DMaterial(element, this._getElementMaterial(i));
+            }
+        }
+        this._struct.renderElements = [];
         for (var i = 0, n = this._materials.length; i < n; i++) {
             let m = this._materials[i];
             m && !m.destroyed && m._removeReference();
@@ -383,6 +413,10 @@ export class BaseRenderNode2D extends Component {
         this._lightUpdateMark = 0;
     }
 
+    protected _notifyDataChange() {
+        this.owner?.repaint();
+    }
+
     _updateLight() {
         if (!this.lightReceive || !this.owner.scene || !this.owner.scene._light2DManager) return;
         const light2DManager = this.owner.scene._light2DManager;
@@ -432,9 +466,12 @@ export class BaseRenderNode2D extends Component {
             return;
         const lastValue: Material = this._materials[0];
         if (lastValue !== value) {
+            if (this._renderElements[0]) {
+                BaseRenderNode2D._removeRenderElement2DMaterial(this._renderElements[0], this._getElementMaterial(0));
+            }
             this._materials[0] = value;
             this._changeMaterialReference(lastValue, value);
-            this._renderElements[0] && BaseRenderNode2D._setRenderElement2DMaterial(this._renderElements[0], value);
+            this._renderElements[0] && BaseRenderNode2D._setRenderElement2DMaterial(this._renderElements[0], this._getElementMaterial(0));
         }
     }
 

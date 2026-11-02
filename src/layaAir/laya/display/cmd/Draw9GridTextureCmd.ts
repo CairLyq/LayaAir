@@ -5,10 +5,12 @@ import { ClassUtils } from "../../utils/ClassUtils";
 import { ColorUtils } from "../../utils/ColorUtils";
 import { Pool } from "../../utils/Pool"
 import { VertexStream } from "../../utils/VertexStream";
-import { IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
+import { type GraphicsCommandInfo, GraphicsCommandLayoutRefresh, IGraphicsBoundsAssembler, IGraphicsCmd } from "../IGraphics";
 import { GraphicsRunner } from "../Scene2DSpecial/GraphicsRunner";
 import { Config } from "../../../Config";
 import { UVClippingUtils } from "../../webgl/utils/UVClippingUtils";
+import { drawTrianglesBatched } from "./DrawTrianglesBatchHelper";
+import { GraphicsCommandInfoHelper } from "../Scene2DSpecial/GraphicsRenderPipeline/GraphicsPipelineHelpers";
 
 const className = "Draw9GridTextureCmd";
 
@@ -25,22 +27,6 @@ export class Draw9GridTextureCmd implements IGraphicsCmd {
 
     /** @internal */
     _texture: Texture = null;
-    /**
-     * @en The texture to be drawn
-     * @zh 要绘制的纹理
-     */
-    get texture(): Texture {
-        return this._texture;
-    }
-    /**
-     * @en The texture to be drawn
-     * @zh 要绘制的纹理
-     */
-    set texture(val: Texture) { //修复场景或预制体加载时没有添加资源引用
-        !!val && val._addReference();
-        this._texture?._removeReference();
-        this._texture = val;
-    }
 
     /**
      * @en (Optional) X-axis offset
@@ -133,6 +119,23 @@ export class Draw9GridTextureCmd implements IGraphicsCmd {
     }
 
     /**
+     * @en The texture to be drawn
+     * @zh 要绘制的纹理
+     */
+    get texture(): Texture {
+        return this._texture;
+    }
+    /**
+     * @en The texture to be drawn
+     * @zh 要绘制的纹理
+     */
+    set texture(val: Texture) {
+        !!val && val._addReference();
+        this._texture?._removeReference();
+        this._texture = val;
+    }
+
+    /**
      * @en Execute the draw nine-grid texture command in the given context
      * @param runner The rendering context
      * @param gx The global x coordinate
@@ -163,22 +166,6 @@ export class Draw9GridTextureCmd implements IGraphicsCmd {
             if (this.color)
                 vb.color.setABGR(this.color);
 
-            let uvrect = this.texture.uvrect;
-            if (
-                (uvrect[0] !== 0 || uvrect[1] !== 0 || uvrect[2] !== 1 || uvrect[3] !== 1)
-            ) {
-                let bitmapW = this.texture.bitmap.width;
-                let bitmapH = this.texture.bitmap.height;
-                if (bitmapW > 0 && bitmapH > 0) {
-                    let halfTexelU = 0.5 / bitmapW;
-                    let halfTexelV = 0.5 / bitmapH;
-                    vb.uvRect.x += halfTexelU;
-                    vb.uvRect.y += halfTexelV;
-                    vb.uvRect.width -= halfTexelU * 2;
-                    vb.uvRect.height -= halfTexelV * 2;
-                }
-            }
-
             let gridRect = Rectangle.create();
             let sourceWidth = vb.mainTex.sourceWidth;
             let sourceHeight = vb.mainTex.sourceHeight;
@@ -188,20 +175,35 @@ export class Draw9GridTextureCmd implements IGraphicsCmd {
 
             genSliceMesh(vb, vb.contentRect, vb.uvRect, gridRect, sizeGrid[4] === 1 ? 0xff : 0);
 
+            // Atlas sub-texture: inset by half a texel so 9-slice seams do not bleed.
+            const uvrect = this._texture.uvrect;
+            if (uvrect && (uvrect[0] !== 0 || uvrect[1] !== 0 || uvrect[2] !== 1 || uvrect[3] !== 1)) {
+                const bitmapW = this._texture.bitmap.width;
+                const bitmapH = this._texture.bitmap.height;
+                if (bitmapW > 0 && bitmapH > 0) {
+                    const halfTexelU = 0.5 / bitmapW;
+                    const halfTexelV = 0.5 / bitmapH;
+                    vb.uvRect.x += halfTexelU;
+                    vb.uvRect.y += halfTexelV;
+                    vb.uvRect.width -= halfTexelU * 2;
+                    vb.uvRect.height -= halfTexelV * 2;
+                }
+            }
+
             if (this._texture.uvrect) {
                 if (Config.uvClipMode === "cpu") {
                     const clippedData = UVClippingUtils.clipTrianglesByUVRange(
                         vb.getVertices(), vb.getIndices(), vb.getUVs(), this._texture.uvrect, vb.getColors()
                     );
-                    runner.drawTriangles(this._texture, x + gx, y + gy,
+                    drawTrianglesBatched(runner, this._texture, x + gx, y + gy,
                         clippedData.vertices, clippedData.uvs, clippedData.indices,
                         null, 1, null, null, clippedData.colors, null);
                 } else {
-                    runner.drawTriangles(this._texture, x + gx, y + gy, vb.getVertices(), vb.getUVs(), vb.getIndices(),
+                    drawTrianglesBatched(runner, this._texture, x + gx, y + gy, vb.getVertices(), vb.getUVs(), vb.getIndices(),
                         null, 1, null, null, vb.getColors(), this._texture.uvrect);
                 }
             } else {
-                runner.drawTriangles(this._texture, x + gx, y + gy, vb.getVertices(), vb.getUVs(), vb.getIndices(),
+                drawTrianglesBatched(runner, this._texture, x + gx, y + gy, vb.getVertices(), vb.getUVs(), vb.getIndices(),
                     null, 1, null, null, vb.getColors(), null);
             }
 
@@ -221,7 +223,12 @@ export class Draw9GridTextureCmd implements IGraphicsCmd {
      * @ignore @blueprintIgnore
      */
     needsLayoutRepaint(): number {
-        return this.percent ? 1 : 0;
+        return 1;
+    }
+
+    /** @internal */
+    getGraphicsCommandInfo(out: GraphicsCommandInfo): GraphicsCommandInfo {
+        return GraphicsCommandInfoHelper.writeSize(out, this.percent, GraphicsCommandLayoutRefresh.RerunCommand);
     }
 
     /**

@@ -43,12 +43,11 @@ import { Animator } from "./component/Animator/Animator";
 import { AnimatorControllerLayer } from "./component/Animator/AnimatorControllerLayer";
 import { AnimatorState } from "./component/Animator/AnimatorState";
 import { AvatarMask } from "./component/Animator/AvatarMask";
+import { AnimatorManager } from "./component/Animator/manager/AnimatorManager";
 import { PostProcess } from "./core/render/postProcessBase/PostProcess";
 import { PostProcessEffect } from "./core/render/postProcessBase/PostProcessEffect";
 
 import { AnimatorController } from "./component/Animator/AnimatorController";
-import { StaticBatchVolume } from "./component/Volume/BatchVolume/StaticBatchVolume";
-import { StaticInstanceBatchRender } from "./component/Volume/BatchVolume/StaticInstanceBatchRender";
 import { RenderTexture } from "../resource/RenderTexture";
 import { Viewport } from "../maths/Viewport";
 import { UI3D } from "./core/UI3D/UI3D";
@@ -87,8 +86,6 @@ c("Transform3D", Transform3D);
 c("Lightmap", Lightmap);
 c("ReflectionProbe", ReflectionProbe);
 c("VolumetricGI", VolumetricGI);
-c("StaticBatchVolume", StaticBatchVolume);
-c("StaticInstanceBatchRender", StaticInstanceBatchRender);
 c("SphericalHarmonicsL2", SphericalHarmonicsL2);
 c("Viewport", Viewport);
 c("Bounds", Bounds);
@@ -129,3 +126,7 @@ c("SkyRenderer", SkyRenderer);
 
 c("PostProcess", PostProcess);
 c("PostProcessEffect", PostProcessEffect);
+
+// 工厂创建器默认值挂在 AnimatorManager.factoryCreator；Manager 实例化时按 per-Scene3D new 一份。
+// AnimatorManager 仅 import 即可触发 Scene.regManager（在 AnimatorManager.ts 末尾）；显式引用一次避免 dead-code 剪除。
+void AnimatorManager.__managerName;

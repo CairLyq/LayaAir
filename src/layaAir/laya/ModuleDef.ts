@@ -22,6 +22,7 @@ import { Animation2DParm } from "./components/Animation2DParm";
 import { Animation2DCondition } from "./components/Animation2DCondition";
 import { FrameAnimation } from "./components/FrameAnimation";
 import { Prefab } from "./resource/HierarchyResource";
+import { ScriptableObject } from "./resource/ScriptableObject";
 import { Widget } from "./components/Widget";
 import { AnimatorController2D } from "./components/AnimatorController2D";
 import { Vector2 } from "./maths/Vector2";
@@ -44,8 +45,10 @@ import "./loaders/NullLoader";
 import "./loaders/BitmapFontLoader";
 import "./loaders/TTFFontLoader";
 import "./loaders/MaterialLoader";
+import "./loaders/ScriptableObjectLoader";
 import "./loaders/ShaderLoader";
 import "./loaders/GLSLLoader";
+import "./loaders/ComputeShaderLoader"
 import "./media/WebAudioLoader";
 import { Camera2D } from "./display/Scene2DSpecial/Camera2D";
 import { Mesh2DRender } from "./display/Scene2DSpecial/Mesh2DRender";
@@ -53,12 +56,16 @@ import { BaseRenderNode2D } from "./NodeRender2D/BaseRenderNode2D";
 import { Mesh2D } from "./resource/Mesh2D";
 import { Gradient } from "./maths/Gradient";
 import { FloatKeyframe } from "./maths/FloatKeyframe";
+import { Curve } from "./maths/Curve";
 import { Area2D } from "./display/Area2D";
 import { OpenDataContextView } from "./display/OpenDataContextView";
 import { PostProcess2D } from "./display/PostProcess2D";
 import { PostProcess2DEffect } from "./display/PostProcess2DEffect";
 import { SoundPlayer } from "./media/SoundPlayer";
 import { VideoPlayer } from "./media/VideoPlayer";
+import { ComputeShader } from "./RenderDriver/DriverDesign/RenderDevice/ComputeShader/ComputeShader";
+import { AnimatorClip2D } from "./components/AnimatorClip2D";
+import { SequenceFrame2DRender } from "./display/Scene2DSpecial/SequenceFrame2D/SequenceFrame2DRender";
 
 let c = ClassUtils.regClass;
 c("Record", Object);
@@ -87,8 +94,10 @@ c("Texture", Texture);
 c("Texture2D", Texture2D);
 
 c("Prefab", Prefab);
+c("ScriptableObject", ScriptableObject);
 
 c("Animator2D", Animator2D);
+c("AnimatorClip2D", AnimatorClip2D);
 c("AnimatorControllerLayer2D", AnimatorControllerLayer2D);
 c("AnimatorState2D", AnimatorState2D);
 c("AnimationClip2D", AnimationClip2D);
@@ -107,10 +116,15 @@ c("Matrix3x3", Matrix3x3);
 c("Matrix4x4", Matrix4x4);
 c("Camera2D", Camera2D);
 c("Mesh2DRender", Mesh2DRender);
+c("SequenceFrame2DRender", SequenceFrame2DRender);
 c("BaseRenderNode2D", BaseRenderNode2D);
 c("Mesh2D", Mesh2D);
 c("Gradient", Gradient);
 c("FloatKeyframe", FloatKeyframe);
+c("Curve", Curve);
 
 c("PostProcess2D", PostProcess2D);
 c("PostProcess2DEffect", PostProcess2DEffect);
+
+c("SequenceFrame2DRender", SequenceFrame2DRender);
+c("COMPUTESHADER", ComputeShader);

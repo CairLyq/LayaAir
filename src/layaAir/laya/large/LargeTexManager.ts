@@ -8,6 +8,7 @@ import { FilterMode } from "../RenderEngine/RenderEnum/FilterMode";
 import { RenderTargetFormat } from "../RenderEngine/RenderEnum/RenderTargetFormat";
 import { TextureFormat } from "../RenderEngine/RenderEnum/TextureFormat";
 import { WrapMode } from "../RenderEngine/RenderEnum/WrapMode";
+import { LayaGL } from "../layagl/LayaGL";
 import { Texture2D } from "../resource/Texture2D";
 import { Utils } from "../utils/Utils";
 import { LargeTex } from "./LargeTex";
@@ -1155,7 +1156,6 @@ export class LargeTexManager extends LargeTexBase {
      * @param ltn 大纹理数量上限
      * @param tsm 小纹理单元尺寸
      * @param exs 小纹理扩边尺寸
-     * @param qds 大纹理观察尺寸
      */
     constructor(lts: number[], ltn: number, tsm: number = 16, exs: number = 0, texFormat: RenderTargetFormat = RenderTargetFormat.R8G8B8A8) {
         super(lts, ltn, tsm, exs, texFormat);

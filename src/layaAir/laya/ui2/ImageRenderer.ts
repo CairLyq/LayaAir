@@ -1,4 +1,3 @@
-import { NodeFlags } from "../Const";
 import { Draw9GridTextureCmd } from "../display/cmd/Draw9GridTextureCmd";
 import { DrawTextureCmd } from "../display/cmd/DrawTextureCmd";
 import { DrawTrianglesCmd } from "../display/cmd/DrawTrianglesCmd";
@@ -25,8 +24,7 @@ export class ImageRenderer {
 
     destroy() {
         if (this._tex) {
-            if (this._owner._getBit(NodeFlags.EDITING_NODE))
-                this._tex.off("reload", this, this.onTextureReload);
+            this._tex.off("reload", this, this.onTextureReload);
             this._tex = null;
         }
         if (this._drawCmd) {
@@ -36,13 +34,12 @@ export class ImageRenderer {
     }
 
     setTexture(value: Texture) {
-        if (this._tex && this._owner._getBit(NodeFlags.EDITING_NODE))
+        if (this._tex)
             this._tex.off("reload", this, this.onTextureReload);
 
         this._tex = value;
         if (value) {
-            if (this._owner._getBit(NodeFlags.EDITING_NODE))
-                value.on("reload", this, this.onTextureReload);
+            value.on("reload", this, this.onTextureReload);
 
             this.createCmd();
         }
@@ -84,14 +81,11 @@ export class ImageRenderer {
         else
             drawClass = DrawTextureCmd;
         if (this._drawCmd && this._drawCmd.cmdID === drawClass.ID) {
-            let oldTexture = this._drawCmd.texture;
-            if (oldTexture !== this._tex) {
-                oldTexture?._removeReference();
-                this._tex?._addReference();
-            }
             this._drawCmd.texture = this._tex;
             if (drawClass === DrawTrianglesCmd)
                 (this._drawCmd as DrawTrianglesCmd).mesh = this._meshFactory;
+            else if (drawClass === Draw9GridTextureCmd)
+                (this._drawCmd as Draw9GridTextureCmd).sizeGrid = this._tex._sizeGrid;
             this._owner.graphics.repaint();
             return;
         }

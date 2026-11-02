@@ -17,7 +17,7 @@ export class NodeFlags {
     //static ACTUAL_VISIBLE = 0x8;
     static DISPLAY = 0x10;
     static HAS_ZORDER = 0x20;
-    //static = 0x40;
+    static RENDERERS_CACHE = 0x40; //参与渲染组件缓存的子树节点
     static DISPLAYED_INSTAGE = 0x80;
     //static = 0x100;
     static CHECK_INPUT = 0x200;
@@ -61,4 +61,16 @@ export class HideFlags {
      * @zh 对象隐藏且不会保存到场景或预制件中。
      */
     static HideAndDontSave = 0x7;
+
+    /**
+     * @en The gizmos of the object are hidden in the scene view.
+     * @zh 对象的 gizmos 在场景视图中隐藏。
+     */
+    static HideGizmos = 0x800;
+
+    /**
+     * @en The transform tool of the object is hidden in the scene view.
+     * @zh 对象的变换工具在场景视图中隐藏。
+     */
+    static HideTransformTool = 0x1000;
 }

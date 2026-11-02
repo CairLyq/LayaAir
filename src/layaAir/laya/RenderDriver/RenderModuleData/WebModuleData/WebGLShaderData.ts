@@ -8,20 +8,28 @@ import { BaseTexture } from "../../../resource/BaseTexture";
 import { Resource } from "../../../resource/Resource";
 import { InternalTexture } from "../../DriverDesign/RenderDevice/InternalTexture";
 import { WebGLEngine } from "../../WebGLDriver/RenderDevice/WebGLEngine";
-import { ShaderData } from "../../DriverDesign/RenderDevice/ShaderData";
+import { isRenderStateProperty, ShaderData } from "../../DriverDesign/RenderDevice/ShaderData";
 import { ShaderDefine } from "../Design/ShaderDefine";
 import { WebDefineDatas } from "./WebDefineDatas";
 import { WebGLUniformBuffer } from "../../WebGLDriver/RenderDevice/WebGLUniformBuffer";
 import { WebGLSubUniformBuffer } from "../../WebGLDriver/RenderDevice/WebGLSubUniformBuffer";
-import { WebGLUniformBufferBase } from "../../WebGLDriver/RenderDevice/WebGLUniformBufferBase";
+import { WebGLUniformBufferDescriptor } from "../../WebGLDriver/RenderDevice/WebGLUniformBufferDescriptor";
+import { WebGLUniformBufferManager } from "../../WebGLDriver/RenderDevice/WebGLUniformBufferManager";
+import { IWebGLUniformBuffer } from "../../WebGLDriver/RenderDevice/IWebGLUniformBuffer";
+import { UniformBufferWriter } from "../../DriverDesign/RenderDevice/UniformBufferManager/UniformBufferWriter";
+import type { UniformBufferBlock } from "../../DriverDesign/RenderDevice/UniformBufferManager/UniformBufferBlock";
 import { UniformProperty } from "../../DriverDesign/RenderDevice/CommandUniformMap";
 import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
 import { Config } from "../../../../Config";
+import { WebGLCommandUniformMap } from "../../WebGLDriver/RenderDevice/WebGLCommandUniformMap";
+import { LayaGL } from "../../../layagl/LayaGL";
+import { RenderState } from "../Design/RenderState";
 
 /**
  * 着色器数据类。
  */
 export class WebGLShaderData extends ShaderData {
+    private static pointerCount: number = 0;
     /**@internal */
     protected _gammaColorMap: Map<number, Color>;
     /**@internal */
@@ -30,20 +38,162 @@ export class WebGLShaderData extends ShaderData {
     /** @internal */
     _defineDatas: WebDefineDatas = new WebDefineDatas();
 
+
+    _id: number = WebGLShaderData.pointerCount++;
+
     /** @internal */
     private _uniformBuffers: Map<string, WebGLUniformBuffer>;
+
+    /**
+     * _uniformBuffers 恰好一个时缓存该元素,否则为 null。
+     * 不变量:_singleUniformBuffer !== null ⟺ size === 1(靠 _uniformBuffers 只增不减成立)。
+     */
+    private _singleUniformBuffer: WebGLUniformBuffer = null;
 
     /** @internal */
     private _subUniformBuffers: Map<string, WebGLSubUniformBuffer>;
 
     /** @internal */
-    private _uniformBuffersPropertyMap: Map<number, WebGLUniformBufferBase>;
+    private _uniformBuffersPropertyMap: Map<number, IWebGLUniformBuffer>;
 
     private _needCacheData: boolean = false;
 
-    private _updateCacheArray: { [key: number]: any } = null;
+    private _updateCacheArray: { [key: number]: Function } = null;
 
-    private _subUboBufferNumber: number = 0;
+    /**
+     * 持有 sub UBO 时缓存的 bufferMgr,只在 createSubUniformBuffer 里赋值;
+     * 为 null 表示没有走 manager 的 UBO,setter 跳过挂载。
+     */
+    private _bufferMgr: WebGLUniformBufferManager = null;
+
+    /** 挂入待 apply 列表时的 upload 轮次,与 mgr._uploadRound 比对去重。 */
+    private _pendingRound: number = -1;
+
+    private _renderStateChanged: boolean = true;
+
+    /** @internal */
+    public get renderStateChanged(): boolean {
+        return this._renderStateChanged;
+    }
+
+    /** @internal */
+    renderState: RenderState = new RenderState();
+
+    /** @internal */
+    updateRenderState() {
+        this._renderStateChanged = false;
+
+        const datas: any = this.getData();
+        const renderState = this.renderState;
+
+        // depth
+        let depthWrite: boolean = datas[Shader3D.DEPTH_WRITE];
+        depthWrite = depthWrite ?? RenderState.Default.depthWrite;
+        renderState.depthWrite = depthWrite;
+
+        let depthTest = datas[Shader3D.DEPTH_TEST];
+        depthTest = depthTest ?? RenderState.Default.depthTest;
+        renderState.depthTest = depthTest;
+
+        //Stencil
+        let stencilWrite: boolean = datas[Shader3D.STENCIL_WRITE];
+        stencilWrite = stencilWrite ?? RenderState.Default.stencilWrite;
+        renderState.stencilWrite = stencilWrite;
+
+        let stencilWriteMask: number = (datas[Shader3D.STENCIL_WRITE_MASK] ?? RenderState.Default.stencilWriteMask);
+        renderState.stencilWriteMask = stencilWriteMask;
+
+        let stencilOp = datas[Shader3D.STENCIL_Op];
+        stencilOp = stencilOp ?? RenderState.Default.stencilOp;
+        renderState.stencilOp.set(stencilOp.x, stencilOp.y, stencilOp.z);
+
+        let stencilTest = datas[Shader3D.STENCIL_TEST];
+        stencilTest = stencilTest ?? RenderState.Default.stencilTest;
+        renderState.stencilTest = stencilTest;
+
+        let stencilReadMask = datas[Shader3D.STENCIL_READ_MASK] ?? RenderState.Default.stencilReadMask;
+        renderState.stencilReadMask = stencilReadMask;
+
+        var stencilRef = datas[Shader3D.STENCIL_Ref];
+        stencilRef = stencilRef ?? RenderState.Default.stencilRef;
+        renderState.stencilRef = stencilRef;
+
+        // depth bias
+        let depthBias = datas[Shader3D.DEPTH_BIAS] ?? RenderState.Default.depthBias;
+        renderState.depthBias = depthBias;
+
+        let depthBiasConstant = datas[Shader3D.DEPTH_BIAS_CONSTANT];
+        depthBiasConstant = depthBiasConstant ?? RenderState.Default.depthBiasConstant;
+        renderState.depthBiasConstant = depthBiasConstant;
+
+        let depthBiasSlopeScale = datas[Shader3D.DEPTH_BIAS_SLOPESCALE];
+        depthBiasSlopeScale = depthBiasSlopeScale ?? RenderState.Default.depthBiasSlopeScale;
+        renderState.depthBiasSlopeScale = depthBiasSlopeScale;
+
+        let depthBiasClamp = datas[Shader3D.DEPTH_BIAS_CLAMP];
+        depthBiasClamp = depthBiasClamp ?? RenderState.Default.depthBiasClamp;
+        renderState.depthBiasClamp = depthBiasClamp;
+
+        //blend
+        let blend = datas[Shader3D.BLEND];
+        blend = blend ?? RenderState.Default.blend;
+        renderState.blend = blend;
+
+        let blendEquation = datas[Shader3D.BLEND_EQUATION];
+        blendEquation = blendEquation ?? RenderState.Default.blendEquation;
+        renderState.blendEquation = blendEquation;
+
+        let srcBlend = datas[Shader3D.BLEND_SRC];
+        srcBlend = srcBlend ?? RenderState.Default.srcBlend;
+        renderState.srcBlend = srcBlend;
+
+        let dstBlend = datas[Shader3D.BLEND_DST];
+        dstBlend = dstBlend ?? RenderState.Default.dstBlend;
+        renderState.dstBlend = dstBlend;
+
+        let blendEquationRGB = datas[Shader3D.BLEND_EQUATION_RGB];
+        blendEquationRGB = blendEquationRGB ?? RenderState.Default.blendEquationRGB;
+        renderState.blendEquationRGB = blendEquationRGB;
+
+        let blendEquationAlpha = datas[Shader3D.BLEND_EQUATION_ALPHA];
+        blendEquationAlpha = blendEquationAlpha ?? RenderState.Default.blendEquationAlpha;
+        renderState.blendEquationAlpha = blendEquationAlpha;
+
+        let srcRGB = datas[Shader3D.BLEND_SRC_RGB];
+        srcRGB = srcRGB ?? RenderState.Default.srcBlendRGB;
+        renderState.srcBlendRGB = srcRGB;
+
+        let dstRGB = datas[Shader3D.BLEND_DST_RGB];
+        dstRGB = dstRGB ?? RenderState.Default.dstBlendRGB;
+        renderState.dstBlendRGB = dstRGB;
+
+        let srcAlpha = datas[Shader3D.BLEND_SRC_ALPHA];
+        srcAlpha = srcAlpha ?? RenderState.Default.srcBlendAlpha;
+        renderState.srcBlendAlpha = srcAlpha;
+
+        let dstAlpha = datas[Shader3D.BLEND_DST_ALPHA];
+        dstAlpha = dstAlpha ?? RenderState.Default.dstBlendAlpha;
+        renderState.dstBlendAlpha = dstAlpha;
+
+        // cull
+        let cull = datas[Shader3D.CULL];
+        cull = cull ?? RenderState.Default.cull;
+        renderState.cull = cull;
+
+        // hash render state
+        const engine = WebGLEngine.instance;
+
+        const hash = engine.hashRenderState(renderState);
+        renderState.hash = hash;
+
+        this._renderStateChanged = false;
+    }
+
+    private _checkRenderState(index: number) {
+        if (isRenderStateProperty(index)) {
+            this._renderStateChanged = true;
+        }
+    }
 
     /**
      * @internal	
@@ -61,6 +211,7 @@ export class WebGLShaderData extends ShaderData {
         this._updateCacheArray = {};
         this._gammaColorMap = new Map();
         this._uniformBuffers = new Map();
+        this._singleUniformBuffer = null;
         this._subUniformBuffers = new Map();
         this._uniformBuffersPropertyMap = new Map();
     }
@@ -70,8 +221,11 @@ export class WebGLShaderData extends ShaderData {
      * @param uniformMap 
      * @returns 
      */
-    createUniformBuffer(name: string, uniformMap: Map<number, UniformProperty>): WebGLUniformBuffer {
+    createUniformBuffer(name: string, uniformMap: Map<number, UniformProperty>, needUpdata: boolean = false): WebGLUniformBuffer {
         if (this._uniformBuffers.has(name)) {
+            if (needUpdata) {
+                this._updateUBOBuffer(name);
+            }
             return this._uniformBuffers.get(name);
         }
 
@@ -83,6 +237,8 @@ export class WebGLShaderData extends ShaderData {
         });
         uboBuffer.create();
         this._uniformBuffers.set(name, uboBuffer);
+        //维护唯一元素缓存:恰好一个时缓存它,多个则置空
+        this._singleUniformBuffer = this._uniformBuffers.size === 1 ? uboBuffer : null;
         let id = Shader3D.propertyNameToID(name);
         this._data[id] = uboBuffer;
         uniformMap.forEach(uniform => {
@@ -93,11 +249,22 @@ export class WebGLShaderData extends ShaderData {
             }
             this._uniformBuffersPropertyMap.set(uniformId, uboBuffer);
         });
+        this._uboLayoutVersion++; //守全"属性映射一变就 bump"不变量(独立 UBO,句柄经 instanceof 过滤仍得 null 回退)
+
+        uboBuffer.needUpload && uboBuffer.upload();
 
         return uboBuffer;
     }
 
-    updateUBOBuffer(name: string): void {
+    /** 把自己挂进 bufferMgr 待 apply 列表;本轮已挂或无 UBO 则直接返回。 */
+    private _markPendingApply(): void {
+        const mgr = this._bufferMgr;
+        if (!mgr || this._pendingRound === mgr._uploadRound) return;
+        this._pendingRound = mgr._uploadRound;
+        mgr._pendingApply.add(this);
+    }
+
+    private _updateUBOBuffer(name: string): void {
         if (!Config._uniformBlock) {
             return;
         }
@@ -122,33 +289,23 @@ export class WebGLShaderData extends ShaderData {
     createSubUniformBuffer(name: string, cacheName: string, uniformMap: Map<number, UniformProperty>) {
         let subBuffer = this._subUniformBuffers.get(cacheName);
         if (subBuffer) {
-            if (this._subUboBufferNumber < 2) {
-                //update data
-                for (var i in this._updateCacheArray) {
-                    let index = parseInt(i);
-                    let ubo = this._uniformBuffersPropertyMap.get(index);
-                    if (ubo) {
-                        (this._updateCacheArray[i] as Function).call(ubo, index, this._data[index]);
-                    }
-                }
-                this._updateCacheArray = {};//clear
-            } else {
-                uniformMap.forEach((uniform, index) => {
-                    if (this._data[index] && this._updateCacheArray[index]) {
-                        (this._updateCacheArray[index] as Function).call(subBuffer, index, this._data[index]);
-                    }
-                });
-            }
+            //已缓存:攒下的改动由 bufferMgr.upload() 统一 apply
             return subBuffer;
         }
 
         let engine = WebGLEngine.instance;
         let mgr = engine.bufferMgr;
 
-        let uniformBuffer = new WebGLSubUniformBuffer(name, uniformMap, mgr, this);
-        this._subUboBufferNumber++;
+        // 块即写入器:构造 descriptor 后向 cluster 申请块,返回值即块(自带 setXxx 视图)
+        let descriptor = new WebGLUniformBufferDescriptor(name);
+        uniformMap.forEach(uniform => {
+            descriptor.addUniform(uniform.id, uniform.uniformtype, uniform.arrayLength);
+        });
+        descriptor.finish(mgr.byteAlign / 4);
+
+        let uniformBuffer = mgr.getBlock(descriptor.byteLength, descriptor, this) as WebGLSubUniformBuffer;
+        this._bufferMgr = mgr; //持有走 manager 的 UBO 后,setter 才需要挂待 apply 列表
         this._needCacheData = true;
-        uniformBuffer.notifyGPUBufferChange();
         this._subUniformBuffers.set(cacheName, uniformBuffer);
 
         let id = Shader3D.propertyNameToID(name);
@@ -162,7 +319,17 @@ export class WebGLShaderData extends ShaderData {
             }
             this._uniformBuffersPropertyMap.set(uniformId, uniformBuffer);
         });
+        this._uboLayoutVersion++; //建块改变属性→块映射,令已缓存的 UniformBufferField 重解析
         return uniformBuffer;
+    }
+
+    /**
+     * @internal
+     * 取持有属性 index 的池化块;独立 UBO(WebGLUniformBuffer,非 cluster 块)返回 null。
+     */
+    _getUniformBlockByProperty(index: number): UniformBufferBlock {
+        const buf = this._uniformBuffersPropertyMap.get(index);
+        return buf instanceof WebGLSubUniformBuffer ? buf : null;
     }
 
 
@@ -212,6 +379,11 @@ export class WebGLShaderData extends ShaderData {
     }
 
     clearData() {
+        //置空后 setter 不再挂入待 apply 列表
+        this._bufferMgr = null;
+        //丢弃攒存改动,否则重建 UBO 后会用即将清空的 _data 写入 undefined
+        this._updateCacheArray = {};
+
         for (const key in this._data) {
             if (this._data[key] instanceof Resource) {
                 this._data[key]._removeReference();
@@ -219,11 +391,13 @@ export class WebGLShaderData extends ShaderData {
         }
 
         this._uniformBuffersPropertyMap.clear();
+        this._uboLayoutVersion++; //块全销毁,令已缓存的 UniformBufferField 失效重解析(重解析得 null→回退 setXxx)
 
         this._uniformBuffers.forEach(buffer => {
             buffer.destroy();
         });
         this._uniformBuffers.clear();
+        this._singleUniformBuffer = null;
 
         this._subUniformBuffers.forEach(buffer => {
             buffer.destroy();
@@ -235,7 +409,8 @@ export class WebGLShaderData extends ShaderData {
 
         this.clearDefine();
         this._needCacheData = false;
-        this._subUboBufferNumber = 0;
+
+        this.renderState.setNull();
     }
 
 
@@ -257,11 +432,12 @@ export class WebGLShaderData extends ShaderData {
     setBool(index: number, value: boolean): void {
         this._data[index] = value;
 
-        //let ubo = this._uniformBuffersPropertyMap.get(index);
         if (this._needCacheData) {
-            // todo
-            // ubo set bool
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setBool;
+            this._markPendingApply();
         }
+
+        this._checkRenderState(index);
     }
 
     /**
@@ -282,8 +458,11 @@ export class WebGLShaderData extends ShaderData {
         this._data[index] = value;
 
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setInt;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setInt;
+            this._markPendingApply();
         }
+
+        this._checkRenderState(index);
     }
 
     /**
@@ -303,8 +482,11 @@ export class WebGLShaderData extends ShaderData {
     setNumber(index: number, value: number): void {
         this._data[index] = value;
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setFloat;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setFloat;
+            this._markPendingApply();
         }
+
+        this._checkRenderState(index);
     }
 
     /**
@@ -328,7 +510,8 @@ export class WebGLShaderData extends ShaderData {
             this._data[index] = value.clone();
 
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setVector2;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setVector2;
+            this._markPendingApply();
         }
     }
 
@@ -353,7 +536,8 @@ export class WebGLShaderData extends ShaderData {
             this._data[index] = value.clone();
 
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setVector3;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setVector3;
+            this._markPendingApply();
         }
     }
 
@@ -378,7 +562,8 @@ export class WebGLShaderData extends ShaderData {
             this._data[index] = value.clone();
 
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setVector4;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setVector4;
+            this._markPendingApply();
         }
     }
 
@@ -418,7 +603,8 @@ export class WebGLShaderData extends ShaderData {
             this._gammaColorMap.set(index, value.clone());
         }
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setVector4;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setVector4;
+            this._markPendingApply();
         }
     }
 
@@ -451,8 +637,10 @@ export class WebGLShaderData extends ShaderData {
             this._data[index] = value.clone();
         }
 
-        if (this._needCacheData)
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setMatrix4x4;
+        if (this._needCacheData) {
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setMatrix4x4;
+            this._markPendingApply();
+        }
     }
 
     /**
@@ -478,7 +666,8 @@ export class WebGLShaderData extends ShaderData {
         }
 
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setMatrix3x3;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setMatrix3x3;
+            this._markPendingApply();
         }
     }
 
@@ -500,7 +689,8 @@ export class WebGLShaderData extends ShaderData {
         this._data[index] = value;
 
         if (this._needCacheData) {
-            this._updateCacheArray[index] = WebGLUniformBufferBase.prototype.setArrayBuffer;
+            this._updateCacheArray[index] = UniformBufferWriter.prototype.setArrayBuffer;
+            this._markPendingApply();
         }
     }
 
@@ -543,6 +733,44 @@ export class WebGLShaderData extends ShaderData {
         this._data[index] = value;
         // lastValue && lastValue._removeReference();
         // value && value._addReference();
+    }
+
+    /**
+     * 把攒下的 set 改动写进各自 UBO 的 view(经 setter 自动标脏),由 bufferMgr.upload() 统一调用。
+     * 查不到 ubo 的属性不属于任何 UBO,丢弃即正确。
+     */
+    uploadCache() {
+        let uploaded = false;
+        for (let i in this._updateCacheArray) {
+            uploaded = true;
+            let index = parseInt(i);
+            let ubo = this._uniformBuffersPropertyMap.get(index);
+            if (ubo) {
+                (this._updateCacheArray[i] as Function).call(ubo, index, this._data[index]);
+            }
+        }
+        if (uploaded) {
+            this._updateCacheArray = {};
+        }
+        //独立 UBO 不在 cluster 内、合并上传覆盖不到,须自己传:一个走缓存,多个才 forEach
+        const single = this._singleUniformBuffer;
+        if (single) {
+            single.needUpload && single.upload();
+        } else if (this._uniformBuffers.size > 1) {
+            this._uniformBuffers.forEach(buffer => {
+                buffer.needUpload && buffer.upload();
+            });
+        }
+    }
+
+    update(name: string) {
+        if (Config._uniformBlock) {
+            let unifomrMap = <WebGLCommandUniformMap>LayaGL.renderDeviceFactory.createGlobalUniformMap(name);
+            let uniformBuffer = this.createSubUniformBuffer(name, name, unifomrMap._idata);
+            if (uniformBuffer) {
+                uniformBuffer.upload();
+            }
+        }
     }
 
     /**
@@ -636,4 +864,3 @@ export class WebGLShaderData extends ShaderData {
         (this as any).destroyed = true;
     }
 }
-

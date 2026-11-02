@@ -10,6 +10,24 @@ import { GLESInternalRT } from "../../RenderDevice/GLESInternalRT";
 import { GLESInternalTex } from "../../RenderDevice/GLESInternalTex";
 import { GLESShaderData } from "../../RenderDevice/GLESShaderData";
 import { GLESRenderElement3D } from "../GLESRenderElement3D";
+import { NativeMemory } from "../../../RenderModuleData/RuntimeModuleData/NativeMemory";
+
+/** @internal conchGLESBlitQuadCMDData 共享块槽位（与 C++ GLESBlitQuadCMDData::Props 一致）。 */
+const enum GLESBlitQuadSlot {
+    viewportX = 0,
+    viewportY = 1,
+    viewportWidth = 2,
+    viewportHeight = 3,
+    scissorX = 4,
+    scissorY = 5,
+    scissorZ = 6,
+    scissorW = 7,
+    offsetScaleX = 8,
+    offsetScaleY = 9,
+    offsetScaleZ = 10,
+    offsetScaleW = 11,
+    Count = 12,
+}
 
 export class GLESDrawNodeCMDData extends DrawNodeCMDData {
 
@@ -32,7 +50,7 @@ export class GLESDrawNodeCMDData extends DrawNodeCMDData {
 
     set node(value: RTBaseRenderNode) {
         this._node = value;
-        this._nativeObj.setBaseRenderNode(value._nativeObj);
+        this._nativeObj.setBaseRenderNode(value ? value._nativeObj : null);
     }
 
     get destShaderData(): GLESShaderData {
@@ -41,7 +59,7 @@ export class GLESDrawNodeCMDData extends DrawNodeCMDData {
 
     set destShaderData(value: GLESShaderData) {
         this._destShaderData = value;
-        this._nativeObj.setShaderData(value._nativeObj);
+        this._nativeObj.setShaderData(value ? value._nativeObj : null);
     }
 
     get destSubShader(): SubShader {
@@ -50,7 +68,7 @@ export class GLESDrawNodeCMDData extends DrawNodeCMDData {
 
     set destSubShader(value: SubShader) {
         this._destSubShader = value;
-        this._nativeObj.setSubShader((value.moduleData as any as RTSubShader)._nativeObj);
+        this._nativeObj.setSubShader(value ? (value.moduleData as any as RTSubShader)._nativeObj : null);
     }
 
     get subMeshIndex(): number {
@@ -103,7 +121,10 @@ export class GLESBlitQuadCMDData extends BlitQuadCMDData {
 
     set viewport(value: Viewport) {
         value.cloneTo(this._viewport);
-        this._nativeObj.setViewport(value);
+        this._f32[GLESBlitQuadSlot.viewportX] = value.x;
+        this._f32[GLESBlitQuadSlot.viewportY] = value.y;
+        this._f32[GLESBlitQuadSlot.viewportWidth] = value.width;
+        this._f32[GLESBlitQuadSlot.viewportHeight] = value.height;
     }
 
     get scissor(): Vector4 {
@@ -112,7 +133,10 @@ export class GLESBlitQuadCMDData extends BlitQuadCMDData {
 
     set scissor(value: Vector4) {
         value.cloneTo(this._scissor);
-        this._nativeObj.setScissor(value);
+        this._f32[GLESBlitQuadSlot.scissorX] = value.x;
+        this._f32[GLESBlitQuadSlot.scissorY] = value.y;
+        this._f32[GLESBlitQuadSlot.scissorZ] = value.z;
+        this._f32[GLESBlitQuadSlot.scissorW] = value.w;
     }
 
     get source(): GLESInternalTex {
@@ -130,7 +154,10 @@ export class GLESBlitQuadCMDData extends BlitQuadCMDData {
 
     set offsetScale(value: Vector4) {
         value.cloneTo(this._offsetScale);
-        this._nativeObj.setOffsetScale(this._offsetScale);
+        this._f32[GLESBlitQuadSlot.offsetScaleX] = value.x;
+        this._f32[GLESBlitQuadSlot.offsetScaleY] = value.y;
+        this._f32[GLESBlitQuadSlot.offsetScaleZ] = value.z;
+        this._f32[GLESBlitQuadSlot.offsetScaleW] = value.w;
     }
 
     get element(): GLESRenderElement3D {
@@ -141,6 +168,9 @@ export class GLESBlitQuadCMDData extends BlitQuadCMDData {
         this._nativeObj.setRenderElement(value._nativeObj);
     }
 
+    private _mem: NativeMemory;
+    private _f32: Float32Array;
+
     constructor() {
         super();
         this.type = RenderCMDType.Blit;
@@ -148,6 +178,9 @@ export class GLESBlitQuadCMDData extends BlitQuadCMDData {
         this._scissor = new Vector4();
         this._offsetScale = new Vector4();
         this._nativeObj = new (window as any).conchGLESBlitQuadCMDData();
+        this._mem = new NativeMemory(GLESBlitQuadSlot.Count * 4, false);
+        this._f32 = this._mem.float32Array;
+        this._nativeObj.bindPropertyBuffer(this._mem._buffer);
     }
 }
 
@@ -233,6 +266,8 @@ export class GLESSetRenderTargetCMD extends SetRenderTargetCMD {
     protected _clearDepthValue: number;
 
     protected _clearStencilValue: number;
+    private _clearColorRGBA: number[] = [];
+    private _clearColorEnabled: number[] = [];
 
     get rt(): GLESInternalRT {
         return this._rt;
@@ -240,7 +275,7 @@ export class GLESSetRenderTargetCMD extends SetRenderTargetCMD {
 
     set rt(value: GLESInternalRT) {
         this._rt = value;
-        this._nativeObj.setRT(value._nativeObj);
+        this._nativeObj.setRT(value ? value._nativeObj : null);
     }
 
     get clearFlag(): number {
@@ -258,7 +293,28 @@ export class GLESSetRenderTargetCMD extends SetRenderTargetCMD {
 
     set clearColorValue(value: Color) {
         value.cloneTo(this._clearColorValue);
+        this._clearColorValues = null;
         this._nativeObj.clearColorValue(value);
+    }
+
+    get clearColorValues(): readonly (Color | null)[] { return this._clearColorValues; }
+
+    set clearColorValues(value: readonly (Color | null)[]) {
+        super.clearColorValues = value;
+        const rgba = this._clearColorRGBA;
+        const enabled = this._clearColorEnabled;
+        const count = this._clearColorValues?.length ?? 0;
+        rgba.length = count * 4;
+        enabled.length = count;
+        for (let i = 0; i < count; i++) {
+            const color = this._clearColorValues[i];
+            enabled[i] = color ? 1 : 0;
+            rgba[i * 4] = color?.r ?? 0;
+            rgba[i * 4 + 1] = color?.g ?? 0;
+            rgba[i * 4 + 2] = color?.b ?? 0;
+            rgba[i * 4 + 3] = color?.a ?? 0;
+        }
+        this._nativeObj.setClearColorValues(rgba, enabled);
     }
 
     get clearDepthValue(): number {

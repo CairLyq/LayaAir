@@ -30,7 +30,6 @@ export class GTextField extends GWidget {
         this.textIns.padding.fill(2);
         this.textIns._onPostLayout = () => this._onPostLayout();
         this.textIns._onTranslate = Translations.translate;
-        this.textIns.on(Event.LINK, (href: string) => this.event(Event.LINK, href));
         this.addChild(this.textIns);
     }
 
@@ -235,6 +234,18 @@ export class GTextField extends GWidget {
     }
 
     /**
+     * @en Letter spacing
+     * @zh 字间距
+     */
+    get letterSpacing(): number {
+        return this.textIns.letterSpacing;
+    }
+
+    set letterSpacing(value: number) {
+        this.textIns.letterSpacing = value;
+    }
+
+    /**
      * @en Margin information.
      * Data format: [top margin, right margin, bottom margin, left margin] (margins in pixels).
      * @zh 边距信息。
@@ -274,6 +285,54 @@ export class GTextField extends GWidget {
 
     set strokeColor(value: string) {
         this.textIns.strokeColor = value;
+    }
+
+    /**
+     * @en Shadow offset X (in pixels).
+     * @zh 阴影偏移X（以像素为单位）。
+     */
+    get shadowOffsetX(): number {
+        return this.textIns.shadowOffsetX;
+    }
+
+    set shadowOffsetX(value: number) {
+        this.textIns.shadowOffsetX = value;
+    }
+
+    /**
+     * @en Shadow offset Y (in pixels).
+     * @zh 阴影偏移Y（以像素为单位）。
+     */
+    get shadowOffsetY(): number {
+        return this.textIns.shadowOffsetY;
+    }
+
+    set shadowOffsetY(value: number) {
+        this.textIns.shadowOffsetY = value;
+    }
+
+    /**
+     * @en Shadow blur (in pixels).
+     * @zh 阴影模糊度（以像素为单位）。
+     */
+    get shadowBlur(): number {
+        return this.textIns.shadowBlur;
+    }
+
+    set shadowBlur(value: number) {
+        this.textIns.shadowBlur = value;
+    }
+
+    /**
+     * @en Shadow color, represented as a string.
+     * @zh 阴影颜色，以字符串表示。
+     */
+    get shadowColor(): string {
+        return this.textIns.shadowColor;
+    }
+
+    set shadowColor(value: string) {
+        this.textIns.shadowColor = value;
     }
 
     /**

@@ -88,7 +88,10 @@ export class Physics2DShapeBase implements IClone {
     public set density(value: number) {
         this._density = value;
         this._shapeDef.density = value;
-        this._box2DShape && Physics2D.I._factory.set_shape_density(this._box2DShape, value);
+        if (this._box2DShape) {
+            Physics2D.I._factory.set_shape_density(this._box2DShape, value);
+            this._body._resetMassData();
+        }
     }
 
     /**
@@ -148,15 +151,15 @@ export class Physics2DShapeBase implements IClone {
      * 获得节点的全局缩放X
      */
     protected get scaleX(): number {
-        return (<Sprite>this._body.owner).globalScaleX;
+        return Physics2D.getDesignScaleX(<Sprite>this._body.owner);
     }
 
     /**
      * @internal
-     * 获得节点的全局缩放Y
+     * 获得节点的全局缩放Y（剥离 stage scale，在设计分辨率空间下）
      */
     protected get scaleY(): number {
-        return (<Sprite>this._body.owner).globalScaleY;
+        return Physics2D.getDesignScaleY(<Sprite>this._body.owner);
     }
 
     /**@internal 创建获得相对于描点x的偏移 */
@@ -204,6 +207,11 @@ export class Physics2DShapeBase implements IClone {
         if (!this._box2DBody) return;
         if (this._box2DShape) {
             Physics2D.I._factory.destroyShape(this._physics2DManager.box2DWorld, this._box2DBody, this._box2DShape);
+            // Destroy the template b2Shape allocated in createShapeDef before destroying the b2FixtureDef
+            if (this._box2DShapeDef && this._box2DShapeDef._shape) {
+                Physics2D.I._factory.destroyData(this._box2DShapeDef._shape);
+                this._box2DShapeDef._shape = null;
+            }
             Physics2D.I._factory.destroyData(this._box2DShapeDef);
             this._box2DShape = null;
             this._box2DShapeDef = null;
@@ -219,9 +227,20 @@ export class Physics2DShapeBase implements IClone {
         this._initShape();
     }
 
+    /** @internal Update geometry without replacing the fixture or resetting its contacts. */
+    protected _refreshShape(update: (shape: any) => void): void {
+        const factory = Physics2D.I._factory;
+        update(factory.getShapeByDef(this._box2DShapeDef, this._shapeDef.shapeType));
+        if (!this._box2DShape) return;
+        update(factory.getShape(this._box2DShape, this._shapeDef.shapeType));
+        factory.synchronizeShape(this._box2DBody, this._box2DShape);
+        this._body._resetMassData();
+    }
+
     private _initShape(): void {
         if (!LayaEnv.isPlaying) return;
         this._createShape();
+        if (!this._box2DShape) return;
         Physics2D.I._factory.set_shape_collider(this._box2DShape, this._body);
         this._updateFilterData();
         this.x = this._x;
@@ -272,8 +291,14 @@ export class Physics2DShapeBase implements IClone {
      * @zh 销毁形状
      */
     destroy(): void {
+        if (!this._box2DBody || !this._box2DShape) return;
         Physics2D.I._factory.destroyShape(this._physics2DManager.box2DWorld, this._box2DBody, this._box2DShape);
         Physics2D.I._factory.destroyData(this._box2DFilter);
+        // Destroy the template b2Shape allocated in createShapeDef before destroying the b2FixtureDef
+        if (this._box2DShapeDef && this._box2DShapeDef._shape) {
+            Physics2D.I._factory.destroyData(this._box2DShapeDef._shape);
+            this._box2DShapeDef._shape = null;
+        }
         Physics2D.I._factory.destroyData(this._box2DShapeDef);
         this._box2DShape = null;
         this._box2DFilter = null;
@@ -287,7 +312,7 @@ export class Physics2DShapeBase implements IClone {
 
     cloneTo(destObject: Physics2DShapeBase): void {
         destObject.density = this.density;
-        destObject.filterData = this.filterData;
+        destObject.filterData = Object.assign(new FilterData(), this.filterData);
         destObject.friction = this.friction;
         destObject.isSensor = this.isSensor;
         destObject.restitution = this.restitution;

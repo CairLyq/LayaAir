@@ -1,6 +1,6 @@
 import { SubShader } from "./SubShader";
 import { ShaderCompileDefineBase, ShaderProcessInfo } from "../../webgl/utils/ShaderCompileDefineBase";
-import { Shader3D } from "../../RenderEngine/RenderShader/Shader3D";
+import { Shader3D, ShaderFeatureType } from "../../RenderEngine/RenderShader/Shader3D";
 import { ShaderVariantCollection } from "../../RenderEngine/RenderShader/ShaderVariantCollection";
 import { IShaderCompiledObj } from "../../webgl/utils/ShaderCompile";
 import { LayaGL } from "../../layagl/LayaGL";
@@ -8,6 +8,8 @@ import { RenderState } from "../../RenderDriver/RenderModuleData/Design/RenderSt
 import { IDefineDatas } from "../../RenderDriver/RenderModuleData/Design/IDefineDatas";
 import { IShaderInstance } from "../../RenderDriver/DriverDesign/RenderDevice/IShaderInstance";
 import { IShaderPassData } from "../../RenderDriver/RenderModuleData/Design/IShaderPassData";
+import { ShaderMRT } from "./ShaderMRT";
+import { ShaderDefine } from "../../RenderDriver/RenderModuleData/Design/ShaderDefine";
 
 
 /**
@@ -50,7 +52,17 @@ export class ShaderPass extends ShaderCompileDefineBase {
         this.moduleData.statefirst = value;
     }
 
+    /**
+     * @en Compile this pass with plain uniforms instead of uniform blocks.
+     * Workaround for drivers that reject draws when the pass's uniform blocks
+     * are bound (e.g. Maleoon 920: planar shadow draw raises INVALID_OPERATION).
+     * @zh 强制本 pass 用普通 uniform 编译，不生成 UBO 块。
+     * 用于部分驱动（如 Maleoon 920）在 uniform block 绑定后 draw 报 INVALID_OPERATION 的场景。
+     */
+    disableUBO: boolean = false;
+
     moduleData: IShaderPassData;
+    private _mrtTargetDefines: Map<number, ShaderDefine>;
 
     get attributeLocations(): Set<number> {
         return this.moduleData.attributeLocations;
@@ -72,6 +84,12 @@ export class ShaderPass extends ShaderCompileDefineBase {
         this.moduleData = LayaGL.unitRenderModuleDataFactory.createShaderPass(this);
         this.moduleData.validDefine = this._validDefine;
         this.moduleData.name = this.name;
+        let shaderType = owner._owner?.shaderType;
+        if (shaderType === ShaderFeatureType.D2_TextureSV
+            || shaderType === ShaderFeatureType.D2_primitive
+            || shaderType === ShaderFeatureType.D2_BaseRenderNode2D) {
+            this.moduleData.is2D = true;
+        }
     }
 
     /**
@@ -83,6 +101,12 @@ export class ShaderPass extends ShaderCompileDefineBase {
     static createShaderInstance(shaderpass: ShaderPass, is2D: boolean, compileDefine: IDefineDatas): IShaderInstance {
         _defineStrings.length = 0;
         Shader3D._getNamesByDefineData(compileDefine, _defineStrings);
+        // disableUBO 的 pass 不声明 uniform block：它走逐条 uniform 上传，
+        // 若仍带 ENUNIFORMBLOCK，场景 uniform 会被当成块成员而无法逐条设置。
+        if (shaderpass.disableUBO) {
+            const idx = _defineStrings.indexOf("ENUNIFORMBLOCK");
+            if (idx >= 0) _defineStrings.splice(idx, 1);
+        }
 
         let shaderProcessInfo: ShaderProcessInfo = {
             is2D,
@@ -102,7 +126,31 @@ export class ShaderPass extends ShaderCompileDefineBase {
      * @override
      * @internal
      */
-    withCompile(compileDefine: IDefineDatas, is2D: boolean = false): IShaderInstance {
+    withCompile(compileDefine: IDefineDatas, is2D: boolean = false, mrtTargetCount?: number): IShaderInstance {
+        // 运行时由实际绑定的目标控制 MRT；离线编译保留请求的目标变体。
+        if (mrtTargetCount !== undefined) {
+            const mrtDefine = Shader3D.getDefineByName(ShaderMRT.defineName);
+            if (mrtTargetCount > 0) compileDefine.add(mrtDefine);
+            else compileDefine.remove(mrtDefine);
+        } else {
+            // 过滤有效宏前读取槽位跨度，保留离线预热的目标布局。
+            const defineNames: string[] = [];
+            Shader3D._getNamesByDefineData(compileDefine, defineNames);
+            mrtTargetCount = ShaderMRT.getTargetCount(defineNames);
+        }
+        if (this._mrtTargetDefines) {
+            for (const define of this._mrtTargetDefines.values()) compileDefine.remove(define);
+        }
+        if (mrtTargetCount > 0) {
+            this._mrtTargetDefines ||= new Map();
+            let define = this._mrtTargetDefines.get(mrtTargetCount);
+            if (!define) {
+                define = Shader3D.getDefineByName(ShaderMRT.targetDefinePrefix + mrtTargetCount);
+                this._mrtTargetDefines.set(mrtTargetCount, define);
+                this._validDefine.add(define);
+            }
+            compileDefine.add(define);
+        }
         var shader: IShaderInstance = this.moduleData.getCacheShader(compileDefine);
         if (shader)
             return shader;

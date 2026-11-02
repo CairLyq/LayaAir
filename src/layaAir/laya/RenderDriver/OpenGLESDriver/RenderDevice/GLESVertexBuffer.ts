@@ -1,11 +1,13 @@
 import { BufferTargetType, BufferUsage } from "../../../RenderEngine/RenderEnum/BufferTargetType";
 import { VertexDeclaration, VertexStateContext } from "../../../RenderEngine/VertexDeclaration";
+import { IDeviceBuffer } from "../../DriverDesign/RenderDevice/IDeviceBuffer";
 import { IVertexBuffer } from "../../DriverDesign/RenderDevice/IVertexBuffer";
+import { GLESGeometryUpdateBatch } from "./GLESGeometryUpdateBatch";
 
 export class GLESVertexBuffer implements IVertexBuffer {
     _instanceBuffer: boolean;
-    _nativeObj:any;
-    constructor(targetType: BufferTargetType, bufferUsageType: BufferUsage){
+    _nativeObj: any;
+    constructor(targetType: BufferTargetType, bufferUsageType: BufferUsage) {
         this._nativeObj = new (window as any).conchGLESVertexBuffer(targetType, bufferUsageType);
     }
     private _vertexDeclaration: VertexDeclaration;
@@ -13,7 +15,7 @@ export class GLESVertexBuffer implements IVertexBuffer {
     /**@internal */
     _shaderValues: { [key: number]: VertexStateContext };
     /**@internal */
-	private _attributeMapTemp: Map<number, VertexStateContext> = new Map();
+    private _attributeMapTemp: Map<number, VertexStateContext> = new Map();
     /**@internal */
     private _bufferRef: any = null;
     public get vertexDeclaration(): VertexDeclaration {
@@ -23,13 +25,13 @@ export class GLESVertexBuffer implements IVertexBuffer {
     public set vertexDeclaration(value: VertexDeclaration) {
         this._vertexDeclaration = value;
         this._shaderValues = this._vertexDeclaration._shaderValues;
-       
+
         //this._attributeMapTemp.clear();
         this._nativeObj.clearVertexDeclaration();
-		for (var k in this._shaderValues) {
-			//this._attributeMapTemp.set(parseInt(k), this._shaderValues[k]);
+        for (var k in this._shaderValues) {
+            //this._attributeMapTemp.set(parseInt(k), this._shaderValues[k]);
             this._nativeObj.setVertexDeclaration(parseInt(k), this._shaderValues[k]);
-		}
+        }
 
         //this._nativeObj.setVertexDeclaration(this._attributeMapTemp);
     }
@@ -40,14 +42,25 @@ export class GLESVertexBuffer implements IVertexBuffer {
     public set instanceBuffer(value: boolean) {
         this._nativeObj._instanceBuffer = value;
     }
+
+    getStorageBuffer(): IDeviceBuffer {
+        throw new Error("Method not implemented.");
+    }
+
     setData(buffer: ArrayBuffer, bufferOffset: number, dataStartIndex: number, dataCount: number): void {
         this._bufferRef = buffer;
+        if (GLESGeometryUpdateBatch.active) {
+            GLESGeometryUpdateBatch.active.upload(this._nativeObj, buffer, bufferOffset, dataStartIndex, dataCount);
+            return;
+        }
         this._nativeObj.setData(buffer, bufferOffset, dataStartIndex, dataCount);
     }
     setDataLength(byteLength: number): void {
+        GLESGeometryUpdateBatch.active?.flush();
         this._nativeObj.setDataLength(byteLength);
     }
     destroy(): void {
+        GLESGeometryUpdateBatch.active?.flush();
         this._nativeObj.destroy();
         this._bufferRef = null;
     }

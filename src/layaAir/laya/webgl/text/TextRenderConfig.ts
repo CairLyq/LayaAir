@@ -55,4 +55,16 @@ export class TextRenderConfig {
      * @zh 设定字体全局缩放，如果设置了scaleFontWithCtx，则这个值会根据舞台比例自动设置。
      */
     static fontScale = 1;
+
+    /**
+     * @en Whether to use texture array for text rendering
+     * @zh 是否使用纹理数组进行文字渲染
+     */
+    static useTextureArray = true;
+
+    /**
+     * @en  Whether to use premultipAlpha
+     * @zh  是否预乘
+     */
+    static premultiplyAlpha = true;
 }

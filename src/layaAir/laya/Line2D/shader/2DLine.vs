@@ -10,6 +10,7 @@ varying vec3 v_dashed;
 varying float v_lineWidth;
 uniform vec3 u_dashed;
 uniform float u_lineWidth;
+uniform float u_screenSpaceWidth;
 
 
 
@@ -46,19 +47,21 @@ void main(){
     v_dashed = vec3(u_dashed.x*lengthScale,u_dashed.y,u_dashed.z*lengthScale);
     v_linePionts=vec4(left,right);
     
-    float lineWidth = u_lineWidth*lengthScale;
+    float lineWidth = u_lineWidth * mix(lengthScale, 1.0, u_screenSpaceWidth);
     v_lineWidth = lineWidth;
     v_linedir = normalize(right - left) * v_lineWidth*0.5;
     vec3 xDir;
     vec3 yDir;
     lineMat(left,right,xDir,yDir,v_lineWidth);
  
-    transfrom(a_position.xy,xDir,yDir,v_position);
-   
-  
+    vec2 globalPos;
+    transfrom(a_position.xy,xDir,yDir,globalPos);
+    v_position = globalPos;
+
+    clip(globalPos);
+
     vec2 viewPos;
-    getViewPos(v_position,viewPos);
-    clip(viewPos);
+    getViewPos(globalPos,viewPos);
     vec4 pos;
     getProjectPos(viewPos,pos);
     gl_Position = pos;

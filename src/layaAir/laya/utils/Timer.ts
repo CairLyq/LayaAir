@@ -1,6 +1,7 @@
 import { Utils } from "./Utils";
 import { ILaya } from "../../ILaya";
 import { Event } from "../events/Event";
+import { Render } from "../renders/Render";
 
 /**
  * @en The `Timer` class is responsible for time management. It is a singleton and should not be instantiated manually. Access it via `Laya.timer`
@@ -44,6 +45,12 @@ export class Timer {
     private _map: Record<string, TimerHandler> = {};
     private _handlers: TimerHandler[] = [];
     private _greedy: boolean;
+    /**
+     * @internal
+     * Whether the timer was just resumed from pause.
+     * 计时器是否刚从暂停中恢复。
+     */
+    private _wasJustResumed: boolean = false;
 
     /**
      * @en Constructor method
@@ -91,11 +98,24 @@ export class Timer {
         }
 
         let frame: number = this.currFrame = this.currFrame + this.scale;
-        this.unscaledDelta = timestamp - this._lastTimer;
+
+        // Check if in step mode or just resumed for frame-accurate debugging
+        if (Render.stepMode || this._wasJustResumed) {
+            // Step mode or just resumed: use fixed frame interval
+            this.unscaledDelta = Render.frameInterval;
+            // Sync real timestamp to avoid time jump on next update
+            this._lastTimer = timestamp;
+            // Clear resumed flag
+            this._wasJustResumed = false;
+        } else {
+            // Normal mode: use real time delta
+            this.unscaledDelta = timestamp - this._lastTimer;
+            this._lastTimer = timestamp;
+        }
+
         let awake: boolean = this.unscaledDelta > 30000;
         this.delta = this.unscaledDelta * this.scale;
         let timer: number = this.currTimer = this.currTimer + this.delta;
-        this._lastTimer = timestamp;
 
         let handlers = this._handlers;
         let killed = 0;
@@ -168,7 +188,7 @@ export class Timer {
                 handler.caller = caller;
                 handler.method = method;
                 handler.args = args;
-                handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + performance.now() - this._lastTimer);
+                handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + (performance.now() - this._lastTimer) * this.scale);
                 return handler;
             }
         }
@@ -182,7 +202,7 @@ export class Timer {
         handler.caller = caller;
         handler.method = method;
         handler.args = args;
-        handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + performance.now() - this._lastTimer);
+        handler.exeTime = delay + (useFrame ? this.currFrame : this.currTimer + (performance.now() - this._lastTimer) * this.scale);
 
         //索引handler
         this._map[key] = handler;
@@ -397,6 +417,24 @@ export class Timer {
             handler.clear();
         }
         this._handlers.length = 0;
+    }
+
+    /**
+     * @en Synchronize the last timer timestamp. Used when paused to prevent time jump on resume.
+     * @zh 同步最后的时间戳。在暂停时使用，以防止恢复时时间跳跃。
+     * @internal
+     */
+    _syncTimestamp(timestamp: number): void {
+        this._lastTimer = timestamp;
+    }
+
+    /**
+     * @en Mark the timer as just resumed from pause. The next update will use fixed frame interval.
+     * @zh 标记计时器刚从暂停中恢复。下次更新将使用固定帧间隔。
+     * @internal
+     */
+    _markResumed(): void {
+        this._wasJustResumed = true;
     }
 }
 

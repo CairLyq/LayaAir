@@ -57,6 +57,10 @@ export class WebAudioChannel extends SoundChannel {
         this.onVolumeChanged();
     }
 
+    protected onPlaybackRateChanged(): void {
+        this.applyPlaybackRate();
+    }
+
     private onLoaded(buffer: AudioBuffer): void {
         if (!this._started)
             return;
@@ -76,29 +80,54 @@ export class WebAudioChannel extends SoundChannel {
 
     private startPlay(isResuming: boolean) {
         let ctx = PAL.media.audioCtx;
+
+        // iOS may leave the AudioContext interrupted after losing focus.
+        // Do not create or start a source until an interrupted context has been resumed.
+        let state = ctx.state as string;
+        if (state === "closed") {
+            this.stop();
+            return;
+        }
+
+        if (state === "interrupted") {
+            let resumeTime = isResuming ? this._pauseTime : this.startTime;
+            this._startTime = 0;
+            PAL.media.resumeUntilGotFocus(this);
+            this._pauseTime = resumeTime;
+            return;
+        }
+
         this._gainNode = WebAudioChannel.gainNodePool.take();
 
         let sourceNode = this._sourceNode = ctx.createBufferSource();
         sourceNode.buffer = this._buffer;
         sourceNode.connect(this._gainNode);
         sourceNode.onended = () => this.onPlayEnd();
-        if (sourceNode.playbackRate) { //douyin真机这个为空
-            if (sourceNode.playbackRate.setTargetAtTime)
-                sourceNode.playbackRate.setTargetAtTime(this.playbackRate, ctx.currentTime, 0.001)
-            else
-                sourceNode.playbackRate.value = this.playbackRate;
-        }
+        this.applyPlaybackRate();
         sourceNode.loop = this.loops === 0;
         sourceNode.loopStart = this.startTime;
         sourceNode.loopEnd = this._buffer.duration;
         this._gainNode.gain.value = this._muted ? 0 : this._volume;
         sourceNode.start(0, isResuming ? this._pauseTime : this.startTime);
         if (ctx.state != null && ctx.state !== "running") {
+            let resumeTime = isResuming ? this._pauseTime : this.startTime;
             this._startTime = 0;
             PAL.media.resumeUntilGotFocus(this);
+            this._pauseTime = resumeTime;
         }
         else
             this._startTime = performance.now();
+    }
+
+    private applyPlaybackRate(): void {
+        let playbackRate = this._sourceNode?.playbackRate;
+        if (!playbackRate) //douyin真机这个为空
+            return;
+
+        if (playbackRate.setTargetAtTime)
+            playbackRate.setTargetAtTime(this.playbackRate, PAL.media.audioCtx.currentTime, 0.001);
+        else
+            playbackRate.value = this.playbackRate;
     }
 
     private reset(): void {
@@ -110,7 +139,7 @@ export class WebAudioChannel extends SoundChannel {
             sourceNode.stop(0);
         else
             (sourceNode as any).noteOff(0);
-        sourceNode.disconnect(0);
+        sourceNode.disconnect();
         sourceNode.onended = null;
         this._sourceNode = null;
 
@@ -133,5 +162,5 @@ function initGainNode(node: GainNode) {
 }
 
 function resetGainNode(node: GainNode) {
-    node.disconnect(0);
+    node.disconnect();
 }

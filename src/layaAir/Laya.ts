@@ -1,4 +1,4 @@
-﻿import { ILaya, Mutable } from "./ILaya";
+import { ILaya, Mutable } from "./ILaya";
 import { Stage } from "./laya/display/Stage";
 import { InputManager } from "./laya/events/InputManager";
 import { Loader } from "./laya/net/Loader";
@@ -14,10 +14,10 @@ import { VertexElementFormat } from "./laya/renders/VertexElementFormat";
 import { IPhysics2DFactory } from "./laya/physics/factory/IPhysics2DFactory";
 import { VertexMesh } from "./laya/RenderEngine/RenderShader/VertexMesh";
 import { Laya3D } from "./Laya3D";
-import { Camera2D } from "./laya/display/Scene2DSpecial/Camera2D";
 import { BaseRenderNode2D } from "./laya/NodeRender2D/BaseRenderNode2D";
 import { Texture2D } from "./laya/resource/Texture2D";
 import { Texture2DArray } from "./laya/resource/Texture2DArray";
+import { Texture3D } from "./laya/resource/Texture3D";
 import { TextureCube } from "./laya/resource/TextureCube";
 import { HalfFloatUtils } from "./laya/utils/HalfFloatUtils";
 import { BlendModeHandler } from "./laya/webgl/canvas/BlendMode";
@@ -26,14 +26,14 @@ import { ShaderDefines2D } from "./laya/webgl/shader/d2/ShaderDefines2D";
 import { HTMLCanvas } from "./laya/resource/HTMLCanvas";
 import { PAL } from "./laya/platform/PlatformAdapters";
 import { SoundManager } from "./laya/media/SoundManager";
-import { GraphicsMesh } from "./laya/webgl/utils/GraphicsMesh";
 import { Mesh2DRender } from "./laya/display/Scene2DSpecial/Mesh2DRender";
+import { SequenceFrame2DRender } from "./laya/display/Scene2DSpecial/SequenceFrame2D/SequenceFrame2DRender";
 import { PostProcess2D } from "./laya/display/PostProcess2D";
 import { Render2DProcessor } from "./laya/display/Render2DProcessor";
-import { GraphicsRunner } from "./laya/display/Scene2DSpecial/GraphicsRunner";
 import { Blit2DCMD } from "./laya/display/Scene2DSpecial/RenderCMD2D/Blit2DCMD";
 import { Scene } from "./laya/display/Scene";
 import { RenderTexture2D } from "./laya/resource/RenderTexture2D";
+import { GraphicsDefines } from "./laya/webgl/shader/d2/GraphicsDefines";
 
 /**
  * @en Laya is the reference entry for global objects.
@@ -144,10 +144,13 @@ export class Laya {
         if (LayaEnv.beforeInit)
             steps.push(() => LayaEnv.beforeInit(stageConfig));
 
-        //beforeInitCallbacks 是按顺序执行
-        Laya._beforeInitCallbacks.forEach(func => steps.push(() => func(stageConfig)));
+        //beforeInitCallbacks 是按顺序执行，执行期间新增的回调也需要执行
+        steps.push(async () => {
+            for (let i = 0; i < Laya._beforeInitCallbacks.length; i++)
+                await Laya._beforeInitCallbacks[i](stageConfig);
+        });
 
-        steps.push(() => LayaGL.renderDeviceFactory.createEngine(null, Browser.mainCanvas));
+        steps.push(() => LayaGL.renderDeviceFactory.createEngine(null, Browser.offscreenMainCanvas || Browser.mainCanvas));
 
         steps.push(() => Laya.initRender2D(stageConfig));
 
@@ -199,7 +202,7 @@ export class Laya {
         VertexMesh.__init__();
         Shader3D.init();
 
-        GraphicsMesh.__init__();
+        GraphicsDefines.__init__();
         ShaderDefines2D.__init__();
 
         Render.__init__();
@@ -210,6 +213,7 @@ export class Laya {
         RenderTexture2D.__init__();
         TextureCube.__init__();
         Texture2DArray.__init__();
+        Texture3D.__init__();
         HalfFloatUtils.__init__();
 
         Scene.__init__();
@@ -219,6 +223,7 @@ export class Laya {
         PostProcess2D.init();
         Material.__initDefine__();
         Mesh2DRender.__init__();
+        SequenceFrame2DRender.__init__();
 
         InputManager.__init__();
         SoundManager.__init__();

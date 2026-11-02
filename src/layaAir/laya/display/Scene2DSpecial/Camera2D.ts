@@ -13,16 +13,6 @@ import { Sprite } from "../Sprite";
 import { SpriteConst, TransformKind } from "../SpriteConst";
 
 export class Camera2D extends Sprite {
-    /**@internal */
-    static shaderValueInit() {
-        Camera2D.VIEW2D = Shader3D.propertyNameToID("u_view2D");
-        Camera2D.SHADERDEFINE_CAMERA2D = Shader3D.getDefineByName("CAMERA2D");
-    }
-
-    /**@internal */
-    static VIEW2D: number;
-    /**@internal */
-    static SHADERDEFINE_CAMERA2D: ShaderDefine;
 
     private _cameraPos: Vector2 = new Vector2();
     private _cameraSmoothPos: Vector2 = new Vector2();
@@ -112,9 +102,10 @@ export class Camera2D extends Sprite {
             }
             ele = ele._parent;
         }
-        if (this._ownerArea == null) {
-            console.warn("Camera2D must be a descendant of Area2D");
-        }
+        // Avoid warning when using Camera2D in prefabs
+        // if (this._ownerArea == null) {
+        //     console.warn("Camera2D must be a descendant of Area2D");
+        // }
     }
 
     private _zoom: Vector2;
@@ -375,9 +366,9 @@ export class Camera2D extends Sprite {
             }
 
             let sceneRect_left = this._cameraPos.x - extendHorizental;
-            let sceneRect_right = sceneRect_left + viewport.x;
+            let sceneRect_right = sceneRect_left + extendHorizental * 2;
             let sceneRect_top = this._cameraPos.y - extendVertical;
-            let sceneRect_bottom = sceneRect_top + viewport.y;
+            let sceneRect_bottom = sceneRect_top + extendVertical * 2;
 
             //limit
             if (sceneRect_left < this._limit_Left) {
@@ -397,12 +388,14 @@ export class Camera2D extends Sprite {
 
             if (this._positionSmooth) {
                 let epsilon = 0.01;
-                let speed = Math.max(epsilon, Math.min(1.0, this._positionSpeed * 0.16));// 0.1
+                // Preserve the 60 Hz response while accounting for elapsed time.
+                let baseSpeed = Math.max(epsilon, Math.min(1.0, this._positionSpeed * 0.16));
+                let speed = 1 - Math.pow(1 - baseSpeed, Math.max(0, ILaya.timer.delta) / (1000 / 60));
                 let deltaX = this._cameraPos.x - this._cameraSmoothPos.x;
                 let deltaY = this._cameraPos.y - this._cameraSmoothPos.y;
                 let transX = deltaX * speed;
                 let transY = deltaY * speed;
-                if (Math.abs(transX) < epsilon && Math.abs(transY) < epsilon) {
+                if (Math.abs(deltaX * baseSpeed) < epsilon && Math.abs(deltaY * baseSpeed) < epsilon) {
                     this._cameraSmoothPos.x = this._cameraPos.x;
                     this._cameraSmoothPos.y = this._cameraPos.y;
                 } else {

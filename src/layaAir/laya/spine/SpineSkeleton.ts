@@ -2,7 +2,6 @@ import { Sprite } from "../display/Sprite";
 import { ExternalSkin } from "./ExternalSkin";
 import { Spine2DRenderNode } from "./Spine2DRenderNode";
 import { SpineTemplet } from "./SpineTemplet";
-import { ISpineOptimizeRender } from "./optimize/interface/ISpineOptimizeRender";
 
 /**
  * @deprecated 请使用Sprite+Spine2DRenderNode组件
@@ -108,17 +107,6 @@ export class SpineSkeleton extends Sprite {
         return this._spineComponent.playState;
     }
 
-
-    public get spineItem(): ISpineOptimizeRender {
-        return this._spineComponent.spineItem;
-    }
-
-
-    public set spineItem(value: ISpineOptimizeRender) {
-        this._spineComponent.spineItem = value;
-    }
-
-
     /**
      * 播放动画
      *
@@ -186,7 +174,7 @@ export class SpineSkeleton extends Sprite {
     }
 
     /**
-     * 停止动画
+     * 停止动画，停留在当前帧
      */
     stop(): void {
         this._spineComponent.stop();
@@ -250,18 +238,31 @@ export class SpineSkeleton extends Sprite {
     }
 
     /**
-     * 获取Skeleton(spine.Skeleton)
+     * @zh 获取Skeleton(spine.Skeleton)
+     * @deprecated 不再直接暴露原生spine对象，只有 Web 运行时有准确对象
+     * @en Get Skeleton(spine.Skeleton)
+     * @deprecated Do not directly expose the native spine object, only accurate objects in Web
      */
-    getSkeleton() {
+    getSkeleton(): null | spine.Skeleton {
         return this._spineComponent.getSkeleton();
+    }
+
+    /**
+     * @zh 更新骨骼的世界变换。
+     * @param physicsUpdate Spine 物理更新模式，默认使用组件当前的 `physicsUpdate`。
+     * @en Update the world transforms of the skeleton bones.
+     * @param physicsUpdate The Spine physics update mode. By default, the component's current `physicsUpdate` is used.
+     */
+    updateWorldTransform(physicsUpdate: number = this._spineComponent.physicsUpdate): void {
+        this._spineComponent.updateWorldTransform(physicsUpdate);
     }
 
     /**
      * 替换插槽皮肤
      * @param slotName 
-     * @param attachmentName 
+     * @param attachmentName Attachment name, or null to clear the slot attachment.
      */
-    setSlotAttachment(slotName: string, attachmentName: string) {
+    setSlotAttachment(slotName: string, attachmentName: string | null) {
         this._spineComponent.setSlotAttachment(slotName, attachmentName);
     }
 }

@@ -108,10 +108,12 @@ export class TrailGeometry {
         this._vertexBuffer1 = LayaGL.renderDeviceFactory.createVertexBuffer(BufferUsage.Dynamic);
         this._vertexBuffer1.vertexDeclaration = vertexDeclaration1;
         this._vertexBuffer1.setDataLength(vertexbuffer1Size);
+        this._vertexBuffer1.setData(this._vertices1.buffer, 0, 0, vertexbuffer1Size);
 
         this._vertexBuffer2 = LayaGL.renderDeviceFactory.createVertexBuffer(BufferUsage.Dynamic);
         this._vertexBuffer2.vertexDeclaration = vertexDeclaration2;
         this._vertexBuffer2.setDataLength(vertexbuffer2Size);
+        this._vertexBuffer2.setData(this._vertices2.buffer, 0, 0, vertexbuffer2Size);
 
         vertexBuffers.push(this._vertexBuffer1);
         vertexBuffers.push(this._vertexBuffer2);
@@ -423,7 +425,9 @@ export class TrailGeometry {
         this._geometryElementOBj.clearRenderParams();
         var start: number = this._activeIndex * 2;
         var count: number = this._endIndex * 2 - start;
-        this._geometryElementOBj.setDrawArrayParams(start, count);
+        if (count > 0) {
+            this._geometryElementOBj.setDrawArrayParams(start, count);
+        }
     }
 
     /**

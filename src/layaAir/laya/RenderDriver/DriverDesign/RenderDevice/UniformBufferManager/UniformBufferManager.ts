@@ -1,5 +1,5 @@
-import { IUniformBufferUser } from "./IUniformBufferUser";
-import { UniformBufferAlone } from "./UniformBufferAlone";
+import { ShaderData } from "../ShaderData";
+import { IUniformLayout } from "./IUniformLayout";
 import { UniformBufferBlock } from "./UniformBufferBlock";
 import { UniformBufferCluster } from "./UniformBufferCluster";
 
@@ -56,12 +56,21 @@ export class UniformBufferManager {
     private _removeHoleArray: Array<UniformBufferCluster> = [];
     //优化内存位置数据
     private _optimizeBufferPosArray: Array<UniformBufferCluster> = [];
+    //backing buffer 延迟销毁队列(跨一帧,确保引用其的命令已提交后再 destroy)
+    private _retiredCur: any[] = [];
+    private _retiredPrev: any[] = [];
+
+    /**
+     * Buffer resource identity change epoch. BindGroup users can compare this
+     * value before scanning their per-buffer versions, keeping the common path
+     * O(1) when no pooled buffer has moved or been released.
+     */
+    bufferResourceChangeEpoch: number = 0;
 
     _useBigBuffer: boolean = true; //是否使用大内存模式
 
     //字节对齐
     byteAlign: number = 256;
-
     //config
     clusterMaxBlock: number = 256; //每个Cluster最多容纳的Block数量
     //config
@@ -69,8 +78,11 @@ export class UniformBufferManager {
     //config
     removeHoleThreshold: number = 10; //移除内存空洞的阈值
 
-    //单独的UniformBuffer
-    aloneBuffers: UniformBufferAlone[] = [];
+    /**
+     * 是否将一个 Cluster 内从首个脏块到最后一个脏块合并为一次上传。
+     * 开启后减少 writeBuffer 调用次数，但会上传脏块之间未变化的数据。
+     */
+    reduceWriteBufferCalls: boolean = false;
 
     constructor(useBigBuffer: boolean) {
         this._useBigBuffer = useBigBuffer;
@@ -84,7 +96,7 @@ export class UniformBufferManager {
      * @param blockNum 小内存块初始容量
      * @param manager 管理器
      */
-    protected _createBufferCluster(size: number, blockNum: number) {
+    protected _createBufferCluster(size: number, blockNum: number): UniformBufferCluster {
         return new UniformBufferCluster(size, blockNum, this);
     }
 
@@ -115,24 +127,11 @@ export class UniformBufferManager {
      * 结束一帧
      */
     endFrame() {
-        //显示上传统计信息
-        // const info = 'timeCost = ' + this._stat.timeCostAvg + 'us, moveNum = ' + this._stat.moveNum + ', uploadNum = ' + this._stat.uploadNum + ', uploadByte = ' + this._stat.uploadByte;
-        // if (this._useBigBuffer)
-        //     console.log('BigBuffer ' + info);
-        // else console.log('AloneBuffer ' + info);
-
-        // if (this._useBigBuffer) {
-        //     if (this._removeHoleArray.length > 0) {
-        //         for (let i = this._removeHoleArray.length - 1; i > -1; i--)
-        //             this._removeHoleArray[i].removeHole();
-        //         this._removeHoleArray.length = 0;
-        //     }
-        //     if (this._optimizeBufferPosArray.length > 0) {
-        //         for (let i = this._optimizeBufferPosArray.length - 1; i > -1; i--)
-        //             this._optimizeBufferPosArray[i].optimize();
-        //         this._optimizeBufferPosArray.length = 0;
-        //     }
-        // }
+        //延迟一整帧销毁退休 backing buffer:_retiredPrev 装的是"上一帧退休的"buffer
+        for (let i = 0; i < this._retiredPrev.length; i++)
+            this._destroyBuffer(this._retiredPrev[i]);
+        this._retiredPrev.length = 0;
+        const t = this._retiredPrev; this._retiredPrev = this._retiredCur; this._retiredCur = t;
     }
 
     /**
@@ -153,6 +152,8 @@ export class UniformBufferManager {
     removeCluster(size: number, sn: number) {
         const alignedSize = roundUp(size, this.byteAlign);
         if (sn < 0) { //<0表示删除所有该尺寸的大内存块
+            const arr = this._clustersAll.get(alignedSize);
+            if (arr) for (let i = 0; i < arr.length; i++) this._retireCluster(arr[i]);
             this._clustersAll.delete(alignedSize);
             this._clustersCur.delete(alignedSize);
             return;
@@ -160,6 +161,7 @@ export class UniformBufferManager {
         const cluster_sn = this._clustersCur.get(alignedSize)?._sn;
         const clusters = this._clustersAll.get(alignedSize);
         if (clusters.length > sn) {
+            this._retireCluster(clusters[sn]); //销毁被删 cluster 的 backing buffer + 摘除队列引用
             clusters.splice(sn, 1);
             if (clusters.length === 0) { //该尺寸的大内存块已经没有了
                 this._clustersAll.delete(alignedSize);
@@ -193,13 +195,13 @@ export class UniformBufferManager {
      * @param size 
      * @param user 
      */
-    getBlock(size: number, user: IUniformBufferUser) {
+    getBlock(size: number, descriptor: IUniformLayout, owner: ShaderData) {
         const alignedSize = roundUp(size, this.byteAlign);
         let cluster = this._clustersCur.get(alignedSize);
         if (!cluster)
-            return this._addCluster(alignedSize).getBlock(size, user);
+            return this._addCluster(alignedSize).getBlock(size, descriptor, owner);
         if (cluster.usedNum < this.clusterMaxBlock)
-            return cluster.getBlock(size, user);
+            return cluster.getBlock(size, descriptor, owner);
 
         //当前大内存已经满员，找一个最大usedNum，且有剩余空间的大内存块作为当前大内存块
         cluster = null;
@@ -219,8 +221,8 @@ export class UniformBufferManager {
         } else this._clustersCur.delete(alignedSize); //没有符合要求的大内存块，当前该尺寸大内存块为空
 
         if (cluster) //已有符合要求的大内存块
-            return cluster.getBlock(size, user); //直接在该大内存块中添加小内存块
-        return this._addCluster(alignedSize).getBlock(size, user); //没有符合要求的大内存块，新建一个大内存块，并在其中添加小内存块
+            return cluster.getBlock(size, descriptor, owner); //直接在该大内存块中添加小内存块
+        return this._addCluster(alignedSize).getBlock(size, descriptor, owner); //没有符合要求的大内存块，新建一个大内存块，并在其中添加小内存块
     }
 
     /**
@@ -263,14 +265,29 @@ export class UniformBufferManager {
         }
     }
 
-    _addRemoveHoleCluster(cluster: UniformBufferCluster) {
-        if (this._removeHoleArray.indexOf(cluster) === -1)
-            this._removeHoleArray.push(cluster);
+    /** @internal Notify cached resource users that a buffer binding became stale. */
+    _notifyBufferResourceChange() {
+        this.bufferResourceChangeEpoch++;
     }
 
-    _addOptimizeBufferPos(cluster: UniformBufferCluster) {
-        if (this._optimizeBufferPosArray.indexOf(cluster) === -1)
-            this._optimizeBufferPosArray.push(cluster);
+
+
+    /** 将不再使用的 backing buffer 交延迟销毁(下一帧 endFrame 真正 destroy) */
+    retireBuffer(buffer: any) {
+        if (buffer) this._retiredCur.push(buffer);
+    }
+
+    private _destroyBuffer(buffer: any) {
+        if (buffer && buffer.destroy) buffer.destroy();
+    }
+
+    /** 摘除更新/整理队列引用,并退休整个 cluster 的 backing buffer */
+    private _retireCluster(cluster: UniformBufferCluster) {
+        let i = this._needUpdateClusters.indexOf(cluster);
+        if (i !== -1) this._needUpdateClusters.splice(i, 1);
+        i = this._removeHoleArray.indexOf(cluster);
+        if (i !== -1) this._removeHoleArray.splice(i, 1);
+        cluster.destroy(); //destroy→clear→retireBuffer
     }
 
     /**
@@ -289,6 +306,11 @@ export class UniformBufferManager {
     destroy() {
         if (!this._destroyed) {
             this.clear();
+            //关停:队列里的 buffer 立即销毁(不再有 endFrame 驱动)
+            for (let i = 0; i < this._retiredPrev.length; i++) this._destroyBuffer(this._retiredPrev[i]);
+            for (let i = 0; i < this._retiredCur.length; i++) this._destroyBuffer(this._retiredCur[i]);
+            this._retiredPrev.length = 0;
+            this._retiredCur.length = 0;
             this._clustersAll.clear();
             this._clustersCur.clear();
             this._destroyed = true;
@@ -304,7 +326,7 @@ export class UniformBufferManager {
      * @param name 名称
      */
     createGPUBuffer(size: number, name?: string, data?: ArrayBuffer): any {
-        //todo
+        //override it 
     }
 
     /**
@@ -315,14 +337,7 @@ export class UniformBufferManager {
      * @param size 写入的数据长度（字节）
      */
     writeBuffer(buffer: any, data: ArrayBuffer, offset: number, size: number) {
-        //todo
+        //override it   
     }
 
-    /**
-     * 统计GPU内存使用量
-     * @param bytes 字节
-     */
-    statisGPUMemory(bytes: number) {
-        //todo
-    }
 }

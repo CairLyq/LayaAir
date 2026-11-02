@@ -3,6 +3,7 @@ import { ILaya } from "../../../../ILaya";
 import { Sprite } from "../../../display/Sprite";
 import { Texture2D } from "../../../resource/Texture2D";
 import { Handler } from "../../../utils/Handler";
+import { Profiler } from "../../../utils/Profiler";
 import { Timer } from "../../../utils/Timer";
 import { SubmitKey } from "../../../webgl/submit/SubmitKey";
 import { Cluster } from "../../graphics/renderPath/Cluster";
@@ -22,6 +23,7 @@ import { BlitFrameBufferCMD } from "../render/command/BlitFrameBufferCMD";
 import { DirectionLightCom } from "../light/DirectionLightCom";
 import { PointLightCom } from "../light/PointLightCom";
 import { SpotLightCom } from "../light/SpotLightCom";
+import { PlanarShadowConfig } from "../light/PlanarShadowConfig";
 import { FilterMode } from "../../../RenderEngine/RenderEnum/FilterMode";
 import { RenderCapable } from "../../../RenderEngine/RenderEnum/RenderCapable";
 import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
@@ -71,6 +73,7 @@ export class Scene3D extends Sprite {
     static _shadowCasterPass: ShadowCasterPass;
     /**@internal */
     static physicsSettings: PhysicsSettings = new PhysicsSettings();
+    private static _layaxActiveCameraHandles: Float64Array = new Float64Array(8);
 
     /** Scene UniformPropertyID */
     /** @internal */
@@ -139,11 +142,11 @@ export class Scene3D extends Sprite {
      * @zh 场景更新标记。
      */
     static get _updateMark(): number {
-        return RenderContext3D._instance._contextOBJ.cameraUpdateMask;
+        return RenderContext3D._instance._contextOBJ.sceneUpdateMask;
     }
-    /** @internal 场景更新标记 */
+    /** 场景更新标记 */
     static set _updateMark(value: number) {
-        RenderContext3D._instance._contextOBJ.cameraUpdateMask = value;
+        RenderContext3D._instance._contextOBJ.sceneUpdateMask = value;
     }
 
     /**
@@ -180,6 +183,8 @@ export class Scene3D extends Sprite {
         Scene3DShaderDeclaration.SHADERDEFINE_SHADOW_SPOT_SOFT_SHADOW_LOW = Shader3D.getDefineByName("SHADOW_SPOT_SOFT_SHADOW_LOW");
         Scene3DShaderDeclaration.SHADERDEFINE_SHADOW_SPOT_SOFT_SHADOW_HIGH = Shader3D.getDefineByName("SHADOW_SPOT_SOFT_SHADOW_HIGH");
 
+        Scene3DShaderDeclaration.SHADERDEFINE_PLANAR_SHADOW = Shader3D.getDefineByName("PLANAR_SHADOW");
+
         Scene3D.FOGCOLOR = Shader3D.propertyNameToID("u_FogColor");
         Scene3D.FOGPARAMS = Shader3D.propertyNameToID("u_FogParams");//x start,y end,z Density
         Scene3D.DIRECTIONLIGHTCOUNT = Shader3D.propertyNameToID("u_DirationLightCount");
@@ -196,6 +201,10 @@ export class Scene3D extends Sprite {
         sceneUniformMap.addShaderUniform(Scene3D.CLUSTERBUFFER, "u_LightClusterBuffer", ShaderDataType.Texture2D);
         sceneUniformMap.addShaderUniform(Scene3D.GIRotate, "u_GIRotate", ShaderDataType.Float);
         sceneUniformMap.addShaderUniform(Scene3D.DIRECTIONLIGHTCOUNT, "u_DirationLightCount", ShaderDataType.Int);
+        // 主平行光方向：必须无条件注册且位置固定（紧跟 DirCount），以与 SceneCommon.glsl 里
+        // uniform Scene3D 块的成员顺序保持一致；否则在多光源模式（编辑器）下块少一个成员，自定义 shader 会编译失败。
+        Scene3D.LIGHTDIRECTION = Shader3D.propertyNameToID("u_DirLightDirection");
+        sceneUniformMap.addShaderUniform(Scene3D.LIGHTDIRECTION, "u_DirLightDirection", ShaderDataType.Vector3);
         ReflectionProbe.init();
         VolumetricGI.init();
     }
@@ -326,11 +335,13 @@ export class Scene3D extends Sprite {
     /** @internal */
     private _skyRenderer: SkyRenderer = new SkyRenderer();
     /** @internal */
+    private _planarShadow: PlanarShadowConfig;
+    /** @internal */
     private _enableFog: boolean;
     /** @internal */
     private _timer: Timer;
     /** @internal */
-    private _time: number = 0;
+    protected _time: number = 0;
     /** @internal */
     private _fogParams: Vector4;
     /** @internal */
@@ -575,6 +586,14 @@ export class Scene3D extends Sprite {
     }
 
     /**
+     * @en Planar shadow configuration
+     * @zh 平面阴影配置
+     */
+    get planarShadow(): PlanarShadowConfig {
+        return this._planarShadow;
+    }
+
+    /**
      * @en The fixed color ambient light.
      * @zh 固定颜色环境光。
      */
@@ -748,6 +767,8 @@ export class Scene3D extends Sprite {
         this.fogMode = FogMode.Linear;
         this.GIRotate = 0;
 
+        this._planarShadow = new PlanarShadowConfig();
+
         this._scene = this;
         this._sceneRenderManager = new SceneRenderManager();
 
@@ -837,6 +858,7 @@ export class Scene3D extends Sprite {
         this.componentElementMap.forEach((value) => {
             value.update(delta);
         });
+        this._componentDriver.callAfterSceneUpdate();
         //this._sceneRenderManager.updateMotionObjects();
         this._sceneRenderManager.renderUpdate();
         this.skyRenderer.renderUpdate(RenderContext3D._instance);
@@ -889,12 +911,30 @@ export class Scene3D extends Sprite {
         scenes.splice(scenes.indexOf(this), 1);
     }
 
-    private _prepareSceneToRender(): void {
+    /**
+     * @internal
+     * @en Get the light texture for this scene. Can be overridden by subclasses to use instance-level light textures.
+     * @zh 获取此场景的灯光贴图。子类可以重写此方法以使用实例级别的灯光贴图。
+     */
+    protected _getLightTexture(): Texture2D {
+        return Scene3D._lightTexture;
+    }
+
+    /**
+     * @internal
+     * @en Get the light pixels array for this scene. Can be overridden by subclasses to use instance-level light data.
+     * @zh 获取此场景的灯光像素数组。子类可以重写此方法以使用实例级别的灯光数据。
+     */
+    protected _getLightPixels(): Float32Array {
+        return Scene3D._lightPixles;
+    }
+
+    protected _prepareSceneToRender(): void {
         var shaderValues: ShaderData = this._shaderValues;
         var multiLighting: boolean = Config3D._multiLighting && Stat.enableMulLight;
         if (multiLighting) {
-            var ligTex: Texture2D = Scene3D._lightTexture;
-            var ligPix: Float32Array = Scene3D._lightPixles;
+            var ligTex: Texture2D = this._getLightTexture();
+            var ligPix: Float32Array = this._getLightPixels();
             const pixelWidth: number = ligTex.width;
             const floatWidth: number = pixelWidth * 4;
             var curCount: number = 0;
@@ -929,6 +969,10 @@ export class Scene3D extends Sprite {
                     if (i === 0) {
                         this._sunColor = dirLight.color;
                         this._sundir = dir;
+                        // 多光源分支也维护主平行光方向（编译器、编辑器预览会走这条）。
+                        if (Scene3D.LIGHTDIRECTION) {
+                            shaderValues.setVector3(Scene3D.LIGHTDIRECTION, dir);
+                        }
                     }
                 }
                 shaderValues.addDefine(Scene3DShaderDeclaration.SHADERDEFINE_DIRECTIONLIGHT);
@@ -1192,7 +1236,11 @@ export class Scene3D extends Sprite {
         this._lightmaps = null;
         this._volumeManager.destroy();
         this._componentDriver.callDestroy();
-
+        // Components must finish cleanup before their managers release shared resources.
+        this.componentElementMap.forEach(manager => {
+            manager.destroy();
+        });
+        this.componentElementMap.clear();
     }
 
     /**
@@ -1217,6 +1265,11 @@ export class Scene3D extends Sprite {
         this._prepareSceneToRender();
         var i: number, n: number, n1: number;
         Scene3D._updateMark++;
+        if (LayaEnv.isModernAPIs) {
+            // LayaX builds visibility once per frame; active cameras must be known
+            // before the first camera pass can trigger ECS cull.
+            this._prepareLayaXActiveCameras();
+        }
 
         for (i = 0, n = this._cameraPool.length, n1 = n - 1; i < n; i++) {
             var camera: Camera = (<Camera>this._cameraPool[i]);
@@ -1244,6 +1297,35 @@ export class Scene3D extends Sprite {
         }
         // Context.set2DRenderConfig();//还原2D配置
         RenderTexture.clearPool();
+    }
+
+    protected _prepareLayaXActiveCameras(): void {
+        const nativeCamera = (window as any).conchLayaXCameraNodeData;
+        if (!nativeCamera || !nativeCamera.prepareActiveCameras)
+            return;
+
+        let handles = Scene3D._layaxActiveCameraHandles;
+        let count = 0;
+        for (let i = 0, n = this._cameraPool.length; i < n; i++) {
+            const camera = this._cameraPool[i] as Camera;
+            if (!camera.enableRender || !camera.activeInHierarchy)
+                continue;
+            const moduleData = camera._renderDataModule as any;
+            const handle = moduleData ? moduleData.handle : 0;
+            if (!handle)
+                continue;
+            if (count >= handles.length) {
+                const next = new Float64Array(handles.length << 1);
+                next.set(handles);
+                handles = next;
+                Scene3D._layaxActiveCameraHandles = handles;
+            }
+            handles[count++] = handle;
+        }
+
+        if (count > 0) {
+            nativeCamera.prepareActiveCameras(handles.buffer, count);
+        }
     }
 
     /**
@@ -1334,4 +1416,58 @@ export class Scene3D extends Sprite {
         }
         return lightmapColors;//slice()防止修改数组内容
     }
+}
+if (Profiler.enabled) {
+    Scene3D.prototype._update = function (this: any): void {
+        var delta: number = this.timer.delta / 1000;
+        this._time += delta;
+        this._shaderValues.setNumber(Scene3D.TIME, this._time);
+        if (LayaEnv.isPlaying) {
+            this._physicsStepTime += delta;
+            let steps = Math.floor(this._physicsStepTime / Scene3D.physicsSettings.fixedTimeStep);
+            steps = Math.min(steps, Scene3D.physicsSettings.maxSubSteps);
+            if (steps > 0) {
+                let physicsManager = this._physicsManager;
+                if (ILaya.Laya3D.enablePhysics && Stat.enablePhysicsUpdate) {
+                    physicsManager.update(steps * Scene3D.physicsSettings.fixedTimeStep);
+                }
+                this._physicsStepTime -= steps * Scene3D.physicsSettings.fixedTimeStep;
+            }
+        }
+
+        let profileZone = Profiler.start("scene/component_driver");
+        try {
+            this._componentDriver.callStart();
+            this._componentDriver.callUpdate();
+            this._componentDriver.callLateUpdate();
+            this._componentDriver.callDestroy();
+        } finally {
+            Profiler.end(profileZone);
+        }
+
+        profileZone = Profiler.start("scene/volume_update");
+        try {
+            if (this._volumeManager.needreCaculateAllRenderObjects())
+                this._volumeManager.reCaculateAllRenderObjects(this._sceneRenderManager.list);
+            else
+                this._volumeManager.handleMotionlist();
+        } finally {
+            Profiler.end(profileZone);
+        }
+
+        profileZone = Profiler.start("scene/component_elements_update");
+        try {
+            this.componentElementMap.forEach((value: IElementComponentManager) => {
+                value.update(delta);
+            });
+            this._componentDriver.callAfterSceneUpdate();
+        } finally {
+            Profiler.end(profileZone);
+        }
+
+        this._sceneRenderManager.renderUpdate();
+        this.skyRenderer.renderUpdate(RenderContext3D._instance);
+        if (!this._renderByEditor)
+            this._UI3DManager.update();
+    };
 }

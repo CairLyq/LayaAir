@@ -117,7 +117,8 @@ export class FreeformLight2D extends BaseLight2D {
             this._needUpdateLightLocalRange = true;
             this._needUpdateLightWorldRange = true;
             this._clearScreenCache();
-            light2DManager?.addLight(this);
+            if (this.enabled && this.owner?.activeInHierarchy)
+                light2DManager?.addLight(this);
         } else {
             this._lightPolygon = null;
             this._globalPolygon = null;
@@ -250,6 +251,8 @@ export class FreeformLight2D extends BaseLight2D {
      * @param height 
      */
     private _buildRenderTexture(width: number, height: number) {
+        width = Light2DManager.clampRTSize(width);
+        height = Light2DManager.clampRTSize(height);
         if (this._texLight)
             this._texLight.destroy(); //可能有风险
         const tex = this._texLight = new RenderTexture(width, height, RenderTargetFormat.R8G8B8A8, null, false, this.antiAlias ? 4 : 1);
@@ -257,6 +260,7 @@ export class FreeformLight2D extends BaseLight2D {
         if (!this._cmdRT)
             this._cmdRT = Set2DRTCMD.create(tex, true, Color.CLEAR, false);
         else this._cmdRT.renderTexture = tex;
+        tex.lock = true;
     }
 
     /**
@@ -268,8 +272,8 @@ export class FreeformLight2D extends BaseLight2D {
         if (this._needUpdateLight) {
             this._needUpdateLight = false;
             const range = this._getLocalRange();
-            const width = range.width;
-            const height = range.height;
+            const width = Light2DManager.clampRTSize(range.width);
+            const height = Light2DManager.clampRTSize(range.height);
             if (width === 0 || height === 0) return;
             if (!this._texLight || !(this._texLight instanceof RenderTexture)) {
                 this._buildRenderTexture(width, height);
@@ -282,6 +286,7 @@ export class FreeformLight2D extends BaseLight2D {
             }
             this._getWorldRange(); //createMesh之前要保证calcWorldRange已经执行
             const mesh = this._createMesh(this._falloffRange * FreeformLight2D.FALLOF_WIDTH, 8, this._cmdMesh?.mesh, this._needToRecover);
+            mesh.lock = true;
             if (!this._cmdMesh)
                 this._cmdMesh = DrawMesh2DCMD.create(mesh, Matrix.EMPTY, Texture2D.whiteTexture, Color.WHITE, this._material);
             else this._cmdMesh.mesh = mesh;

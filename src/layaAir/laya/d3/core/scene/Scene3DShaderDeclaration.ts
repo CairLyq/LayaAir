@@ -1,7 +1,6 @@
 import { ShaderDefine } from "../../../RenderDriver/RenderModuleData/Design/ShaderDefine";
 
 /**
- * @internal
  * @en The collection of scene shader macros.
  * @zh 场景宏集合
  */
@@ -34,5 +33,7 @@ export class Scene3DShaderDeclaration {
 	static SHADERDEFINE_SHADOW_SPOT_SOFT_SHADOW_LOW: ShaderDefine;
 	/**@internal */
 	static SHADERDEFINE_SHADOW_SPOT_SOFT_SHADOW_HIGH: ShaderDefine;
+	/**@internal */
+	static SHADERDEFINE_PLANAR_SHADOW: ShaderDefine;
 
 }

@@ -35,10 +35,10 @@ export class MgDownloader extends Downloader {
             return old.call(this, url);
         };
 
-        if (Browser.onVVMiniGame || Browser.onQGMiniGame) //vivo&oppo
+        if (Browser.onVVMiniGame || Browser.onQGMiniGame || Browser.onTBMiniGame) //vivo&oppo
             this.supportSubPackageMultiLevelFolders = false;
 
-        if (Browser.onWXMiniGame || Browser.onHWMiniGame) //微信小游戏、华为小游戏不需要这个
+        if (Browser.onWXMiniGame || Browser.onHWMiniGame || Browser.onTTMiniGame) //微信小游戏、华为小游戏、抖音小游戏不需要这个
             this.escapeZhCharsInURL = false;
 
         if (enableCache) {
@@ -88,18 +88,31 @@ export class MgDownloader extends Downloader {
     }
 
     image(owner: any, url: string, originalUrl: string, onProgress: ProgressCallback, onComplete: DownloadCompleteCallback): void {
+        let skipCache = false;
+        if (Browser.onTBMiniGame) {
+            if ((window as any).__NOT_TBMINIGAME__ !== undefined) {
+                skipCache = (window as any).__NOT_TBMINIGAME__;
+            }
+        }
+        if (skipCache) {
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                super.image(owner, url, originalUrl, onProgress, onComplete);
+            } else {
+                super.image(owner, this.escapeURL(url), originalUrl, onProgress, onComplete);
+            }
+            return;
+        }
         if (!url.startsWith("http://") && !url.startsWith("https://") || !this.cacheManager) {
             super.image(owner, this.escapeURL(url), originalUrl, onProgress, onComplete);
             return;
         }
-
         this.cacheManager.getFile(url).then(cacheFilePath => {
             if (cacheFilePath)
-                super.image(owner, cacheFilePath, originalUrl, onProgress, onComplete);
+                super.image(owner, this.encodeLocalPath(cacheFilePath), originalUrl, onProgress, onComplete);
             else {
                 this.downloadFile(url, onProgress, (filePath: string, error: string) => {
                     if (filePath)
-                        super.image(owner, filePath, originalUrl, onProgress, onComplete);
+                        super.image(owner, this.encodeLocalPath(filePath), originalUrl, onProgress, onComplete);
                     else
                         onComplete(null, error);
                 });
@@ -107,16 +120,25 @@ export class MgDownloader extends Downloader {
         });
     }
 
+    /** 平台可覆盖：把本地文件路径转成 native 加载所需格式（默认原样，对其它平台零影响）。 */
+    protected encodeLocalPath(path: string): string {
+        return path;
+    }
+
     package(path: string, onProgress: ProgressCallback, onComplete: DownloadCompleteCallback): void {
         let packageName = path;
         if (!this.supportSubPackageMultiLevelFolders) {
             packageName = path.replace(/\//g, ".");
-            if (packageName !== path) {
+            // vivo only flattens the package name passed to the platform API and keeps
+            // resources mounted at the original root. Other platforms retain the
+            // legacy flattened resource path behavior.
+            if (!Browser.onVVMiniGame && packageName !== path) {
                 if (!this.subPackages)
                     this.subPackages = {};
                 this.subPackages[path] = packageName;
             }
         }
+
         let loadSubpackageParams: any = {
             success: () => {
                 onComplete({ loadScript: false });
@@ -135,7 +157,6 @@ export class MgDownloader extends Downloader {
         }
 
         let loadTask = PAL.g.loadSubpackage(loadSubpackageParams);
-
 
         onProgress && loadTask.onProgressUpdate && loadTask.onProgressUpdate(res => onProgress(res.progress));
     }

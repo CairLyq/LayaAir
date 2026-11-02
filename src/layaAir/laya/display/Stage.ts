@@ -1,4 +1,7 @@
 import { Sprite } from "./Sprite";
+import { SpriteGlobalTransform } from "./SpriteGlobaTransform";
+import { Transform2DStore } from "./transform2d/Transform2DStore";
+import { Channel } from "./transform2d/Transform2DLayout";
 import { Node } from "./Node";
 import { Config } from "./../../Config";
 import { SpriteConst, SubPassFlag, TransformKind, RepaintFlag } from "./SpriteConst";
@@ -21,11 +24,13 @@ import { Timer } from "../utils/Timer";
 import { Tweener } from "../tween/Tweener";
 import { RenderTexture2D } from "../resource/RenderTexture2D";
 import { Render2DProcessor } from "./Render2DProcessor";
+import { PostProcess2D } from "./PostProcess2D";
 import { Color } from "../maths/Color";
 import { PAL } from "../platform/PlatformAdapters";
 import { TextRenderConfig } from "../webgl/text/TextRenderConfig";
 import { StatElement } from "../layagl/StatisticsContext";
 import { Render } from "../renders/Render";
+import { Profiler } from "../utils/Profiler";
 
 /**
  * @en Stage is the root node of the display list. All display objects are shown on the stage. It can be accessed through the Laya.stage singleton.
@@ -212,11 +217,9 @@ export class Stage extends Sprite {
      */
     readonly passManager: Render2DProcessor;
 
-    /** @internal */
     readonly _scene3Ds: Scene3D[] = [];
-    /** @internal */
     readonly _scene2Ds: Scene[] = [];
-    ;
+
     private _screenMode: string = "none";
     private _scaleMode: string = "noscale";
     private _alignV: string = "top";
@@ -370,6 +373,12 @@ export class Stage extends Sprite {
         //screen width/height是乘了dpr的，先除回去
         screenWidth /= pixelRatio;
         screenHeight /= pixelRatio;
+
+        //设备模式切换时可能短暂出现1像素视口，保留原尺寸，等待后续resize。
+        if (pixelRatio <= 0 || !Number.isFinite(screenWidth) || !Number.isFinite(screenHeight)
+            || screenWidth <= 1 || screenHeight <= 1) {
+            return;
+        }
 
         //计算是否需要旋转
         if (this._screenMode !== Stage.SCREEN_NONE) {
@@ -558,6 +567,9 @@ export class Stage extends Sprite {
     }
 
     set scaleMode(value: string) {
+        if (this._scaleMode == value)
+            return;
+
         this._scaleMode = value;
         this.updateCanvasSize(true);
     }
@@ -580,6 +592,9 @@ export class Stage extends Sprite {
     }
 
     set alignH(value: string) {
+        if (this._alignH == value)
+            return;
+
         this._alignH = value;
         this.updateCanvasSize(true);
     }
@@ -602,6 +617,9 @@ export class Stage extends Sprite {
     }
 
     set alignV(value: string) {
+        if (this._alignV == value)
+            return;
+
         this._alignV = value;
         this.updateCanvasSize(true);
     }
@@ -660,7 +678,6 @@ export class Stage extends Sprite {
      * @zh 当前视窗由缩放模式导致的 X 轴缩放系数。
      */
     get clientScaleX(): number {
-        this.needUpdateCanvasSize();
         return this._scaleX;
     }
 
@@ -669,7 +686,6 @@ export class Stage extends Sprite {
      * @zh 当前视窗由缩放模式导致的 Y 轴缩放系数。
      */
     get clientScaleY(): number {
-        this.needUpdateCanvasSize();
         return this._scaleY;
     }
 
@@ -725,22 +741,35 @@ export class Stage extends Sprite {
      * @param timestamp 当前时间戳
      */
     render(timestamp: number): void {
+        let profileZone = Profiler.start("stage/call_laters");
         if (!this._visible) {
             Timer.callLaters._update(timestamp);
+            Profiler.end(profileZone);
             Stat.loopCount++;
             this._runComponents();
+
+            profileZone = Profiler.start("stage/update_timers");
             this._updateTimers(timestamp);
+            Profiler.end(profileZone);
             return;
         }
 
         Timer.callLaters._update(timestamp);
+        Profiler.end(profileZone);
         Stat.loopCount++;
+        Render2DProcessor.renderTime += (ILaya.timer?.delta || 0) * 0.001;
+
+        profileZone = Profiler.start("stage/start_frame");
         LayaGL.renderEngine.startFrame();
+        Profiler.end(profileZone);
 
         if (this.renderingEnabled) {
 
+            profileZone = Profiler.start("stage/run_components");
             this._runComponents();
+            Profiler.end(profileZone);
 
+            profileZone = Profiler.start("stage/scene_update");
             for (let i = 0, n = this._scene2Ds.length; i < n; i++) {
                 this._scene2Ds[i]._update();
             }
@@ -748,30 +777,48 @@ export class Stage extends Sprite {
                 this._scene3Ds[i]._update();
             }
 
+            this._preRender2d();
+
+            Profiler.end(profileZone);
+
+            profileZone = Profiler.start("stage/pre_render");
             this._componentDriver.callPreRender();
+            Profiler.end(profileZone);
 
             Render2DProcessor.rendercontext2D.setRenderTarget(null, true, this._wgColor);
 
             //先渲染3d
+            profileZone = Profiler.start("stage/render3d");
             let t = performance.now();
             for (let i = 0, n = this._scene3Ds.length; i < n; i++)//更新3D场景,必须提出来,否则在脚本中移除节点会导致BUG
                 this._scene3Ds[i].renderSubmit();
             LayaGL.statAgent.recordTimeData(StatElement.T_AllRender3D, performance.now() - t);
+            Profiler.end(profileZone);
             //再渲染2d
+            profileZone = Profiler.start("stage/render2d");
             t = performance.now();
             this._render2d();
             LayaGL.statAgent.recordTimeData(StatElement.T_AllRender2D, performance.now() - t);
+            Profiler.end(profileZone);
 
+            profileZone = Profiler.start("stage/post_render");
             this._componentDriver.callPostRender();
+            Profiler.end(profileZone);
         }
         else
             this._runComponents();
 
+        profileZone = Profiler.start("stage/update_timers");
         this._updateTimers(timestamp);
+        Profiler.end(profileZone);
 
+        profileZone = Profiler.start("stage/stat_render");
         Stat.render();
+        Profiler.end(profileZone);
 
+        profileZone = Profiler.start("stage/end_frame");
         LayaGL.renderEngine.endFrame();
+        Profiler.end(profileZone);
     }
 
     /** @ignore */
@@ -781,13 +828,31 @@ export class Stage extends Sprite {
     /** @ignore */
     _tranMatrixUpdateList: Set<Sprite> = new Set();
 
-    /**
-     * @perfTag PerformanceDefine.T_UIRender
-    */
-    private _render2d() {
+    private _preRender2d() {
         // context2D.render2dmgr.runProcess([])
         for (let i = 0, n = this._scene2Ds.length; i < n; i++) {
             this._scene2Ds[i].render(0, 0);
+        }
+
+        // 必须在 subpass/cacheAs/mask 渲染之前更新 SoA：subpass 渲染缓存内容时会读各 slot 的
+        // world 矩阵和 matrixFrame，若 update 晚于 subpass，matrixFrame 仍是上一帧，会被判成
+        // "矩阵没变"而跳过上传，导致 RT 用旧矩阵。放在 scene.render 之后(捕获其可能的布局写入)、
+        // subpass 之前。把 world 真变(Matrix 通道)的节点加入 _tranMatrixUpdateList 供 _updateStruct。
+        const t2dStore = Transform2DStore.instance;
+        t2dStore.update(Stat.loopCount);
+        const changedSlots = t2dStore.changedSlots;
+        const changedMasks = t2dStore.changedMasks;
+        for (let i = 0, n = t2dStore.changedCount; i < n; i++) {
+            // 只有 world 矩阵真变才驱动 _updateStruct(重算 renderMatrix/包围盒)。
+            // alpha/culling 变化不进这个列表——它们的重传由渲染遍历自检(各自 frame/repaint)。
+            if ((changedMasks[i] & Channel.Matrix) === 0)
+                continue;
+            const owner = t2dStore.getOwner(changedSlots[i]) as Sprite;
+            if (owner) {
+                owner._globalTrans._notifyRenderSpriteTransChange();
+                if (owner._globalTrans._hasChangedListener)
+                    owner.event(SpriteGlobalTransform.CHANGED, TransformKind.Matrix);
+            }
         }
 
         //subpass 分析  for
@@ -842,14 +907,20 @@ export class Stage extends Sprite {
         }
 
         this._updateMatrixList(this._tranMatrixUpdateList, Stat.loopCount);
+    }
 
+    /**
+     * @perfTag PerformanceDefine.T_UIRender
+    */
+    private _render2d() {
         for (let sprite of this._graphicUpdateList) {
             if (sprite._needGraphicsUpdate()) {
-                sprite._graphicsRenderer._render(Render2DProcessor.runner);
+                sprite._graphicsRenderer?._render(Render2DProcessor.runner);
             }
         }
-
-        this.passManager.apply(Render2DProcessor.rendercontext2D);
+        Render2DProcessor.renderTime += (ILaya.timer?.delta || 0) * 0.001;
+        this.passManager.apply(Render2DProcessor.rendercontext2D, Render2DProcessor.renderTime);
+        PostProcess2D.postRenderAll();
 
         this._graphicUpdateList.clear();
         this._subpassUpdateList.clear();
@@ -873,10 +944,18 @@ export class Stage extends Sprite {
     }
 
     private _updateTimers(timestamp: number): void {
+        let profileZone = Profiler.start("stage/timer_system");
         ILaya.systemTimer._update(timestamp);
+        Profiler.end(profileZone);
+        profileZone = Profiler.start("stage/timer_physics");
         ILaya.physicsTimer._update(timestamp);
+        Profiler.end(profileZone);
+        profileZone = Profiler.start("stage/timer_user");
         ILaya.timer._update(timestamp);
+        Profiler.end(profileZone);
+        profileZone = Profiler.start("stage/tween");
         Tweener._runAll();
+        Profiler.end(profileZone);
     }
 
     /**
@@ -903,6 +982,34 @@ export class Stage extends Sprite {
 
     private fullScreenChanged(): void {
         this.event(Event.FULL_SCREEN_CHANGE);
+    }
+
+    /**
+     * @en Requests a change to the Native host window resolution and fullscreen state. Unlike `setScreenSize`, this changes the operating-system window; the resulting resize event then updates the canvas and Stage adaptation.
+     * Unsupported platforms return `false` without changing the Stage.
+     * @param width Target client-area width in logical pixels.
+     * @param height Target client-area height in logical pixels.
+     * @param fullscreen Whether to enter fullscreen mode.
+     * @returns Whether the current platform accepted the request.
+     * @zh 请求修改 Native 宿主窗口分辨率及全屏状态。此方法与仅执行 Canvas/舞台适配的 `setScreenSize` 不同：它会修改操作系统窗口，随后由窗口 resize 事件更新 Canvas 和舞台适配。
+     * 不支持的平台会返回 `false`，且不会修改舞台。
+     * @param width 目标客户区宽度（逻辑像素）。
+     * @param height 目标客户区高度（逻辑像素）。
+     * @param fullscreen 是否进入全屏模式。
+     * @returns 当前平台是否接受了修改请求。
+     */
+    setResolution(width: number, height: number, fullscreen: boolean = false): boolean {
+        return PAL.browser.setResolution(width, height, fullscreen);
+    }
+
+    /**
+     * Enters or leaves non-exclusive borderless desktop fullscreen mode without changing the display resolution.
+     * Unsupported platforms return `false` without changing the Stage.
+     * @param enabled Whether to enable borderless desktop fullscreen mode.
+     * @returns Whether the current platform accepted the request.
+     */
+    setWindowedFullscreen(enabled: boolean): boolean {
+        return PAL.browser.setWindowedFullscreen(enabled);
     }
 
     /**

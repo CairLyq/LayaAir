@@ -25,6 +25,9 @@ export class TrailRenderer extends BaseRender {
     /** @ignore */
     constructor() {
         super();
+        // LayaX：拖尾顶点是世界空间，bounds 走 Explicit 直推（见 renderUpdate），退订每帧 native 回调
+        this._baseRenderNode.disableNativeBoundsCallback?.();
+        this._baseRenderNode.setBoundsMode?.(1); // Explicit
     }
 
     protected _isMaterialVaild(value: Material): boolean {
@@ -143,6 +146,12 @@ export class TrailRenderer extends BaseRender {
     renderUpdate(context: RenderContext3D) {
         this._calculateBoundingBox();
 
+        // LayaX：把 _trailFilter._update 产出的世界 AABB 推给 ECS cull（Explicit 模式）
+        if (this._baseRenderNode.setWorldBounds) {
+            const min = this._bounds.getMin(), max = this._bounds.getMax();
+            this._baseRenderNode.setWorldBounds(min.x, min.y, min.z, max.x, max.y, max.z);
+        }
+
         this._renderElements.forEach((element, index) => {
             let geometry = element._geometry;
             element._renderElementOBJ.isRender = this._trailFilter._isRender();
@@ -199,6 +208,7 @@ export class TrailRenderer extends BaseRender {
         super._cloneTo(dest);
         dest.time = this.time;
         dest.minVertexDistance = this.minVertexDistance;
+        dest.widthMultiplier = this.widthMultiplier;
         //render.widthCurve = this.widthCurve;
         var widthCurve: FloatKeyframe[] = [];
         var widthCurveData: any[] = this.widthCurve;

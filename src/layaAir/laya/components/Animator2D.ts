@@ -1,38 +1,21 @@
-import { Stat } from "../utils/Stat";
+import { Animator2DBase } from "./Animator2DBase";
 import { AnimatorControllerLayer2D } from "./AnimatorControllerLayer2D";
 import { AnimatorPlayState2D } from "./AnimatorPlayState2D";
 import { AnimatorState2D } from "./AnimatorState2D";
-import { Component } from "./Component";
-import { KeyframeNode2D } from "./KeyframeNode2D";
-import { Node } from "../../laya/display/Node";
-import { ClassUtils } from "../utils/ClassUtils";
 import { Animation2DParm } from "./Animation2DParm";
 import { AnimatorController2D } from "./AnimatorController2D";
 import { AniParmType } from "./AnimatorControllerParse";
 import { AnimatorTransition2D } from "./AnimatorTransition2D";
-import { Animation2DEvent } from "./Animation2DEvent";
-import { AnimatorUpdateMode } from "./AnimatorUpdateMode";
-import { Loader } from "../net/Loader";
-import { ILaya } from "../../ILaya";
-import { Sprite } from "../display/Sprite";
-import { SpriteConst } from "../display/SpriteConst";
 import { Vector3 } from "../maths/Vector3";
+import { CurvePath } from "../tween/CurvePath";
+
+type AnimationValue2D = AnimatorState2D["_realtimeDatas"][number];
 
 /**
  * @en 2D animation components
  * @zh 2D动画组件
  */
-export class Animator2D extends Component {
-    /**@internal */
-    private _speed = 1;
-    /**@internal 更新模式*/
-    private _updateMode = AnimatorUpdateMode.Normal;
-    /**@internal 降低更新频率调整值*/
-    private _lowUpdateDelty = 20;
-    /**@internal */
-    private _isPlaying = true;
-    /**@internal */
-    private _ownerMap: Map<KeyframeNode2D, { ower: Node, pro?: { ower: any, key: string, defVal: any } }>
+export class Animator2D extends Animator2DBase {
     /**@internal */
     _parameters: Record<string, Animation2DParm>;
     /**@internal */
@@ -41,12 +24,9 @@ export class Animator2D extends Component {
     _controller: AnimatorController2D;
     /**@internal */
     _checkEnterIndex: number[];
-    /**@internal */
-    _isPlayBack: boolean = false;
-
 
     /**
-     * @en Constructor method of Animator2D Component.  
+     * @en Constructor method of Animator2D Component.
      * @zh 2D动画组件构造方法。
      */
     constructor() {
@@ -86,45 +66,10 @@ export class Animator2D extends Component {
     }
 
     /**
-     * @en The playback speed of the animation.
-     * @zh 播放速度
-     */
-    get speed() {
-        return this._speed;
-    }
-
-    set speed(num: number) {
-        this._speed = num;
-    }
-
-    /**
-     * @en If the animation is currently playing.
-     * @zh 动画是否正在播放。
-     */
-    get isPlaying() {
-        return this._isPlaying;
-    }
-
-    /**
-     * @internal
-     * @param animatorState 
-     * @param playState 
-     */
-    private _updateStateFinish(animatorState: AnimatorState2D, playState: AnimatorPlayState2D): void {
-        if (playState._finish) {
-            if ((this.owner as Sprite)._renderType & SpriteConst.GRAPHICS) {
-                (this.owner as Sprite).graphics.repaint();
-            }
-            animatorState._eventExit();//派发播放完成的事件
-        }
-    }
-
-    /**
      * @internal
      * @param parentState 
      * @param currentState 
      */
-
     private _switchState(parentState: AnimatorState2D, currentState: AnimatorState2D): void {
         if (parentState) {
             parentState._eventSwitch(currentState);
@@ -132,332 +77,12 @@ export class Animator2D extends Component {
     }
 
     /**
-     * @en Assigns data to a Node.
-     * @param stateInfo The animation state information.
-     * @param additive Indicates if it is additive.
-     * @param weight The weight of the state.
-     * @param isFirstLayer Indicates if it is the first layer.
-     * @zh 赋值Node数据。
-     * @param stateInfo 动画状态信息。
-     * @param additive 是否为加法。
-     * @param weight 状态的权重。
-     * @param isFirstLayer 是否是第一层。
-     */
-    private _setClipDatasToNode(stateInfo: AnimatorState2D, additive: boolean, weight: number, controllerLayer: AnimatorControllerLayer2D = null): void {
-        var realtimeDatas = stateInfo._realtimeDatas;
-        var nodes = stateInfo._clip!._nodes!;
-        for (var i = 0, n = nodes.count; i < n; i++) {
-            if (null == realtimeDatas[i]) continue;
-            var node = nodes.getNodeByIndex(i);
-            var o = this.getOwner(node);
-            o && this._applyFloat(o, additive, weight, realtimeDatas[i]);
-        }
-    }
-
-    /**
      * @internal
-     * @param o 
-     * @param additive 
-     * @param weight 
-     * @param isFirstLayer 
-     * @param data 
-     */
-    private _applyFloat(o: { ower: Node, pro?: { ower: any, key: string, defVal: any } }, additive: boolean, weight: number, data: string | number | boolean | Vector3): void {
-        var pro = o.pro;
-        if (pro && pro.ower) {
-            if (additive && "number" === typeof data) {
-                pro.ower[pro.key] = pro.defVal + weight * data;
-            } else if ("number" === typeof data) {
-                pro.ower[pro.key] = weight * data;
-            } else {
-                if ("string" === typeof data) {
-                    if (data.startsWith("tres://")) {
-                        let url = data.replace("tres://", "");
-                        let source = Loader.getRes(url, Loader.IMAGE);
-                        if (source) {
-                            data = source;
-                        } else {
-                            ILaya.loader.load(url, { type: Loader.IMAGE }).then(tex => {
-                                if (!this.destroyed) {
-                                    pro.ower[pro.key] = tex;
-                                }
-
-                            });
-                            return;
-                        }
-                    }
-                }
-                pro.ower[pro.key] = data;
-            }
-        }
-    }
-
-    /**
-     * @internal
-     * @param node 
-     * @returns 
-     */
-    private getOwner(node: KeyframeNode2D) {
-        var ret: { ower: Node, pro?: { ower: any, key: string, defVal: any } };
-        if (this._ownerMap) {
-            ret = this._ownerMap.get(node);
-            if (ret) {
-                return ret;
-            }
-        }
-
-        var property = this.owner;
-        for (var j = 0, m = node.ownerPathCount; j < m; j++) {
-            var ownPat = node.getOwnerPathByIndex(j);
-            if ("" == ownPat) {
-                continue;
-            } else {
-                property = property.getChild(ownPat);
-                if (!property)
-                    break;
-            }
-        }
-
-        ret = { ower: property };
-
-        if (property) {
-            var pobj: any = property;
-            var propertyCount = node.propertyCount;
-
-            if (1 == propertyCount) {
-                var pname = node.getPropertyByIndex(0);
-                ret.pro = { ower: property, key: pname, defVal: (property as any)[pname] };
-            } else {
-                for (var i = 0; i < propertyCount; i++) {
-                    var pname = node.getPropertyByIndex(i);
-
-                    if (i == propertyCount - 1 || null == pobj) {
-                        ret.pro = { ower: pobj, key: pname, defVal: pobj ? pobj[pname] : null }
-                        break;
-                    }
-                    if ('_gcmds' === pname && null == pobj[pname] && pobj.graphics) {
-                        //对于_gcmds属性的特殊处理
-                        pobj = pobj.graphics;
-                        pname = "cmds";
-                    }
-
-
-                    if (null == pobj[pname] && property == pobj) {
-                        //有可能是组件,查找组件逻辑
-                        pobj = null;
-                        var classObj = ClassUtils.getClass(pname);
-                        if (classObj) {
-                            pobj = property.getComponent(classObj);
-                        }
-
-                    } else {
-                        pobj = pobj[pname];
-                    }
-                }
-            }
-
-        }
-        if (null == this._ownerMap) {
-            this._ownerMap = new Map();
-        }
-        this._ownerMap.set(node, ret);
-        return ret;
-
-
-    }
-
-    /**
-     * 更新clip数据
-     * @internal
-     */
-    private _updateClipDatas(animatorState: AnimatorState2D, addtive: boolean, playStateInfo: AnimatorPlayState2D): void {
-        var clip = animatorState._clip;
-        var clipDuration = clip!._duration;
-
-        var curPlayTime = animatorState.clipStart * clipDuration + playStateInfo._normalizedPlayTime * playStateInfo._duration;
-        var currentFrameIndices = animatorState._currentFrameIndices;
-        // 使用实际的播放方向，而不是硬编码为 true
-        let frontPlay = playStateInfo._frontPlay;
-        clip!._evaluateClipDatasRealTime(curPlayTime, currentFrameIndices, addtive, frontPlay, animatorState._realtimeDatas);
-    }
-
-    /**
-     * @internal
-     * @param animatorState 
-     * @param playState 
-     * @param elapsedTime 
-     * @param loop 
-     * @param layerIndex 
-     * @returns 
      */
     private _updatePlayer(animatorState: AnimatorState2D, playState: AnimatorPlayState2D, elapsedTime: number, loop: number, layerIndex: number): void {
-        playState._playAllTime += Math.abs(elapsedTime);
-        const clipDuration = animatorState.clipEnd - animatorState.clipStart;
-        var clipDurationTime = animatorState._clip._duration * clipDuration;
-        var lastElapsedTime = playState._elapsedTime;
-        var elapsedPlaybackTime = lastElapsedTime + elapsedTime;
-        playState._lastElapsedTime = lastElapsedTime;
-        playState._elapsedTime = elapsedPlaybackTime;
-        var normalizedTime = elapsedPlaybackTime / clipDurationTime;
-        var playTime = normalizedTime % 1.0;
-        const normalizedPlayTime = playTime < 0 ? playTime + 1.0 : playTime;
-        playState._normalizedPlayTime = normalizedPlayTime;
-        playState._duration = clipDurationTime;
-        let parentPlayNum = Math.floor(Math.abs(lastElapsedTime) / clipDurationTime);
-        let playNum = Math.floor(Math.abs(elapsedPlaybackTime) / clipDurationTime);
-        if (animatorState.yoyo) {
-            this._isPlayBack = 0 != Math.floor(playNum) % 2;
-            if (this._isPlayBack) {
-                playState._normalizedPlayTime = 1 - playState._normalizedPlayTime;
-            }
-            parentPlayNum = Math.floor(parentPlayNum / 2);
-            playNum = Math.floor(playNum / 2);
-        }
-        if (0 < loop && loop <= playNum) {
-            playState._finish = true;
-            if (animatorState.yoyo) {
-                playState._normalizedPlayTime = 0;
-            } else {
-                playState._normalizedPlayTime = 1;
-            }
-        }
-        const isReplay = parentPlayNum != playNum;
-        if (isReplay) {
-            animatorState._eventLoop();
-        }
-        //注意，这里的playState._normalizedPlayTime不管是clipStart和clipEnd是多少，都是0~1
-        animatorState._eventStateUpdate(playState._normalizedPlayTime);
-        this._applyTransition(layerIndex, animatorState._eventtransition(normalizedPlayTime, this.parameters, isReplay));
+        const isReplay = this._updatePlayerTime(animatorState, playState, elapsedTime, loop);
+        this._applyTransition(layerIndex, animatorState._eventtransition(playState._normalizedPlayTime, this.parameters, isReplay));
     }
-
-    /**
-     * @internal
-     * @param stateInfo 
-     * @param playStateInfo 
-     */
-    private _updateEventScript(stateInfo: AnimatorState2D, playStateInfo: AnimatorPlayState2D): void {
-        let clip = stateInfo._clip;
-        let events = clip!._animationEvents;
-        if (!events || 0 == events.length) return;
-        let clipDuration = clip!._duration;
-        var curPlayTime = playStateInfo.animatorState.clipStart * clipDuration + playStateInfo._normalizedPlayTime * playStateInfo._duration;
-        let frontPlay = playStateInfo._frontPlay;
-        const speed = playStateInfo._currentState.speed;
-        if (0 > speed) frontPlay = !frontPlay;
-        if (this._isPlayBack) {
-            frontPlay = !frontPlay;
-        }
-        let pTime = playStateInfo._parentPlayTime;
-        let parentPlayTime = playStateInfo._parentPlayTime;
-        if (null == parentPlayTime) {
-            if (frontPlay) {
-                parentPlayTime = clipDuration * playStateInfo.animatorState.clipStart;
-            } else {
-                parentPlayTime = clipDuration * playStateInfo.animatorState.clipEnd;
-            }
-        }
-        if (frontPlay) {
-            if (curPlayTime < parentPlayTime) {
-                //这里应该是YOYO的开始位置
-                const cpt = playStateInfo.animatorState.clipStart * clipDuration + playStateInfo._duration;
-                this._eventScript(events, parentPlayTime, cpt, true);
-                //this._eventScript(events, parentPlayTime, clipDuration * playStateInfo.animatorState.clipEnd, frontPlay);
-                parentPlayTime = playStateInfo.animatorState.clipStart * clipDuration;
-            }
-        } else {
-            if (curPlayTime > parentPlayTime) {
-                //这里应该是YOYO的一半结束位置
-                const cpt = playStateInfo.animatorState.clipStart * clipDuration;
-                this._eventScript(events, parentPlayTime, cpt, false);
-                //this._eventScript(events, parentPlayTime, clipDuration * playStateInfo.animatorState.clipStart, frontPlay);
-                parentPlayTime = playStateInfo.animatorState.clipStart * clipDuration + playStateInfo._duration;
-            }
-        }
-
-        this._eventScript(events, parentPlayTime, curPlayTime, frontPlay);
-        /**如果不相等，应该是event事件里面跳转了，被重置了动画 */
-        if (pTime == playStateInfo._parentPlayTime) {
-            playStateInfo._parentPlayTime = curPlayTime;
-        }
-    }
-    /**
-    * @internal
-    */
-    private _eventScript(events: Animation2DEvent[], parentPlayTime: number, currPlayTime: number, frontPlay: boolean) {
-        let scripts = this.owner.components;
-        if (frontPlay) {
-            for (let i = 0, len = events.length; i < len; i++) {
-                let e = events[i];
-                if (e.time > parentPlayTime && e.time <= currPlayTime) {
-                    for (let j = 0, m = scripts.length; j < m; j++) {
-                        let script = scripts[j];
-                        if (script._isScript()) {
-                            let fun: Function = (script as any)[e.eventName];
-                            (fun) && (fun.apply(script, e.params));
-                        }
-                    }
-                } else if (e.time > currPlayTime) {
-                    break;
-                }
-            }
-        } else {
-            for (let i = events.length - 1; i >= 0; i--) {
-                let e = events[i];
-                if (e.time < parentPlayTime && e.time >= currPlayTime) {
-                    for (let j = 0, m = scripts.length; j < m; j++) {
-                        let script = scripts[j];
-                        if (script._isScript()) {
-                            let fun: Function = (script as any)[e.eventName];
-                            (fun) && (fun.apply(script, e.params));
-                        }
-                    }
-                } else if (e.time < currPlayTime) {
-                    break;
-                }
-            }
-        }
-    }
-
-    /**
-     * @internal
-     */
-    // private _eventScript(events: Animation2DEvent[], eventIndex: number, endTime: number, front: boolean, startTime = 0): number {
-    //     let scripts = this.owner.components;
-    //     if (front) {
-    //         for (let n = events.length; eventIndex < n; eventIndex++) {
-    //             let event = events[eventIndex];
-    //             if (event.time <= endTime) {
-    //                 if (event.time >= startTime) {
-    //                     for (let j = 0, m = scripts.length; j < m; j++) {
-    //                         let script = scripts[j];
-    //                         if (script._isScript()) {
-    //                             let fun: Function = (script as any)[event.eventName];
-    //                             (fun) && (fun.apply(script, event.params));
-    //                         }
-    //                     }
-    //                 }
-    //             } else {
-    //                 break;
-    //             }
-    //         }
-    //     } else {
-    //         for (; eventIndex >= 0; eventIndex--) {
-    //             let event = events[eventIndex];
-    //             if (event.time >= endTime) {
-    //                 for (let j = 0, m = scripts.length; j < m; j++) {
-    //                     let script = scripts[j];
-    //                     if (script._isScript()) {
-    //                         let fun = (script as any)[event.eventName];
-    //                         (fun) && (fun.apply(script, event.params));
-    //                     }
-    //                 }
-    //             } else {
-    //                 break;
-    //             }
-    //         }
-    //     }
-    //     return eventIndex;
-    // }
 
     /**
      * 启用过渡
@@ -469,27 +94,6 @@ export class Animator2D extends Component {
         if (!transition)
             return false;
         return this.crossFade(transition.destState.name, layerindex, transition.transstartoffset, transition.transduration);
-    }
-
-    /**
-     * @internal
-     * @param delta 
-     * @returns 
-     */
-    private _applyUpdateMode(delta: number): number {
-        let ret;
-        switch (this._updateMode) {
-            case AnimatorUpdateMode.Normal:
-                ret = delta;
-                break;
-            case AnimatorUpdateMode.LowFrame:
-                ret = (Stat.loopCount % this._lowUpdateDelty == 0) ? delta * this._lowUpdateDelty : 0;
-                break;
-            case AnimatorUpdateMode.UnScaleTime:
-                ret = 0;
-                break;
-        }
-        return ret;
     }
 
     /**
@@ -549,6 +153,11 @@ export class Animator2D extends Component {
             var clipDuration = animatorState._clip!._duration;
             var calclipduration = animatorState._clip!._duration * (animatorState.clipEnd - animatorState.clipStart);
 
+            this._clearCrossFade(controllerLayer);
+
+            // 更新owner映射中的defVal，以支持additive模式基于最新值叠加
+            this._updateDefVal();
+
             playStateInfo._resetPlayState(clipDuration * normalizedTime, calclipduration);
             playStateInfo._normalizedPlayTime = normalizedTime;
             controllerLayer._playType = 0;
@@ -559,7 +168,7 @@ export class Animator2D extends Component {
             animatorState._eventStart(this, layerIndex);
             let addtive = controllerLayer.blendingMode != AnimatorControllerLayer2D.BLENDINGMODE_OVERRIDE;
             this._updateClipDatas(animatorState, addtive, playStateInfo);
-            this._setClipDatasToNode(animatorState, addtive, controllerLayer.defaultWeight, controllerLayer);
+            this._setClipDatasToNode(animatorState, addtive, controllerLayer.defaultWeight);
             this.stop();
         }
     }
@@ -598,6 +207,11 @@ export class Animator2D extends Component {
             var clipDuration = animatorState._clip!._duration;
             var calclipduration = animatorState._clip!._duration * (animatorState.clipEnd - animatorState.clipStart);
 
+            this._clearCrossFade(controllerLayer);
+
+            // 更新owner映射中的defVal，以支持additive模式基于最新值叠加
+            this._updateDefVal();
+
             // this.resetDefOwerVal();
             // playStateInfo._resetPlayState(0.0, calclipduration);
             // if (curPlayState != animatorState) {
@@ -621,6 +235,7 @@ export class Animator2D extends Component {
                     playStateInfo._resetPlayState(clipDuration * animatorState.clipStart, calclipduration);
                 }
             }
+            controllerLayer._playType = 0;
             this._switchState(curPlayState, animatorState);
             animatorState._eventStart(this, layerIndex);
         }
@@ -660,7 +275,19 @@ export class Animator2D extends Component {
 
         var delta = this.owner.timer.delta / 1000.0;
         delta = this._applyUpdateMode(delta);
-        if (0 == this.speed || 0 == delta) return;
+        if (0 == this.speed || 0 == delta) {
+            // speed=0或delta=0时仍需检查已完成状态的转换（用户可能在动画结束后设置了新参数）
+            for (var i = 0, n = this._controllerLayers.length; i < n; i++) {
+                var controllerLayer = this._controllerLayers[i];
+                if (!controllerLayer.enable) continue;
+                var playStateInfo = controllerLayer._playStateInfo!;
+                if (playStateInfo._finish && controllerLayer._playType == 0) {
+                    var animatorState = playStateInfo._currentState!;
+                    this._applyTransition(i, animatorState._eventtransition(playStateInfo._normalizedPlayTime, this.parameters, false));
+                }
+            }
+            return;
+        }
         var needRender = true;//TODO:有渲染节点才可将needRender变为true
 
         for (var i = 0, n = this._controllerLayers.length; i < n; i++) {
@@ -670,7 +297,7 @@ export class Animator2D extends Component {
 
 
             var playStateInfo = controllerLayer._playStateInfo!;
-            //var crossPlayStateInfo = controllerLayer._crossPlayStateInfo!;
+
             var addtive = controllerLayer.blendingMode != AnimatorControllerLayer2D.BLENDINGMODE_OVERRIDE;
             switch (controllerLayer._playType) {
                 case 0:
@@ -694,20 +321,119 @@ export class Animator2D extends Component {
                         dir = -1;
                     }
 
-                    finish || this._updatePlayer(animatorState, playStateInfo, delta * speed * dir, loop, i);
+                    if (finish) {
+                        // 动画已结束，但仍需检查条件触发的过渡（用户可能在动画结束后设置条件）
+                        this._applyTransition(i, animatorState._eventtransition(playStateInfo._normalizedPlayTime, this.parameters, false));
+                    } else {
+                        this._updatePlayer(animatorState, playStateInfo, delta * speed * dir, loop, i);
+                    }
+                    // A transition started while updating the source. Render its initial pose
+                    // without advancing either clip a second time this frame.
+                    if (controllerLayer._playType !== 0) {
+                        if (!finish) {
+                            this._updateEventScript(animatorState, playStateInfo);
+                            this._updateStateFinish(animatorState, playStateInfo);
+                        }
+                        if (controllerLayer._playType === 1 || controllerLayer._playType === 2)
+                            this._updateCrossFade(controllerLayer, i, 0);
+                        break;
+                    }
                     playStateInfo = controllerLayer._playStateInfo!;
                     animatorState = playStateInfo._currentState!;
                     if (needRender) {
                         this._updateClipDatas(animatorState, addtive, playStateInfo);
                         if (!finish) {
-                            this._setClipDatasToNode(animatorState, addtive, controllerLayer.defaultWeight, controllerLayer);
+                            this._setClipDatasToNode(animatorState, addtive, controllerLayer.defaultWeight);
                             this._updateEventScript(animatorState, playStateInfo);
                         }
                     }
                     finish || this._updateStateFinish(animatorState, playStateInfo);
                     break;
+                case 1:
+                case 2:
+                    this._updateCrossFade(controllerLayer, i, delta);
+                    break;
             }
         }
+    }
+
+    private _clearCrossFade(layer: AnimatorControllerLayer2D): void {
+        layer._crossMark++;
+        layer._crossNodes.length = layer._crossDefaultValues.length = layer._crossValues.length = layer._crossFixedValues.length = 0;
+        layer._srcCrossClipNodeIndices.length = layer._destCrossClipNodeIndices.length = 0;
+        layer._crossPlayStateInfo._currentState = null;
+    }
+
+    private _blendValue(source: AnimationValue2D, target: AnimationValue2D, weight: number): AnimationValue2D {
+        if (typeof source === "number" && typeof target === "number")
+            return source + (target - source) * weight;
+        if (source && target && typeof source === "object" && typeof target === "object") {
+            const blendVector = (a: Vector3, b: Vector3): Vector3 => {
+                if (!a || !b) return weight < 1 ? a : b;
+                return new Vector3(a.x + (b.x - a.x) * weight, a.y + (b.y - a.y) * weight, a.z + (b.z - a.z) * weight);
+            };
+            return { pos: blendVector(source.pos, target.pos), rotation: blendVector(source.rotation, target.rotation) };
+        }
+        // Texture references, strings and booleans cannot be interpolated.
+        return weight < 1 ? source : target;
+    }
+
+    /** Advance a clip without checking its outgoing transitions. */
+    private _advanceCrossState(layer: AnimatorControllerLayer2D, info: AnimatorPlayState2D, delta: number, additive: boolean): boolean {
+        const mark = layer._crossMark;
+        const state = info._currentState;
+        const finished = info._finish;
+        if (!finished && delta !== 0) {
+            const loop = state.loop <= -1 ? (state._clip.islooping ? 0 : 1) : state.loop;
+            this._updatePlayerTime(state, info, delta * this._speed * state.speed * (info._frontPlay ? 1 : -1), loop);
+            if (mark !== layer._crossMark) return false;
+        }
+        this._updateClipDatas(state, additive, info);
+        if (!finished && delta !== 0) {
+            this._updateEventScript(state, info);
+            if (mark !== layer._crossMark) return false;
+            this._updateStateFinish(state, info);
+        }
+        return mark === layer._crossMark;
+    }
+
+    private _updateCrossFade(layer: AnimatorControllerLayer2D, layerIndex: number, delta: number): void {
+        const mark = layer._crossMark;
+        const sourceInfo = layer._playStateInfo;
+        const targetInfo = layer._crossPlayStateInfo;
+        const source = sourceInfo._currentState;
+        const target = targetInfo._currentState;
+        const additive = layer.blendingMode !== AnimatorControllerLayer2D.BLENDINGMODE_OVERRIDE;
+        if (layer._playType === 1 && !this._advanceCrossState(layer, sourceInfo, delta, additive)) return;
+        const previousTime = targetInfo._elapsedTime;
+        if (!this._advanceCrossState(layer, targetInfo, delta, additive)) return;
+        layer._crossElapsedTime += Math.abs(delta * this._speed);
+        const weight = Math.min(layer._crossElapsedTime / layer._crossDuration, 1);
+        for (let j = 0; j < layer._crossNodes.length; j++) {
+            const srcIndex = layer._srcCrossClipNodeIndices[j];
+            const dstIndex = layer._destCrossClipNodeIndices[j];
+            const fallback = layer._crossDefaultValues[j];
+            const srcValue = layer._playType === 2 ? layer._crossFixedValues[j] : (srcIndex < 0 ? fallback : source._realtimeDatas[srcIndex]);
+            const dstValue = dstIndex < 0 ? fallback : target._realtimeDatas[dstIndex];
+            const value = this._blendValue(srcValue == null ? fallback : srcValue, dstValue == null ? fallback : dstValue, weight);
+            layer._crossValues[j] = value;
+            const owner = this.getOwner(layer._crossNodes[j]);
+            if (owner && value != null) this._applyAniData(owner, additive, layer.defaultWeight, value);
+            if (mark !== layer._crossMark) return;
+        }
+        if (weight === 1) {
+            const sourceFinished = sourceInfo._finish;
+            targetInfo._cloneTo(sourceInfo);
+            sourceInfo._currentState = target;
+            layer._playType = 0;
+            this._clearCrossFade(layer);
+            const completedMark = layer._crossMark;
+            if (!sourceFinished && source !== target) source._eventExit();
+            if (completedMark !== layer._crossMark) return;
+        }
+        const duration = targetInfo._duration;
+        const replay = Math.floor(Math.abs(previousTime) / duration) !== Math.floor(Math.abs(targetInfo._elapsedTime) / duration);
+        this._applyTransition(layerIndex, target._eventtransition(targetInfo._normalizedPlayTime, this.parameters, replay));
     }
 
     /**
@@ -748,12 +474,87 @@ export class Animator2D extends Component {
         var controllerLayer = this._controllerLayers[layerIndex];
         if (controllerLayer) {
             var destAnimatorState = controllerLayer.getStateByName(name);
-            if (destAnimatorState) {
-                this.play(name, layerIndex, normalizedTime);
+            if (destAnimatorState && destAnimatorState._clip) {
+                const sourceInfo = controllerLayer._playStateInfo;
+                const source = sourceInfo._currentState;
+                if (!source || !(transitionDuration > 0) || !Number.isFinite(transitionDuration)) {
+                    this.play(name, layerIndex, normalizedTime);
+                    return true;
+                }
+                const duration = source._clip._duration * (source.clipEnd - source.clipStart) * transitionDuration;
+                if (!(duration > 0)) {
+                    this.play(name, layerIndex, normalizedTime);
+                    return true;
+                }
+                const additive = controllerLayer.blendingMode !== AnimatorControllerLayer2D.BLENDINGMODE_OVERRIDE;
+                const interrupted = controllerLayer._playType === 1 || controllerLayer._playType === 2;
+                const fixed = interrupted || source === destAnimatorState;
+                const nodes = interrupted ? controllerLayer._crossNodes.slice() : [];
+                const values = interrupted ? controllerLayer._crossValues.slice() : [];
+                const defaults = interrupted ? controllerLayer._crossDefaultValues.slice() : [];
+                const previousTarget = interrupted ? controllerLayer._crossPlayStateInfo._currentState : source;
+                const previousTargetFinished = interrupted && controllerLayer._crossPlayStateInfo._finish;
+                this._updateClipDatas(source, additive, sourceInfo);
+                const sourceNodes = source._clip._nodes;
+                const targetNodes = destAnimatorState._clip._nodes;
+                if (!interrupted) {
+                    for (let j = 0; j < sourceNodes.count; j++)
+                        nodes.push(sourceNodes.getNodeByIndex(j));
+                }
+                const known = new Set(nodes.map(node => node.fullPath));
+                for (let j = 0; j < targetNodes.count; j++) {
+                    const node = targetNodes.getNodeByIndex(j);
+                    if (!known.has(node.fullPath)) {
+                        nodes.push(node);
+                        known.add(node.fullPath);
+                    }
+                }
+                this._clearCrossFade(controllerLayer);
+                controllerLayer._crossNodes = nodes;
+                for (let j = 0; j < nodes.length; j++) {
+                    const node = nodes[j];
+                    const srcNode = source._clip._nodesDic[node.fullPath];
+                    const dstNode = destAnimatorState._clip._nodesDic[node.fullPath];
+                    const srcIndex = srcNode ? srcNode._indexInList : -1;
+                    const dstIndex = dstNode ? dstNode._indexInList : -1;
+                    const owner = this.getOwner(node);
+                    let fallback: AnimationValue2D = defaults[j];
+                    if (fallback == null && owner && owner.pro) {
+                        // CurvePath tracks write the property owner itself, not pro[key].
+                        const isPath = node.keyFramesCount > 0 && node.getKeyframeByIndex(0).data.val instanceof CurvePath;
+                        const value = isPath ? owner.pro.ower : owner.pro.defVal;
+                        fallback = isPath && value
+                            ? { pos: new Vector3(value.x, value.y, 0), rotation: new Vector3(0, 0, value.rotation || 0) }
+                            : value;
+                        if (additive && typeof fallback === "number") fallback = 0;
+                    }
+                    const sourceValue = srcIndex < 0 ? fallback : source._realtimeDatas[srcIndex];
+                    controllerLayer._srcCrossClipNodeIndices[j] = srcIndex;
+                    controllerLayer._destCrossClipNodeIndices[j] = dstIndex;
+                    controllerLayer._crossDefaultValues[j] = fallback;
+                    controllerLayer._crossFixedValues[j] = interrupted && j < values.length ? values[j] : sourceValue;
+                    controllerLayer._crossValues[j] = fixed ? controllerLayer._crossFixedValues[j] : sourceValue;
+                }
+                const targetInfo = controllerLayer._crossPlayStateInfo;
+                const clipDuration = destAnimatorState._clip._duration;
+                targetInfo._resetPlayState(normalizedTime === Number.NEGATIVE_INFINITY ? 0 : clipDuration * normalizedTime,
+                    clipDuration * (destAnimatorState.clipEnd - destAnimatorState.clipStart));
+                targetInfo._currentState = destAnimatorState;
+                controllerLayer._crossDuration = duration;
+                controllerLayer._crossElapsedTime = 0;
+                controllerLayer._playType = fixed ? 2 : 1;
+                this._isPlaying = true;
+                if (this._checkEnterIndex) {
+                    const index = this._checkEnterIndex.indexOf(layerIndex);
+                    if (index >= 0) this._checkEnterIndex.splice(index, 1);
+                }
+                if (interrupted && previousTarget !== source && !previousTargetFinished) previousTarget._eventExit();
+                this._switchState(previousTarget, destAnimatorState);
+                destAnimatorState._eventStart(this, layerIndex);
                 return true;
             }
             else {
-                console.warn("Invalid layerIndex " + layerIndex + ".");
+                console.warn("Invalid animation state " + name + ".");
             }
         }
         return false;

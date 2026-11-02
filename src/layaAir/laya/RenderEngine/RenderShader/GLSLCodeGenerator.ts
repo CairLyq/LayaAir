@@ -7,17 +7,37 @@ import { RenderParams } from "../RenderEnum/RenderParams";
 import { RenderCapable } from "../RenderEnum/RenderCapable";
 import { UniformProperty } from "../../RenderDriver/DriverDesign/RenderDevice/CommandUniformMap";
 import { Config } from "../../../Config";
+import { ShaderMRT } from "./ShaderMRT";
 
 /**
  * @internal
  */
 export class GLSLCodeGenerator {
 
+    /**
+     * Remove legacy standalone declarations that are already emitted from the
+     * registered material uniform map. Custom shaders historically declared
+     * these uniforms themselves; keeping both declarations makes GLES reject
+     * the generated shader after the uniform is registered for native backends.
+     */
+    private static stripRegisteredUniformDeclarations(source: string, uniformsMap: Map<number, UniformProperty>): string {
+        if (uniformsMap.size == 0) {
+            return source;
+        }
+
+        const registeredNames = new Set<string>();
+        uniformsMap.forEach(uniform => registeredNames.add(uniform.propertyName));
+        const standaloneUniform = /(?:layout\s*\([^)]*\)\s*)?\buniform\s+(?:(?:lowp|mediump|highp)\s+)?(?:(?:readonly|writeonly|coherent|volatile|restrict)\s+)*(\w+)\s+(\w+)(?:\s*\[\s*\d+\s*\])?\s*;/gm;
+        return source.replace(standaloneUniform, (declaration, _type, name) => {
+            return registeredNames.has(name) ? "" : declaration;
+        });
+    }
+
     static glslAttributeString(attributeMap: { [name: string]: [number, ShaderDataType] }) {
 
         let res = "";
         for (const key in attributeMap) {
-            let type = getAttributeType(attributeMap[key][1]);
+            let type = GLSLCodeGenerator.getAttributeType(attributeMap[key][1]);
             if (type != "") {
                 res = `${res}attribute ${type} ${key};\n`;
             }
@@ -43,7 +63,7 @@ export class GLSLCodeGenerator {
                 if (uniform.arrayLength > 0) {
                     uniformName = `${uniformName}[${uniform.arrayLength}]`;
                 }
-                let typeStr = getAttributeType(dataType);
+                let typeStr = GLSLCodeGenerator.getAttributeType(dataType);
                 if (typeStr != "") {
                     if (supportUniformBlock(dataType)) {
                         blockStr += `${typeStr} ${uniformName};\n`;
@@ -69,9 +89,9 @@ export class GLSLCodeGenerator {
                 let dataType = uniform.uniformtype;
                 let uniformName = uniform.propertyName;
                 if (uniform.arrayLength > 0) {
-                    // uniformName = `${uniformName}[${uniform.arrayLength}]`;
+                    uniformName = `${uniformName}[${uniform.arrayLength}]`;
                 }
-                let typeStr = getAttributeType(dataType);
+                let typeStr = GLSLCodeGenerator.getAttributeType(dataType);
                 if (typeStr != "") {
                     uniformsStr += `uniform ${typeStr} ${uniformName};\n`;
                 }
@@ -87,6 +107,10 @@ export class GLSLCodeGenerator {
 
         var clusterSlices = Config3D.lightClusterCount;
         var defMap: any = {};
+        const mrtTargetCount = ShaderMRT.getTargetCount(defineString);
+        const mrt = mrtTargetCount > 0 || defineString.indexOf(ShaderMRT.defineName) !== -1;
+        if (mrt && LayaGL.renderEngine.getParams(RenderParams.SHADER_CAPAILITY_LEVEL) <= 30)
+            throw new Error("LAYA_MRT requires WebGL2 or a supported MRT shader backend.");
 
         var vertexHead: string;
         var fragmentHead: string;
@@ -139,8 +163,7 @@ ${materialUniformGlsl}
 #endif
 layout(std140, column_major) uniform;
 #define varying in
-out highp vec4 pc_fragColor;
-#define gl_FragColor pc_fragColor
+${mrt ? "" : "out highp vec4 pc_fragColor;\n#define gl_FragColor pc_fragColor"}
 #define gl_FragDepthEXT gl_FragDepth
 #define texture2D texture
 #define textureCube texture
@@ -222,51 +245,74 @@ ${materialUniformGlsl}`;
             psVersion = ps[0] + '\n';
             ps.shift();
         };
-        let dstVS = vsVersion + vertexHead + defineStr + vs.join('\n');
-        let detFS = psVersion + fragmentHead + defineStr + ps.join('\n');
+        const vertexCode = GLSLCodeGenerator.stripRegisteredUniformDeclarations(vs.join('\n'), uniformMap);
+        let fragmentCode = GLSLCodeGenerator.stripRegisteredUniformDeclarations(ps.join('\n'), uniformMap);
+        if (mrtTargetCount) fragmentCode = ShaderMRT.prepare(fragmentCode, mrtTargetCount);
+        let dstVS = vsVersion + vertexHead + defineStr + vertexCode;
+        let detFS = psVersion + fragmentHead + defineStr + fragmentCode;
         return { vs: dstVS, fs: detFS };
     }
-}
-
-function getAttributeType(type: ShaderDataType) {
-    switch (type) {
-        case ShaderDataType.Int:
-            return "int";
-        case ShaderDataType.Bool:
-            return "bool";
-        case ShaderDataType.Float:
-            return "float";
-        case ShaderDataType.Vector2:
-            return "vec2";
-        case ShaderDataType.Vector3:
-            return "vec3";
-        case ShaderDataType.Vector4:
-        case ShaderDataType.Color:
-            return "vec4";
-        case ShaderDataType.Matrix4x4:
-            return "mat4";
-        case ShaderDataType.Matrix3x3:
-            return "mat3";
-        case ShaderDataType.Texture2D:
-            return "sampler2D";
-        case ShaderDataType.TextureCube:
-            return "samplerCube";
-        case ShaderDataType.Texture2DArray:
-            if (LayaGL.renderEngine.getCapable(RenderCapable.Texture3D)) {
-                return "sampler2DArray";
-            }
-            else {
+    static getAttributeType(type: ShaderDataType) {
+        switch (type) {
+            case ShaderDataType.Int:
+                return "int";
+            case ShaderDataType.Bool:
+                return "bool";
+            case ShaderDataType.Float:
+                return "float";
+            case ShaderDataType.Vector2:
+                return "vec2";
+            case ShaderDataType.Vector3:
+                return "vec3";
+            case ShaderDataType.Vector4:
+            case ShaderDataType.Color:
+                return "vec4";
+            case ShaderDataType.Matrix4x4:
+                return "mat4";
+            case ShaderDataType.Matrix3x3:
+                return "mat3";
+            case ShaderDataType.Texture2D:
+                return "sampler2D";
+            case ShaderDataType.TextureCube:
+                return "samplerCube";
+            case ShaderDataType.Texture2DArray:
+                if (LayaGL.renderEngine.getCapable(RenderCapable.Texture3D)) {
+                    return "sampler2DArray";
+                }
+                else {
+                    return "";
+                }
+            case ShaderDataType.Texture3D:
+                if (LayaGL.renderEngine.getCapable(RenderCapable.Texture3D)) {
+                    return "sampler3D";
+                }
+                else {
+                    return "";
+                }
+            case ShaderDataType.StorageTexture2D:
+                if (LayaGL.renderEngine.getCapable(RenderCapable.ComputeShader)) {
+                    return "image2D";
+                }
+                else {
+                    return "";
+                }
+            case ShaderDataType.DeviceBuffer:
+                if (LayaGL.renderEngine.getCapable(RenderCapable.StorageBuffer)) {
+                    return "buffer";
+                }
+                else {
+                    return "";
+                }
+            case ShaderDataType.ReadOnlyDeviceBuffer:
+                if (LayaGL.renderEngine.getCapable(RenderCapable.StorageBuffer)) {
+                    return "buffer";
+                }
+                else {
+                    return "";
+                }
+            default:
                 return "";
-            }
-        case ShaderDataType.Texture3D:
-            if (LayaGL.renderEngine.getCapable(RenderCapable.Texture3D)) {
-                return "sampler3D";
-            }
-            else {
-                return "";
-            }
-        default:
-            return "";
+        }
     }
 }
 

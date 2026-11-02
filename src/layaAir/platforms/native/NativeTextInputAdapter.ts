@@ -5,6 +5,8 @@ import { Event } from "../../laya/events/Event";
 import { PAL } from "../../laya/platform/PlatformAdapters";
 import { TextInputAdapter } from "../../laya/platform/TextInputAdapter";
 import { SpriteUtils } from "../../laya/utils/SpriteUtils";
+import { DesktopNativeTextInputContext } from "./DesktopNativeTextInputContext";
+import { NativeCanvasTextInputAdapter } from "./NativeCanvasTextInputAdapter";
 
 export class NativeTextInputAdapter extends TextInputAdapter {
 
@@ -41,7 +43,7 @@ export class NativeTextInputAdapter extends TextInputAdapter {
 
         ele.maxLength = target.maxChars <= 0 ? 1E5 : target.maxChars;
         ele.value = target.text;
-        ele.placeholder = target.prompt;
+        ele.placeholder = target.localizedPrompt;
 
         let style = ele.style;
         style.fontFamily = target.realFont;
@@ -149,4 +151,11 @@ export class NativeTextInputAdapter extends TextInputAdapter {
     }
 }
 
-PAL.register("textInput", NativeTextInputAdapter);
+// The new canvas-rendered editor is intentionally Windows-only. Android,
+// iOS, macOS, Linux and Windows runtimes without the complete native bridge
+// keep the established NativeTextInputAdapter behavior.
+PAL.register(
+    "textInput",
+    DesktopNativeTextInputContext.isSupported()
+        ? NativeCanvasTextInputAdapter
+        : NativeTextInputAdapter);

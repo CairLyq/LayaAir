@@ -8,7 +8,6 @@ import { Vector3 } from "../../../maths/Vector3";
 import { NotImplementedError } from "../../../utils/Error";
 import { ICollider } from "../../interface/ICollider";
 import { pxColliderShape } from "../Shape/pxColliderShape";
-import { pxCompoundColliderShape } from "../Shape/pxCompoundColliderShape";
 import type { pxPhysicsManager } from "../pxPhysicsManager";
 import { partFlag } from "../pxStatics";
 /**
@@ -189,10 +188,6 @@ export class pxCollider implements ICollider {
     setColliderShape(shape: pxColliderShape): void {
         if (shape == this._shape)
             return;
-        if (shape instanceof pxCompoundColliderShape) {
-            shape._pxCollider = this;
-            shape.refreshShapes();
-        }
         var lastColliderShape: pxColliderShape = this._shape;
         this._shape = shape;
         //shape._pxCollider = this;
@@ -233,8 +228,13 @@ export class pxCollider implements ICollider {
      * @zh 销毁碰撞器并释放其资源。
      */
     destroy(): void {
-        this._pxActor.release();
+        if (this._destroyed) return;
         this._destroyed = true;
+        if (this._isSimulate) this._physicsManager.removeCollider(this);
+        this._shape?.removeFromActor(this);
+        pxCollider._ActorPool.delete(this._id);
+        this._pxActor?.release();
+        this._pxActor = null;
     }
     /**
      * @en Sets the collision group for this collider.
@@ -286,7 +286,7 @@ export class pxCollider implements ICollider {
                 flag = flag | partFlag.eNOTIFY_TOUCH_PERSISTS | partFlag.eNOTIFY_CONTACT_POINTS;
             }
             if (value == Event.COLLISION_STAY) {
-                flag = flag | partFlag.eNOTIFY_TOUCH_PERSISTS;
+                flag = flag | partFlag.eNOTIFY_TOUCH_PERSISTS | partFlag.eNOTIFY_CONTACT_POINTS;
             }
             if (value == Event.COLLISION_EXIT) {
                 flag = flag | partFlag.eNOTIFY_TOUCH_PERSISTS | partFlag.eNOTIFY_TOUCH_LOST;
@@ -311,7 +311,10 @@ export class pxCollider implements ICollider {
         this._initCollider();
         pxCollider._ActorPool.set(this._id, this);
         this._pxActor.setUUID(this._id);
-        this.setActorFlag(pxActorFlag.eSEND_SLEEP_NOTIFIES, true);
+        // Static actors never sleep or wake. Requesting sleep notifications for
+        // them can enter an invalid PhysX callback path during fetchResults().
+        if (this._type === pxColliderType.RigidbodyCollider)
+            this.setActorFlag(pxActorFlag.eSEND_SLEEP_NOTIFIES, true);
     }
 
     protected _initCollider() {
@@ -324,7 +327,9 @@ export class pxCollider implements ICollider {
      * @param flag 变换更改标志。
      */
     transformChanged(flag: number): void {
-        this._transformFlag = flag;
+        // Transform updates are deferred until the next physics step. Keep every
+        // change received while this collider is already waiting in the queue.
+        this._transformFlag |= flag;
         if (this.inPhysicUpdateListIndex == -1 && !this._enableProcessCollisions) {
             this._physicsManager._physicsUpdateList.add(this);
         }
@@ -358,7 +363,7 @@ export class pxCollider implements ICollider {
      */
     setBounciness(value: number): void {
         this._bounciness = value;
-        this._shape && this._shape._pxMaterials[0].setBounciness(value);
+        this._shape && this._shape.setBounciness(value);
     }
 
     /**
@@ -369,7 +374,7 @@ export class pxCollider implements ICollider {
      */
     setDynamicFriction(value: number): void {
         this._dynamicFriction = value;
-        this._shape && this._shape._pxMaterials[0].setDynamicFriction(value);
+        this._shape && this._shape.setDynamicFriction(value);
     }
 
     /**
@@ -380,7 +385,7 @@ export class pxCollider implements ICollider {
      */
     setStaticFriction(value: number): void {
         this._staticFriction = value;
-        this._shape && this._shape._pxMaterials[0].setStaticFriction(value);
+        this._shape && this._shape.setStaticFriction(value);
     }
 
     /**
@@ -391,7 +396,7 @@ export class pxCollider implements ICollider {
      */
     setFrictionCombine(value: PhysicsCombineMode): void {
         this._frictionCombine = value;
-        this._shape && this._shape._pxMaterials[0].setFrictionCombine(value);
+        this._shape && this._shape.setFrictionCombine(value);
     }
 
     /**
@@ -402,7 +407,7 @@ export class pxCollider implements ICollider {
      */
     setBounceCombine(value: PhysicsCombineMode): void {
         this._bounceCombine = value;
-        this._shape && this._shape._pxMaterials[0].setBounceCombine(value);
+        this._shape && this._shape.setBounceCombine(value);
     }
 
 

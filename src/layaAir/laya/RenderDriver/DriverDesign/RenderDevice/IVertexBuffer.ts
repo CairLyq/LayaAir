@@ -1,4 +1,5 @@
 import { VertexDeclaration } from "../../../RenderEngine/VertexDeclaration";
+import { IDeviceBuffer } from "./IDeviceBuffer";
 
 /**
  * @blueprintIgnore @blueprintIgnoreSubclasses
@@ -6,7 +7,8 @@ import { VertexDeclaration } from "../../../RenderEngine/VertexDeclaration";
 export interface IVertexBuffer {
     vertexDeclaration: VertexDeclaration;//要的数据是_shaderValues
     instanceBuffer: boolean;
-    setData(buffer: ArrayBuffer, bufferOffset: number, dataStartIndex: number, dataCount: number): void;
+    setData(buffer: ArrayBufferLike, bufferOffset: number, dataStartIndex: number, dataCount: number): void;
     setDataLength(byteLength: number): void;
-    destroy():void;
+    getStorageBuffer(): IDeviceBuffer;
+    destroy(): void;
 }

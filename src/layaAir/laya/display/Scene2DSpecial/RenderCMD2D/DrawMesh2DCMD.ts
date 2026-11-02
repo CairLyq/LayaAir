@@ -1,4 +1,3 @@
-import { Const } from "../../../Const";
 import { LayaGL } from "../../../layagl/LayaGL";
 import { Color } from "../../../maths/Color";
 import { Matrix } from "../../../maths/Matrix";
@@ -12,6 +11,7 @@ import { ShaderDefine } from "../../../RenderDriver/RenderModuleData/Design/Shad
 import { BaseTexture } from "../../../resource/BaseTexture";
 import { Material } from "../../../resource/Material";
 import { Mesh2D, VertexMesh2D } from "../../../resource/Mesh2D";
+import { Texture } from "../../../resource/Texture";
 import { Texture2D } from "../../../resource/Texture2D";
 import { Pool } from "../../../utils/Pool";
 import { ShaderDefines2D } from "../../../webgl/shader/d2/ShaderDefines2D";
@@ -30,7 +30,7 @@ export class DrawMesh2DCMD extends Command2D {
      * @param material 
      * @returns 
      */
-    static create(mesh: Mesh2D, mat: Matrix, texture: BaseTexture, color: Color, material: Material): DrawMesh2DCMD {
+    static create(mesh: Mesh2D, mat: Matrix, texture: BaseTexture | Texture, color: Color, material: Material): DrawMesh2DCMD {
         let cmd = DrawMesh2DCMD._pool.take();
         cmd.mesh = mesh;
         cmd.material = material || Mesh2DRender.mesh2DDefaultMaterial;
@@ -54,13 +54,17 @@ export class DrawMesh2DCMD extends Command2D {
 
     private _mesh: Mesh2D
 
+    private _meshDefines: ShaderDefine[] = [];
+
     private _material: Material;
 
     private _color: Color;
 
     private _renderColor = new Color(1, 1, 1, 1);
 
-    private _texture: BaseTexture;
+    private _texture: BaseTexture | Texture;
+
+    private _textureTilingOffset: Vector4 = new Vector4(0, 0, 1, 1);
 
     private _tilingOffset: Vector4 = new Vector4(0, 0, 1, 1);
 
@@ -69,11 +73,6 @@ export class DrawMesh2DCMD extends Command2D {
         this._drawElementData = LayaGL.render2DRenderPassFactory.createDraw2DElementCMDData();
         this._shaderData = LayaGL.renderDeviceFactory.createShaderData();
         this._shaderData.addDefine(BaseRenderNode2D.SHADERDEFINE_BASERENDER2D);
-        let temp = Vector4.TEMP.setValue(0, 0, 0, 0);
-        this._shaderData.setVector(ShaderDefines2D.UNIFORM_CLIPMATPOS, temp);
-        temp.x = temp.w = Const.MAX_CLIP_SIZE;
-        this._shaderData.setVector(ShaderDefines2D.UNIFORM_CLIPMATDIR, temp);
-        
         this._needUpdateElement = true;
         this._matrix = new Matrix();
     }
@@ -97,11 +96,10 @@ export class DrawMesh2DCMD extends Command2D {
     set material(value: Material) {
         if (value == this.material)
             return;
-        if (!value)
-            value = Mesh2DRender.mesh2DDefaultMaterial;
-        // this._mesh2DRender.sharedMaterial = value;
 
+        this._material && this._material._removeReference();
         this._material = value;
+        this._material && this._material._addReference();
         this._needUpdateElement = true;
     }
     get material(): Material {
@@ -112,18 +110,17 @@ export class DrawMesh2DCMD extends Command2D {
         if (value == this.mesh)
             return;
 
-        if (this._mesh) {
-            let defines: ShaderDefine[] = [];
-            VertexMesh2D.getMeshDefine(this._mesh, defines);
-            for (var i: number = 0, n: number = defines.length; i < n; i++)
-                this._shaderData.removeDefine(defines[i]);
-        }
+        for (let i = 0, n = this._meshDefines.length; i < n; i++)
+            this._shaderData.removeDefine(this._meshDefines[i]);
+        this._meshDefines.length = 0;
+
+        this._mesh && this._mesh._removeReference();
 
         if (value) {
-            let defines: ShaderDefine[] = [];
-            VertexMesh2D.getMeshDefine(value, defines);
-            for (var i: number = 0, n: number = defines.length; i < n; i++)
-                this._shaderData.addDefine(defines[i]);
+            value._addReference();
+            VertexMesh2D.getMeshDefine(value, this._meshDefines);
+            for (let i = 0, n = this._meshDefines.length; i < n; i++)
+                this._shaderData.addDefine(this._meshDefines[i]);
         }
 
         this._mesh = value;
@@ -134,28 +131,57 @@ export class DrawMesh2DCMD extends Command2D {
         return this._mesh;
     }
 
-    set texture(value: BaseTexture) {
-        value = value ? value : Texture2D.whiteTexture;
+    set texture(value: BaseTexture | Texture) {
+        if (this._texture instanceof Texture) {
+            this._texture._removeReference();
+        }
+        this._texture = value;
 
-        if (value.gammaCorrection != 1) {//预乘纹理特殊处理
+        let baseTexture: BaseTexture;
+        if (value instanceof Texture) {
+            value._addReference();
+
+            if (value.uv !== Texture.DEF_UV) {
+                let sx = value.uvrect[2] / value.width;
+                let sy = value.uvrect[3] / value.height;
+                this._textureTilingOffset.setValue(
+                    value.uvrect[0] - value.offsetX * sx,
+                    value.uvrect[1] - value.offsetY * sy,
+                    value.sourceWidth * sx,
+                    value.sourceHeight * sy
+                );
+            } else {
+                this._textureTilingOffset.setValue(0, 0, 1, 1);
+            }
+            baseTexture = value.bitmap;
+        } else {
+            this._textureTilingOffset.setValue(0, 0, 1, 1);
+            baseTexture = value ? value : Texture2D.whiteTexture;
+        }
+
+        if (baseTexture.gammaCorrection != 1) {
             this._shaderData.addDefine(ShaderDefines2D.GAMMATEXTURE);
         } else {
             this._shaderData.removeDefine(ShaderDefines2D.GAMMATEXTURE);
         }
-        this._texture = value;
-        
+
+        this._tilingOffset.setValue(
+            this._textureTilingOffset.x,
+            this._textureTilingOffset.y,
+            this._textureTilingOffset.z,
+            this._textureTilingOffset.w
+        );
         this._shaderData.setVector(BaseRenderNode2D.TILINGOFFSET, this._tilingOffset);
-        this._shaderData.setTexture(BaseRenderNode2D.BASERENDER2DTEXTURE, value);
+        this._shaderData.setTexture(BaseRenderNode2D.BASERENDER2DTEXTURE, baseTexture);
     }
-    get texture(): BaseTexture {
+    get texture(): BaseTexture | Texture {
         return this._texture;
     }
 
     set color(value: Color) {
         this._color = value;
-        let a = value.a;
         let renderColor: Color = this._renderColor;
-        renderColor.setValue(value.r * a, value.g * a, value.b * a, a);
+        renderColor.setValue(value.r, value.g, value.b, value.a);
         this._shaderData.setColor(BaseRenderNode2D.BASERENDER2DCOLOR, renderColor);
     }
     get color(): Color {
@@ -227,9 +253,10 @@ export class DrawMesh2DCMD extends Command2D {
      */
     destroy(): void {
         super.destroy();
+        this.mesh = null;
+        this.material = null;
+        this.texture = null;
         this._shaderData.destroy();
         this._shaderData = null;
-        this._mesh = null
-        this._material = null;
     }
 }

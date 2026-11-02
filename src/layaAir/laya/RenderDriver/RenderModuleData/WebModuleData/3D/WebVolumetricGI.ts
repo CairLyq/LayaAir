@@ -55,6 +55,7 @@ export class WebVolumetricGI implements IVolumetricGIData {
 
     applyRenderData(): void {
         let data = this.shaderData;
+        if (!data) return;
         data.addDefine(VolumetricGI.SHADERDEFINE_VOLUMETRICGI);
         data.setVector3(VolumetricGI.VOLUMETRICGI_PROBECOUNTS, this._probeCounts);
         data.setVector3(VolumetricGI.VOLUMETRICGI_PROBESTEPS, this._probeStep);
@@ -63,6 +64,8 @@ export class WebVolumetricGI implements IVolumetricGIData {
         data._setInternalTexture(VolumetricGI.VOLUMETRICGI_IRRADIANCE, this.irradiance);
         data._setInternalTexture(VolumetricGI.VOLUMETRICGI_DISTANCE, this.distance);
         data.setNumber(ReflectionProbe.AMBIENTINTENSITY, this.intensity);
+
+        data.update(VolumetricGI.BlockName);
     }
 
     destroy(): void {

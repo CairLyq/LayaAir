@@ -13,11 +13,11 @@ const _rect2 = new Rectangle();
 
 export interface DynamicTexInfo
 {
-    referenceCount: number ,
-    uv : Vector4 ,
-    source: Texture2D
+    referenceCount: number , 
+    uv : Vector4 , 
+    source: Texture2D 
     recover: () => void
-}
+} 
 
 /**
  * @en The Texture is a texture processing class.
@@ -89,6 +89,7 @@ export class Texture extends Resource {
 
     /**
      * 九宫格
+     * @internal
      */
     _sizeGrid?: Array<number>;
     /**
@@ -98,21 +99,21 @@ export class Texture extends Resource {
     _stateNum?: number;
 
     /**
-     * @internal
+     * @internal 
      */
     _clipCache: Map<string, Texture>;
 
     /**
-     * @internal
+     * @internal 
      * 如果是图集中的小图，记录了图集的引用
      */
     _atlas: AtlasResource;
-
+    
     /** @internal 动态图集的信息 */
     _dynamic: DynamicTexInfo = null;
 
     /**
-     * @internal
+     * @internal 
      * 是否旋转。
      */
     _rotate: boolean = false;
@@ -142,8 +143,8 @@ export class Texture extends Resource {
      * @return `Texture` 对象。
      */
     static create(source: Texture | BaseTexture, x: number, y: number, width: number, height: number,
-                  offsetX: number = 0, offsetY: number = 0,
-                  sourceWidth: number = 0, sourceHeight: number = 0, rotate: boolean = false): Texture {
+        offsetX: number = 0, offsetY: number = 0,
+        sourceWidth: number = 0, sourceHeight: number = 0, rotate: boolean = false): Texture {
         return Texture._create(source, x, y, width, height, offsetX, offsetY, sourceWidth, sourceHeight, rotate);
     }
 
@@ -164,8 +165,8 @@ export class Texture extends Resource {
      * @return  <code>Texture</code> 对象。
      */
     static _create(source: Texture | BaseTexture, x: number, y: number, width: number, height: number,
-                   offsetX: number = 0, offsetY: number = 0,
-                   sourceWidth: number = 0, sourceHeight: number = 0, rotate: boolean = false, outTexture: Texture = null): Texture {
+        offsetX: number = 0, offsetY: number = 0,
+        sourceWidth: number = 0, sourceHeight: number = 0, rotate: boolean = false, outTexture: Texture = null): Texture {
         var btex: boolean = source instanceof Texture;
         var uv = btex ? ((<Texture>source)).uv : Texture.DEF_UV;
         var bitmap = btex ? ((<Texture>source)).bitmap : <Texture2D>source;
@@ -197,9 +198,9 @@ export class Texture extends Resource {
         var inAltasUVWidth: number = (u2 - u1), inAltasUVHeight: number = (v2 - v1);
         var oriUV: any[] = moveUV(uv[0], uv[1], [x, y, x + width, y, x + width, y + height, x, y + height]);
         tex.uv = new Float32Array([u1 + oriUV[0] * inAltasUVWidth, v1 + oriUV[1] * inAltasUVHeight,
-            u2 - (1 - oriUV[2]) * inAltasUVWidth, v1 + oriUV[3] * inAltasUVHeight,
-            u2 - (1 - oriUV[4]) * inAltasUVWidth, v2 - (1 - oriUV[5]) * inAltasUVHeight,
-            u1 + oriUV[6] * inAltasUVWidth, v2 - (1 - oriUV[7]) * inAltasUVHeight]);
+        u2 - (1 - oriUV[2]) * inAltasUVWidth, v1 + oriUV[3] * inAltasUVHeight,
+        u2 - (1 - oriUV[4]) * inAltasUVWidth, v2 - (1 - oriUV[5]) * inAltasUVHeight,
+        u1 + oriUV[6] * inAltasUVWidth, v2 - (1 - oriUV[7]) * inAltasUVHeight]);
 
         var bitmapScale: number = (<Texture>source).scaleRate;
         if (bitmapScale && bitmapScale != 1) {
@@ -213,13 +214,13 @@ export class Texture extends Resource {
         } else {
             tex.scaleRate = 1;
         }
-
+        
         // 处理旋转
         if (rotate) {
             tex._rotate = true;
             tex._rotateTexture(true);
         }
-
+        
         return tex;
     }
 
@@ -340,10 +341,10 @@ export class Texture extends Resource {
             // 顺时针旋转90度：UV坐标从 [0,0, 1,0, 1,1, 0,1] 变为 [1,0, 1,1, 0,1, 0,0]
             // 原右上角(1,0) -> 新左上角(0,0)
             uv[0] = this._uv[2];
-            uv[1] = this._uv[3];
-            // 原右下角(1,1) -> 新右上角(1,0)
-            uv[2] = this._uv[4];
-            uv[3] = this._uv[5];
+            uv[1] = this._uv[3]; 
+            // 原右下角(1,1) -> 新右上角(1,0)  
+            uv[2] = this._uv[4]; 
+            uv[3] = this._uv[5]; 
             // 原左下角(0,1) -> 新右下角(1,1)
             uv[4] = this._uv[6];
             uv[5] = this._uv[7];
@@ -353,19 +354,19 @@ export class Texture extends Resource {
         } else {
             // 恢复默认UV坐标：顺时针旋转90度,从 [1,0, 1,1, 0,1, 0,0] 变为 [0,0, 1,0, 1,1, 0,1]
             // 原左上角(0,0) -> 新右上角(1,0)
-            uv[2] = this._uv[0];
-            uv[3] = this._uv[1];
+            uv[2] = this._uv[0];     
+            uv[3] = this._uv[1]; 
             // 原右上角(1,0) -> 新右下角(1,1)
             uv[4] = this._uv[2];
-            uv[5] = this._uv[3];
+            uv[5] = this._uv[3]; 
             // 原右下角(1,1) -> 新左下角(0,1)
-            uv[6] = this._uv[4];
+            uv[6] = this._uv[4];    
             uv[7] = this._uv[5];
             // 原左下角(0,1) -> 新左上角(0,0)
             uv[0] = this._uv[6];
             uv[1] = this._uv[7];
         }
-
+        
         this.uv = uv;
         let height = this._h;
         this._h = this._w;
@@ -385,7 +386,7 @@ export class Texture extends Resource {
      * @param sourceHeight 纹理原始高度。
      */
     constructor(source: Texture | BaseTexture = null, uv: ArrayLike<number> = null,
-                sourceWidth: number = 0, sourceHeight: number = 0) {
+        sourceWidth: number = 0, sourceHeight: number = 0) {
         super(false);
         let bitmap = (source instanceof Texture) ? source.bitmap : source;
         this.setTo(bitmap, uv, sourceWidth, sourceHeight);
@@ -434,7 +435,7 @@ export class Texture extends Resource {
      * @param sourceHeight 纹理原始高度。
      */
     setTo(bitmap: BaseTexture = null, uv: ArrayLike<number> = null,
-          sourceWidth: number = 0, sourceHeight: number = 0): void {
+        sourceWidth: number = 0, sourceHeight: number = 0): void {
         this.bitmap = bitmap;
         this.sourceWidth = sourceWidth;
         this.sourceHeight = sourceHeight;
@@ -455,7 +456,7 @@ export class Texture extends Resource {
      * @param complete An optional callback function that is called when the image is loaded.
      * @returns A promise that resolves to the loaded image.
      * @zh 从指定的 URL 加载图片。
-     * @param url 图片地址。
+     * @param url 图片地址。    
      * @param complete 加载完成回调。
      * @returns 一个 Promise 对象，解析为加载的图片。
      */
@@ -485,7 +486,7 @@ export class Texture extends Resource {
      * @param y 区域的 y 坐标。
      * @param width 区域的宽度。
      * @param height 区域的高度。
-     * @return 一个 Uint8Array 对象，包含了像素数据。
+     * @return 一个 Uint8Array 对象，包含了像素数据。   
      */
     getTexturePixels(x: number, y: number, width: number, height: number): Uint8Array {
         var st: number, dst: number, i: number;
@@ -568,10 +569,11 @@ export class Texture extends Resource {
      * @param callback 位图恢复后调用的可选回调函数。
      */
     recoverBitmap(callback?: () => void): void {
-        var url = this._bitmap.url;
+        var url = this._bitmap?.url;
         if (!this._destroyed && (!this._bitmap || this._bitmap.destroyed) && url) {
             ILaya.loader.load(url, "image").then((tex: Texture) => {
-                this.bitmap = tex.bitmap;
+                if (!this._destroyed && tex && tex.bitmap)
+                    this.bitmap = tex.bitmap;
                 callback && callback();
             });
         }
@@ -582,7 +584,7 @@ export class Texture extends Resource {
      * @zh 强制释放 `bitmap`，无论它是否被引用。
      */
     disposeBitmap(): void {
-        if (this.destroyed)
+        if (this.destroyed) 
             return;
         if (this._dynamic) {
             let source = this._dynamic.source;
@@ -594,7 +596,7 @@ export class Texture extends Resource {
         else if (this._bitmap) {
             this._bitmap.destroy();
         }
-
+        
         this.event(Event.CHANGE);
     }
 

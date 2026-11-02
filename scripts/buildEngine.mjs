@@ -13,7 +13,15 @@ import { allBundles } from "./config.mjs";
 const tscOutPath = "./bin/tsc/";
 const buildOutPath = "./build/libs/";
 
-const ignoreCircularDependencyWarnings = process.argv.indexOf("-cd") == -1;
+const ignoreCircularDependencyWarnings = true;//process.argv.indexOf("-cd") == -1;
+
+const webgpuSubmoduleReady = fs.existsSync("./src/layaAir/laya/RenderDriver/WebGPUDriver/RenderDevice/WebGPURenderEngine.ts");
+
+if (!webgpuSubmoduleReady) {
+    console.warn("\x1b[33m[WARNING] WebGPUDriver submodule is not initialized.");
+    console.warn("[WARNING] Skipping webgpu_2D and webgpu_3D bundles.");
+    console.warn("[WARNING] Run: git submodule update --init src/layaAir/laya/RenderDriver/WebGPUDriver\x1b[0m");
+}
 
 buildBundles().then(buildDeclarations);
 
@@ -80,7 +88,11 @@ async function buildBundles() {
         };
     }
 
-    for (let bundleDef of allBundles) {
+    const bundles = webgpuSubmoduleReady
+        ? allBundles
+        : allBundles.filter(b => b.name !== 'webgpu_2D' && b.name !== 'webgpu_3D');
+
+    for (let bundleDef of bundles) {
         let files = await glob(bundleDef.input.map(e => "./layaAir/" + e), { cwd: path.join(process.cwd(), "./src"), realpath: false });
         files.sort();
         files = files.filter(ele => ele.endsWith(".ts"))
@@ -201,6 +213,24 @@ async function buildDeclarations() {
         return code;
     }
 
+    const builtinTypeNames = new Set([
+        "Float32Array", "Float32ArrayConstructor",
+        "Float64Array", "Float64ArrayConstructor",
+        "Int8Array", "Int8ArrayConstructor",
+        "Int16Array", "Int16ArrayConstructor",
+        "Int32Array", "Int32ArrayConstructor",
+        "Uint8Array", "Uint8ArrayConstructor",
+        "Uint8ClampedArray", "Uint8ClampedArrayConstructor",
+        "Uint16Array", "Uint16ArrayConstructor",
+        "Uint32Array", "Uint32ArrayConstructor",
+        "BigInt64Array", "BigInt64ArrayConstructor",
+        "BigUint64Array", "BigUint64ArrayConstructor",
+        "ArrayBuffer", "ArrayBufferConstructor",
+        "ArrayBufferView", "ArrayBufferLike",
+        "DataView", "DataViewConstructor",
+        "SharedArrayBuffer",
+    ]);
+
     let files = emitResult.getFiles();
     files.sort((a, b) => a.filePath.localeCompare(b.filePath));
     for (let file of files) {
@@ -226,6 +256,7 @@ async function buildDeclarations() {
                 code = code.substring(1);
                 if (!inNamespace && code.indexOf(".") == -1
                     && !code.startsWith("Promise") && code !== "ErrorEvent"
+                    && !builtinTypeNames.has(code)
                     && code.length > 1)
                     return " Laya." + code;
                 else if (code.startsWith("glTF."))

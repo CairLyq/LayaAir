@@ -103,9 +103,13 @@ export class WebReflectionProbe implements IReflectionProbeData {
     }
     /**@internal */
     applyRenderData(): void {
+        if (!this.shaderData)
+            return;
+
         this._updateMaskFlag = this.updateMark;
 
         let data = this.shaderData;
+        if (!data) return;
         //boxProjection
         if (!this.boxProjection) {
             data.removeDefine(Sprite3DRenderDeclaration.SHADERDEFINE_SPECCUBE_BOX_PROJECTION);
@@ -135,5 +139,7 @@ export class WebReflectionProbe implements IReflectionProbeData {
         }
         data.setNumber(ReflectionProbe.AMBIENTINTENSITY, this.ambientIntensity);
         data.setNumber(ReflectionProbe.REFLECTIONINTENSITY, this.reflectionIntensity);
+
+        data.update(ReflectionProbe.BlockName);
     }
 }

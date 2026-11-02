@@ -1,0 +1,37 @@
+
+import { IBaseRenderNode } from "../../RenderDriver/RenderModuleData/Design/3D/I3DRenderModuleData";
+import { LayaGL } from "../../layagl/LayaGL";
+import { ISpineRenderDataHandle } from "../interface/ISpineRenderDataHandle";
+import { ISpineFactory } from "../interface/ISpineFactory";
+import { ISpineTempletParser } from "../interface/ISpineParse";
+import { ISpineRender } from "../interface/ISpineRender";
+import { Spine2DRenderNode } from "../Spine2DRenderNode";
+import { SpineOptimizeRender2D } from "./base/2d/SpineOptimizeRender2D";
+import { WebSpineRenderDataHandle } from "../handle/WebSpineRenderDataHandle";
+import { SpineOptimizeRender3D } from "./base/3d/SpineOptimizeRender3D";
+import { WebSpineTempletParser } from "./WebSpineTempletParser";
+import { LayaEnv } from "../../../LayaEnv";
+import { NativeSpineRenderDataHandle } from "../handle/NativeSpineRenderDataHandle";
+
+export class JSSpineFactory implements ISpineFactory {
+    createSpineTempletParser(): ISpineTempletParser {
+        return new WebSpineTempletParser();
+    }
+    createSpineRenderDataHandle(): ISpineRenderDataHandle {
+        if (LayaEnv.isConch && (window as any).conchConfig.getGraphicsAPI() !== 2)
+            return new NativeSpineRenderDataHandle();
+
+        return new WebSpineRenderDataHandle();
+    }
+    /**
+     * @zh 创建Spine渲染器，统一使用SpineOptimizeRender2D，通过mode属性切换不同实现
+     * @en Create Spine renderer, unified using SpineOptimizeRender2D, switch different implementations via mode property
+     */
+    createSpineRender2D(owner: Spine2DRenderNode): ISpineRender {
+        return new SpineOptimizeRender2D(owner);
+    }
+
+    createSpineRender3D(owner: IBaseRenderNode): ISpineRender {
+        return new SpineOptimizeRender3D(owner);
+    }
+}

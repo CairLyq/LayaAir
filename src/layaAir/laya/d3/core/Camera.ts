@@ -32,6 +32,33 @@ import { Transform3D } from "./Transform3D";
 import { Cluster } from "../graphics/renderPath/Cluster";
 import { Viewport } from "../../maths/Viewport";
 import { PostProcess } from "./render/postProcessBase/PostProcess";
+import { RenderTextureMRT } from "../../resource/RenderTextureMRT";
+import { RenderParams } from "../../RenderEngine/RenderEnum/RenderParams";
+import { Color } from "../../maths/Color";
+import { CameraTAA } from "./render/CameraTAA";
+import { GBufferAttachment, GBufferLocation } from "./render/GBuffer";
+
+const MOTION_VECTOR_ATTACHMENT_INDEX = GBufferLocation.MotionVectors - 1;
+
+/** 相机不透明队列的辅助颜色输出，索引 i 对应 location i + 1；索引 3 留给运动矢量。 */
+export interface CameraOpaqueMRTOptions {
+    readonly auxiliaryAttachments: readonly ({
+        readonly format: RenderTargetFormat;
+        /** 可选的查询别名，不改变 Shader 输出位置。 */
+        readonly name?: string;
+        /** 线性数据清除值，默认透明黑色，每帧清除。 */
+        readonly clearColor?: Color;
+    } | null)[];
+}
+
+/** 后处理效果需要的固定辅助附件；name 只用于查询，不参与附件重排或资源池匹配。 */
+export interface CameraOpaqueMRTRequirement {
+    /** 辅助索引，Shader 输出 location 等于 index + 1。 */
+    readonly index: number;
+    readonly name: string;
+    readonly format: RenderTargetFormat;
+    readonly clearColor?: Color;
+}
 
 /**
  * @en Camera clear flags.
@@ -107,13 +134,15 @@ export enum CameraEventFlags {
  */
 export class Camera extends BaseCamera {
 
+    /** @internal Identifies the camera used by the editor Scene view. */
+    isEditorCamera: boolean = false;
+
     /** @internal*/
     static _context3DViewPortCatch: Viewport = new Viewport(0, 0, 0, 0);
     /**@internal */
     static _contextScissorPortCatch: Vector4 = new Vector4(0, 0, 0, 0);
 
     /**
-     * @internal
      * @en Update flag
      * @zh 更新标志位
      */
@@ -170,7 +199,6 @@ export class Camera extends BaseCamera {
         camera.render(scene);
         camera.renderTarget = recoverTexture;
         scene.recaculateCullCamera();
-        scene._componentDriver.callPostRender();
 
         camera._aftRenderMainPass();
 
@@ -421,6 +449,8 @@ export class Camera extends BaseCamera {
     protected _needBuiltInRenderTexture: boolean = false;
     protected _msaa: boolean = false;
     private _fxaa: boolean = false;
+    /** @internal 按需创建的 TAA 状态。 */
+    _taa: CameraTAA | null = null;
     private _depthTextureMode: DepthTextureMode;
     _offScreenRenderTexture: RenderTexture = null;
     _internalRenderTexture: RenderTexture = null;
@@ -630,12 +660,230 @@ export class Camera extends BaseCamera {
      * @zh 多重采样抗锯齿。
      */
     set msaa(value: boolean) {
+        if (value && this._manualOpaqueMRTOptions)
+            throw new Error("Camera opaque MRT does not support MSAA.");
         LayaGL.renderEngine.getCapable(RenderCapable.MSAA) ? this._msaa = value : this._msaa = false;
     }
 
 
     get msaa(): boolean {
         return this._msaa && Stat.enablemsaa;
+    }
+
+    /** @internal 当前输出所属的整组 MRT；缓存深度时可能在帧末移入 _cacheDepthTexture。 */
+    _opaqueMRT: RenderTextureMRT = null;
+    private _manualOpaqueMRTOptions: CameraOpaqueMRTOptions = null;
+    private _opaqueMRTOptions: CameraOpaqueMRTOptions = null;
+    private _opaqueMRTKey: string = null;
+    private _opaqueMRTClearColors: (Color | null)[] = null;
+
+    /**
+     * 手动指定的不透明队列 MRT 配置。null 仅撤回手动配置，不覆盖启用效果的自动需求。
+     * 配置按固定 location 保存，在下次 render 准备目标时生效，当前目标保持不变。
+     */
+    get opaqueMRT(): CameraOpaqueMRTOptions | null {
+        return this._manualOpaqueMRTOptions;
+    }
+
+    set opaqueMRT(value: CameraOpaqueMRTOptions | null) {
+        const manual = this._normalizeOpaqueMRTOptions(value);
+        const requirements = this.postProcess?._collectCameraMRTRequirements(Stat.enablePostprocess) || null;
+        this._mergeOpaqueMRTOptions(manual, requirements);
+        this._manualOpaqueMRTOptions = manual;
+    }
+
+    /** 最近一次 render 准备的实际布局，包含该次的手动配置与后处理需求。 */
+    get effectiveOpaqueMRT(): CameraOpaqueMRTOptions | null {
+        return this._opaqueMRTOptions;
+    }
+
+    /** 保存清除值快照，避免调用方修改当前配置。 */
+    private _createOpaqueMRTAttachment(format: RenderTargetFormat, clearColor?: Color, name?: string): NonNullable<CameraOpaqueMRTOptions["auxiliaryAttachments"][number]> {
+        if (name !== undefined && (typeof name !== "string" || name.length === 0))
+            throw new Error("Camera opaque MRT attachment names must be non-empty strings.");
+        const color = clearColor ? clearColor.clone() : new Color(0, 0, 0, 0);
+        return Object.freeze({ format, name, clearColor: Object.freeze(color) });
+    }
+
+    private _normalizeOpaqueMRTOptions(value: CameraOpaqueMRTOptions | null): CameraOpaqueMRTOptions | null {
+        if (!value) return null;
+        if (!Array.isArray(value.auxiliaryAttachments))
+            throw new Error("Camera opaque MRT auxiliaryAttachments must be an array.");
+        const attachments = [];
+        for (let index = 0; index < value.auxiliaryAttachments.length; index++) {
+            const attachment = value.auxiliaryAttachments[index];
+            if (index === MOTION_VECTOR_ATTACHMENT_INDEX && attachment != null)
+                throw new Error("Camera opaque MRT location 4 is reserved for MotionVectors.");
+            if (attachment?.name === GBufferAttachment.MotionVectors)
+                throw new Error("MotionVectors is managed by the camera, not a manual MRT attachment.");
+            attachments.push(attachment == null ? null : this._createOpaqueMRTAttachment(attachment.format, attachment.clearColor, attachment.name));
+        }
+        while (attachments.length && attachments[attachments.length - 1] == null) attachments.pop();
+        return attachments.length ? Object.freeze({ auxiliaryAttachments: Object.freeze(attachments) }) : null;
+    }
+
+    private _sameOpaqueMRTClearColor(left: Color, right?: Color): boolean {
+        const color = right || Color.CLEAR;
+        return left.r === color.r && left.g === color.g && left.b === color.b && left.a === color.a;
+    }
+
+    /** 固定槽位合并：只申请声明过的附件，中间空槽保留 null，不推测数据语义或重排。 */
+    private _mergeOpaqueMRTOptions(manual: CameraOpaqueMRTOptions | null, requirements: readonly CameraOpaqueMRTRequirement[] | null): CameraOpaqueMRTOptions | null {
+        if (requirements && !Array.isArray(requirements))
+            throw new Error("Camera opaque MRT requirements must be an array.");
+        if (!manual && !requirements?.length) return null;
+        if (this.msaa)
+            throw new Error("Camera opaque MRT does not support MSAA.");
+        if (!LayaGL.renderEngine.getCapable(RenderCapable.MRT))
+            throw new Error("Camera opaque MRT requires MRT support.");
+        const max = LayaGL.renderEngine.getParams(RenderParams.Max_Color_Attachment_Count);
+        const attachments = manual ? manual.auxiliaryAttachments.slice() : [];
+        if (attachments.length + 1 > max)
+            throw new Error(`Camera opaque MRT requires 1 to ${max - 1} auxiliary attachments.`);
+        const names = new Map<string, number>();
+        for (let index = 0; index < attachments.length; index++) {
+            const name = attachments[index]?.name;
+            if (name !== undefined) {
+                if (names.has(name)) throw new Error(`Camera opaque MRT name ${name} maps to multiple indices.`);
+                names.set(name, index);
+            }
+        }
+        if (requirements) for (const requirement of requirements) {
+            if (!requirement || !Number.isInteger(requirement.index) || requirement.index < 0)
+                throw new Error("Camera opaque MRT requirement indices must be non-negative integers.");
+            if (typeof requirement.name !== "string" || requirement.name.length === 0)
+                throw new Error("Camera opaque MRT requirements need non-empty names.");
+            const index = requirement.index;
+            if (index === MOTION_VECTOR_ATTACHMENT_INDEX) {
+                if (requirement.name !== GBufferAttachment.MotionVectors || requirement.format !== RenderTargetFormat.R16G16B16A16
+                    || !this._sameOpaqueMRTClearColor(Color.CLEAR, requirement.clearColor))
+                    throw new Error("Camera opaque MRT location 4 is reserved for RGBA16F MotionVectors.");
+            } else if (requirement.name === GBufferAttachment.MotionVectors) {
+                throw new Error("MotionVectors must use camera opaque MRT location 4.");
+            }
+            if (index + 2 > max)
+                throw new Error(`Camera opaque MRT auxiliary index ${index} exceeds the device limit.`);
+            if (names.has(requirement.name) && names.get(requirement.name) !== index)
+                throw new Error(`Camera opaque MRT name ${requirement.name} maps to multiple indices.`);
+            const existing = attachments[index];
+            if (existing) {
+                if (existing.format !== requirement.format || !this._sameOpaqueMRTClearColor(existing.clearColor, requirement.clearColor))
+                    throw new Error(`Camera opaque MRT format or clear value conflicts at auxiliary index ${index}.`);
+                if (existing.name !== undefined && existing.name !== requirement.name)
+                    throw new Error(`Camera opaque MRT name conflicts at auxiliary index ${index}.`);
+            }
+            if (!existing || existing.name === undefined) {
+                const previous = this._opaqueMRTOptions?.auxiliaryAttachments[index];
+                attachments[index] = previous && previous.name === requirement.name && previous.format === requirement.format
+                    && this._sameOpaqueMRTClearColor(previous.clearColor, requirement.clearColor)
+                    ? previous : this._createOpaqueMRTAttachment(requirement.format, requirement.clearColor, requirement.name);
+            }
+            names.set(requirement.name, index);
+        }
+        for (let index = 0; index < attachments.length; index++) {
+            if (attachments[index] == null) attachments[index] = null;
+        }
+        return Object.freeze({ auxiliaryAttachments: Object.freeze(attachments) });
+    }
+
+    /** 格式不变时复用整组，只更新名称和清除值。 */
+    private _setEffectiveOpaqueMRT(options: CameraOpaqueMRTOptions | null): void {
+        const previous = this._opaqueMRTOptions?.auxiliaryAttachments;
+        const next = options?.auxiliaryAttachments;
+        const sameLayout = (!previous && !next) || (previous && next && previous.length === next.length
+            && previous.every((attachment, index) => (attachment?.format ?? null) === (next[index]?.format ?? null)));
+        const sameValues = sameLayout && (!previous || previous.every((attachment, index) => {
+            const other = next[index];
+            if (!attachment || !other) return attachment === other;
+            return attachment.name === other.name && this._sameOpaqueMRTClearColor(attachment.clearColor, other.clearColor);
+        }));
+        if (sameValues) return;
+        if (!sameLayout) {
+            this._releaseOpaqueMRT();
+            if (options && this._internalRenderTexture) {
+                RenderTexture.recoverToPool(this._internalRenderTexture);
+                this._internalRenderTexture = null;
+            }
+        }
+        this._opaqueMRTOptions = options;
+        this._opaqueMRTClearColors = options ? [null, ...options.auxiliaryAttachments.map(attachment => attachment?.clearColor ?? null)] : null;
+    }
+
+    private _updateOpaqueMRTRequirements(requirements: readonly CameraOpaqueMRTRequirement[] | null): void {
+        this._setEffectiveOpaqueMRT(this._mergeOpaqueMRTOptions(this._manualOpaqueMRTOptions, requirements));
+    }
+
+    /** @internal 只检查当前已分配的附件是否满足声明，不补槽、不改配置或申请资源。 */
+    _hasOpaqueMRTRequirements(requirements: readonly CameraOpaqueMRTRequirement[] | null): boolean {
+        if (!requirements) return true;
+        if (!Array.isArray(requirements)) return false;
+        if (!requirements.length) return true;
+        const target = this._opaqueMRT;
+        const attachments = this._opaqueMRTOptions?.auxiliaryAttachments;
+        if (!attachments || !target || target !== this._internalRenderTexture || target.destroyed || target._inPool)
+            return false;
+        for (const requirement of requirements) {
+            if (!requirement || !Number.isInteger(requirement.index) || requirement.index < 0
+                || typeof requirement.name !== "string" || !requirement.name.length) return false;
+            const attachment = attachments[requirement.index];
+            if (!attachment || attachment.name !== requirement.name || attachment.format !== requirement.format
+                || !this._sameOpaqueMRTClearColor(attachment.clearColor, requirement.clearColor)
+                || !target.getColorTexture(requirement.index + 1)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * 按辅助索引或查询别名获取附件，未分配时为 null；数值索引 i 对应 Shader location i + 1。
+     * 返回值借用相机整组资源，请勿销毁。布局、尺寸或深度缓存切换可能更换整组，须每帧重新获取。
+     * 后处理录制阶段即可获取，内容由本帧不透明队列写入；撤回需求后旧借用不再有效。
+     */
+    getOpaqueAuxiliaryTexture(index: number | string): BaseTexture | null {
+        const attachments = this._opaqueMRTOptions?.auxiliaryAttachments;
+        const slot = typeof index === "string" ? attachments?.findIndex(attachment => attachment?.name === index) : index;
+        if (!Number.isInteger(slot) || slot < 0 || !attachments?.[slot] || !this._opaqueMRT || this._opaqueMRT._inPool)
+            return null;
+        return this._opaqueMRT.getColorTexture(slot + 1);
+    }
+
+    /** @internal 每帧仅主颜色的清除/保留状态不同，辅助颜色始终按配置清除。 */
+    _getOpaqueMRTClearColors(mainColor: Color | null): readonly (Color | null)[] {
+        if (this._opaqueMRTClearColors) this._opaqueMRTClearColors[0] = mainColor;
+        return this._opaqueMRTClearColors;
+    }
+
+    /** 只有相机归还整组；附件采样视图和仅主颜色绑定均不独立入池。 */
+    private _releaseOpaqueMRT(): void {
+        Camera.depthPass.releaseCachedDepth(this);
+        const current = this._opaqueMRT;
+        const cached = this._cacheDepthTexture instanceof RenderTextureMRT ? this._cacheDepthTexture : null;
+        if (this._internalRenderTexture === current || (cached && this._internalRenderTexture === cached))
+            this._internalRenderTexture = null;
+        if (cached) this._cacheDepthTexture = null;
+        this._opaqueMRT = null;
+        this._opaqueMRTKey = null;
+        if (current) RenderTexture.recoverToPool(current);
+        if (cached && cached !== current) RenderTexture.recoverToPool(cached);
+    }
+
+    private _createInternalRenderTexture(width: number, height: number): RenderTexture {
+        const colorFormat = this._getRenderTextureFormat();
+        const depthFormat = this.depthTextureFormat;
+        const gamma = this._needRenderGamma(colorFormat);
+        if (!this._opaqueMRTOptions)
+            return RenderTexture.createFromPool(width, height, colorFormat, depthFormat, false, this.msaa ? 4 : 1, this._canBlitDepth, gamma);
+        const formats = [colorFormat, ...this._opaqueMRTOptions.auxiliaryAttachments.map(attachment => attachment?.format ?? null)];
+        const key = [width, height, depthFormat, +!!this._canBlitDepth, +gamma, ...formats.map(format => format ?? "null")].join(",");
+        if (this._opaqueMRTKey !== key) this._releaseOpaqueMRT();
+        let target = this._opaqueMRT;
+        // 缓存深度仍在本帧采样，当前输出必须借另一整组，避免深度读写反馈。
+        if (!target || target.destroyed || target._inPool || (this._cacheDepth && target === this._cacheDepthTexture)) {
+            target = RenderTextureMRT.createFromPool({ width, height, colorFormats: formats,
+                depthStencilFormat: depthFormat, depthTexture: this._canBlitDepth, sRGB: gamma });
+            this._opaqueMRT = target;
+            this._opaqueMRTKey = key;
+        }
+        return target;
     }
 
     /**
@@ -648,6 +896,21 @@ export class Camera extends BaseCamera {
 
     get fxaa(): boolean {
         return this._fxaa;
+    }
+
+    /** 时域抗锯齿开关，默认关闭。 */
+    set taa(value: boolean) {
+        if (value) this.taaSettings.enabled = true;
+        else if (this._taa) this._taa.enabled = false;
+    }
+
+    get taa(): boolean {
+        return this._taa?.enabled ?? false;
+    }
+
+    /** TAA 质量、锐化与历史设置。 */
+    get taaSettings(): CameraTAA {
+        return this._taa || (this._taa = new CameraTAA(this));
     }
 
     /**
@@ -717,6 +980,7 @@ export class Camera extends BaseCamera {
     set projectionMatrix(value: Matrix4x4) {
         this._projectionMatrix = value;
         this._useUserProjectionMatrix = true;
+        this._updateViewProjectionMatrix = true;
     }
 
     /**
@@ -740,6 +1004,11 @@ export class Camera extends BaseCamera {
         }
 
         this._renderDataModule.setProjectionViewMatrix(this._projectionViewMatrix);
+        // Pass camera forward direction to native for shadow cascade culling
+        if ((this._renderDataModule as any).setForward) {
+            this.transform.getForward(Vector3.TEMP);
+            (this._renderDataModule as any).setForward(Vector3.TEMP.x, Vector3.TEMP.y, Vector3.TEMP.z);
+        }
     }
 
     /**
@@ -778,9 +1047,11 @@ export class Camera extends BaseCamera {
     }
 
     set postProcess(value: PostProcess) {
+        const taa = this._taa;
+        if (!value && taa?.enabled) value = new PostProcess();
+        if (this._postProcess === value) return;
         this._postProcess = value;
-        //if (!value) return;
-        //value && value._init(this);
+        if (taa?.enabled) taa.onPostProcessChanged();
     }
 
     /**
@@ -869,13 +1140,6 @@ export class Camera extends BaseCamera {
             return;
         this._canBlitDepth = value;
         this._cacheDepth = value;
-        this._internalRenderTexture && RenderTexture.recoverToPool(this._internalRenderTexture);
-        this._internalRenderTexture = RenderTexture.createFromPool(this.viewport.width, this.viewport.height, this._getRenderTextureFormat(), this.depthTextureFormat, false, this.msaa ? 4 : 1, this._canBlitDepth, this._needRenderGamma(this._getRenderTextureFormat()));
-        if (!value) {
-            if (this._cacheDepthTexture)
-                this._cacheDepthTexture._inPool ? 0 : RenderTexture.recoverToPool(this._cacheDepthTexture);
-        }
-
     }
     get enableBlitDepth() {
         return this._canBlitDepth;
@@ -886,7 +1150,11 @@ export class Camera extends BaseCamera {
      * @zh 相机是否可以绘制深度纹理。
      */
     get canblitDepth() {
-        return this._canBlitDepth && this._internalRenderTexture && this._internalRenderTexture.depthStencilFormat != null;
+        return this._canBlitDepth && this._internalRenderTexture && this._cacheDepthTexture
+            && !this._cacheDepthTexture._inPool && !!this._cacheDepthTexture.depthStencilTexture
+            && this._cacheDepthTexture.width === this._internalRenderTexture.width
+            && this._cacheDepthTexture.height === this._internalRenderTexture.height
+            && this._cacheDepthTexture.depthStencilFormat === this._internalRenderTexture.depthStencilFormat;
     }
 
     /**
@@ -919,6 +1187,7 @@ export class Camera extends BaseCamera {
         this.transform.on(Event.TRANSFORM_CHANGED, this, this._onTransformChanged);
         this.opaquePass = false;
         this._internalCommandBuffer.context = RenderContext3D._instance;
+        this._internalCommandBuffer._camera = this;
         this._renderDataModule.farplane = this.farPlane;
         this._renderDataModule.nearplane = this.nearPlane;
         this._renderDataModule.fieldOfView = this.fieldOfView;
@@ -1002,6 +1271,8 @@ export class Camera extends BaseCamera {
         camera.orthographic = this.orthographic;
         camera.orthographicVerticalSize = this.orthographicVerticalSize;
         camera.opaquePass = this.opaquePass;
+        camera.opaqueMRT = this.opaqueMRT;
+        if (this._taa) this._taa.cloneTo(camera.taaSettings);
         camera._cameraEventCommandBuffer = this._cameraEventCommandBuffer;
         camera.opaquePass = this.opaquePass;
         //Object.assign(camera._cameraEventCommandBuffer, this._cameraEventCommandBuffer);
@@ -1058,7 +1329,7 @@ export class Camera extends BaseCamera {
      * @internal
      */
     _needInternalRenderTexture(): boolean {
-        let needInternalRT = this.enableBuiltInRenderTexture;
+        let needInternalRT = this.enableBuiltInRenderTexture || !!this._opaqueMRTOptions;
         if (this.renderTarget) {
             if (this.msaa) {
                 needInternalRT = needInternalRT || !(this.renderTarget.samples > 1);
@@ -1145,9 +1416,9 @@ export class Camera extends BaseCamera {
         }
         else {
             Matrix4x4.multiply(proMat, viewMat, this._projectionViewMatrix);
-            this._renderDataModule.setProjectionViewMatrix(this._projectionViewMatrix);
             projectView = this._projectionViewMatrix;
         }
+        this._renderDataModule.setProjectionViewMatrix(projectView);
         this._shaderValues.setMatrix4x4(BaseCamera.VIEWMATRIX, viewMat);
         this._shaderValues.setMatrix4x4(BaseCamera.PROJECTMATRIX, proMat);
         this._shaderValues.setMatrix4x4(BaseCamera.VIEWPROJECTMATRIX, projectView);
@@ -1253,7 +1524,7 @@ export class Camera extends BaseCamera {
             if (RenderTexture.bindCanvasRender) {//解决iOS中使用CopyTexSubImage2D特别慢的bug
                 if (RenderTexture.bindCanvasRender != this._internalRenderTexture) {
                     this._internalCommandBuffer.clear();
-                    this._internalCommandBuffer.blitScreenQuad(RenderTexture.bindCanvasRender, this._internalRenderTexture);
+                    this._internalCommandBuffer.blitScreenQuad(RenderTexture.bindCanvasRender, this._internalRenderTexture, null, null, null, 0, true);
                     this._internalCommandBuffer._applyOne();
 
                 }
@@ -1263,7 +1534,7 @@ export class Camera extends BaseCamera {
                     grabTexture.filterMode = FilterMode.Bilinear;
                     this._renderEngine.copySubFrameBuffertoTex(grabTexture._texture, 0, 0, 0, viewport.x, RenderContext3D.clientHeight - (viewport.y + viewport.height), viewport.width, viewport.height);
                     this._internalCommandBuffer.clear();
-                    this._internalCommandBuffer.blitScreenQuad(grabTexture, this._internalRenderTexture);
+                    this._internalCommandBuffer.blitScreenQuad(grabTexture, this._internalRenderTexture, null, null, null, 0, true);
                     this._internalCommandBuffer._apply(true);
                     RenderTexture.recoverToPool(grabTexture);
                 }
@@ -1304,12 +1575,14 @@ export class Camera extends BaseCamera {
         // if (needShadowPass)
         //     ILaya3D.Scene3D._shadowCasterPass.cleanUp();
         if (this._cacheDepth && this._internalRenderTexture) {
+            if (this._opaqueMRT) Camera.depthPass.releaseCachedDepth(this);
             if (this._cacheDepthTexture)
                 this._cacheDepthTexture._inPool ? 0 : RenderTexture.recoverToPool(this._cacheDepthTexture);
-            this._cacheDepthTexture = this._internalRenderTexture;
+            this._cacheDepthTexture = this._internalRenderTexture as RenderTexture;
+            this._internalRenderTexture = null;
         }
-        else {
-            this._internalRenderTexture && RenderTexture.recoverToPool(this._internalRenderTexture);
+        else if (this._internalRenderTexture !== this._opaqueMRT) {
+            this._internalRenderTexture && (!this._internalRenderTexture._inPool) && RenderTexture.recoverToPool(this._internalRenderTexture);
         }
 
         // Camera.depthPass.cleanUp();
@@ -1349,6 +1622,15 @@ export class Camera extends BaseCamera {
      * @param scene 要渲染的场景。
      */
     render(scene: Scene3D): void {
+        const postRequirements = this.postProcess?._collectCameraMRTRequirements(Stat.enablePostprocess) || null;
+        const taa = this._taa;
+        this._updateOpaqueMRTRequirements(taa ? taa.collectRequirements(postRequirements, this.opaqueMRT) : postRequirements);
+        // 配置切换在准备目标时统一回收，不在渲染回调中释放当前资源。
+        if (!this._cacheDepth && this._cacheDepthTexture) {
+            Camera.depthPass.releaseCachedDepth(this);
+            RenderTexture.recoverToPool(this._cacheDepthTexture);
+            this._cacheDepthTexture = null;
+        }
         // set context
         let context = RenderContext3D._instance;
         context.scene = scene;
@@ -1360,11 +1642,7 @@ export class Camera extends BaseCamera {
 
         // create internal rt if needed
         if (needInternalRT) {
-            let multiSampler = this.msaa ? 4 : 1;
-            let frameFormat = this._getRenderTextureFormat();
-            let depthFormat = this.depthTextureFormat;
-            let gamma = this._needRenderGamma(frameFormat);
-            let internalRT = RenderTexture.createFromPool(viewport.width, viewport.height, frameFormat, depthFormat, false, multiSampler, this.canblitDepth, gamma);
+            let internalRT = this._createInternalRenderTexture(viewport.width, viewport.height);
             internalRT.filterMode = FilterMode.Bilinear;
 
             this._internalRenderTexture = internalRT;
@@ -1384,10 +1662,12 @@ export class Camera extends BaseCamera {
             context.invertY = renderRT._isCameraTarget;
         }
 
-        // camera data 
         this._prepareCameraToRender();
-        this._applyViewProject(this.viewMatrix, this.projectionMatrix, context.invertY);
-        this._contextApply(context);
+        const temporal = taa?.setupFrame(context) ?? false;
+        if (!temporal) {
+            this._applyViewProject(this.viewMatrix, this.projectionMatrix, context.invertY);
+            this._contextApply(context);
+        }
 
         if (this.clearFlag == CameraClearFlags.Sky) {
             scene.skyRenderer.setRenderElement(this.skyRenderElement);
@@ -1395,6 +1675,7 @@ export class Camera extends BaseCamera {
         }
 
         scene._componentDriver.callPreRender();
+        if (temporal) taa.beforeRender(context);
         this._preRenderMainPass(context, scene, needInternalRT, viewport);
 
         let multiLight = Config3D._multiLighting;
@@ -1402,6 +1683,7 @@ export class Camera extends BaseCamera {
             Cluster.instance.update(this, scene);
         }
         this._Render3DProcess.fowardRender(context._contextOBJ, this);
+        if (temporal) taa.afterRender(true);
 
         scene._componentDriver.callPostRender();
     }
@@ -1490,8 +1772,8 @@ export class Camera extends BaseCamera {
             var clientHeight: number = this.clientHeight;
             var ratioX: number = this.orthographicVerticalSize * this.aspectRatio / clientWidth;
             var ratioY: number = this.orthographicVerticalSize / clientHeight;
-            out.x = (-clientWidth / 2 + source.x * ILaya.stage.clientScaleX) * ratioX;
-            out.y = (clientHeight / 2 - source.y * ILaya.stage.clientScaleY) * ratioY;
+            out.x = (-clientWidth / 2 + source.x * ILaya.stage.clientScaleX * Config3D.pixelRatio) * ratioX;
+            out.y = (clientHeight / 2 - source.y * ILaya.stage.clientScaleY * Config3D.pixelRatio) * ratioY;
             out.z = (this.nearPlane - this.farPlane) * (source.z + 1) / 2 - this.nearPlane;
             Vector3.transformCoordinate(out, this.transform.worldMatrix, out);
             return true;
@@ -1503,15 +1785,26 @@ export class Camera extends BaseCamera {
     /** 
      * @en Destroy the Camera node.
      * @param destroyChild Whether to destroy child nodes.
-     * @zh 删除Camera节点。
+     * @zh 删除Camera节点。应在本相机的渲染回调之外调用，避免释放正在使用的目标。
      * @param destroyChild 是否删除子节点
      */
     destroy(destroyChild: boolean = true): void {
+        this._taa?.destroy();
+        this._taa = null;
+        this._releaseOpaqueMRT();
         this._shaderValues.destroy();
+        if (this._cacheDepthTexture) {
+            RenderTexture.recoverToPool(this._cacheDepthTexture);
+            this._cacheDepthTexture = null;
+        }
         this._internalRenderTexture && (!this._internalRenderTexture._inPool) && RenderTexture.recoverToPool(this._internalRenderTexture);
         this._offScreenRenderTexture = null;
         if (this._opaqueTexture) {
             RenderTexture.recoverToPool(this._opaqueTexture);
+        }
+        // 释放 native cameraNode：缺这步会让 cull slot 不回收，跨场景切换 cull_bit 错位
+        if (this._renderDataModule && (this._renderDataModule as any).destroy) {
+            (this._renderDataModule as any).destroy();
         }
         this._Render3DProcess.destroy();
         this.transform.off(Event.TRANSFORM_CHANGED, this, this._onTransformChanged);

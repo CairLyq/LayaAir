@@ -1,7 +1,7 @@
 import { Ray } from "../../d3/math/Ray";
 import { PhysicsSettings } from "../../d3/physics/PhysicsSettings";
 import { Vector3 } from "../../maths/Vector3";
-import { IPhysicsManager } from "../interface/IPhysicsManager";
+import { IPhysicsManager, IPhysicsStepListener } from "../interface/IPhysicsManager";
 import { btJoint } from "./Joint/btJoint";
 import { btCollider, btColliderType } from "./Collider/btCollider";
 import { btCharacterCollider } from "./Collider/btCharacterCollider";
@@ -25,6 +25,13 @@ import { btStatics } from "./btStatics";
  * @zh `btPhysicsManager` 类是用于管理 Bullet 物理引擎的核心类。
  */
 export class btPhysicsManager implements IPhysicsManager {
+
+    /** @internal Fixed-step listeners shared by advanced physics components. */
+    private _physicsStepListeners: IPhysicsStepListener[] = [];
+    /** @internal Operations requested from inside a physics callback. */
+    private _pendingPhysicsOperations: Array<() => void> = [];
+    /** @internal */
+    private _inPhysicsUpdate: boolean = false;
 
     /** @internal */
     private static _btTempVector30: number;
@@ -168,7 +175,7 @@ export class btPhysicsManager implements IPhysicsManager {
 
         var conFlags = physicsSettings.flags;
         if (conFlags & btStatics.PHYSICSENGINEFLAGS_COLLISIONSONLY) {
-            this._btCollisionWorld = new bt.btCollisionWorld(this._btDispatcher, this._btBroadphase, this._btCollisionConfiguration);
+            this._btCollisionWorld = bt.btCollisionWorld_create(this._btDispatcher, this._btBroadphase, this._btCollisionConfiguration);
         } else if (conFlags & btStatics.PHYSICSENGINEFLAGS_SOFTBODYSUPPORT) {
             throw "PhysicsSimulation:SoftBody processing is not yet available";
         } else {
@@ -233,7 +240,7 @@ export class btPhysicsManager implements IPhysicsManager {
         this._updatedRigidbodies = 0;
         this.dt = deltaTime;
         if (this._btDiscreteDynamicsWorld)
-            btStatics.bt.btDiscreteDynamicsWorld_stepSimulation(this._btDiscreteDynamicsWorld, deltaTime, this.maxSubSteps, this.fixedTimeStep);
+            btStatics.bt.btDiscreteDynamicsWorld_stepSimulation(this._btDiscreteDynamicsWorld, deltaTime, 1, deltaTime);
         else
             btStatics.bt.PerformDiscreteCollisionDetection(this._btCollisionWorld);
 
@@ -707,6 +714,8 @@ export class btPhysicsManager implements IPhysicsManager {
      * @param joint 要移除的关节。
      */
     removeJoint(joint: btJoint) {
+        // A broken or detached joint may finish destruction after its world.
+        if (this._currentConstraint[joint._id] !== joint) return;
         if (!this._btDiscreteDynamicsWorld)
             throw "Cannot perform this action when the physics engine is set to CollisionsOnly";
         // this._nativeDiscreteDynamicsWorld.removeConstraint(constraint._nativeConstraint);
@@ -724,11 +733,33 @@ export class btPhysicsManager implements IPhysicsManager {
     update(elapsedTime: number): void {
         this._updatePhysicsTransformToRender();
         btCollider._addUpdateList = false;//物理模拟器会触发_updateTransformComponent函数,不加入更新队列
-        //simulate physics
-        this._simulate(elapsedTime);
+        const fixedDeltaTime = this.fixedTimeStep > 0 ? this.fixedTimeStep : elapsedTime;
+        const requestedSteps = fixedDeltaTime > 0 && elapsedTime > 0
+            ? Math.max(1, Math.round(elapsedTime / fixedDeltaTime)) : 0;
+        const stepCount = Math.min(Math.max(1, this.maxSubSteps), requestedSteps);
+        try {
+            this._flushPendingPhysicsOperations();
+            for (let step = 0; step < stepCount; step++) {
+                this._inPhysicsUpdate = true;
+                try {
+                    const listeners = this._physicsStepListeners;
+                    for (let i = 0, n = listeners.length; i < n; i++)
+                        listeners[i].beforePhysicsStep(fixedDeltaTime);
+                    this._simulate(fixedDeltaTime);
+                    for (let i = 0, n = listeners.length; i < n; i++)
+                        listeners[i].afterPhysicsStep(fixedDeltaTime);
+                } finally {
+                    this._inPhysicsUpdate = false;
+                    this._flushPendingPhysicsOperations();
+                }
+            }
+        } finally {
+            this._inPhysicsUpdate = false;
+            this._flushPendingPhysicsOperations();
+            btCollider._addUpdateList = true;
+        }
         //update character sprite3D transforms from physics engine simulation
         this._updateCharacters();
-        btCollider._addUpdateList = true;
         //handle frame contacts
         this._updateCollisions();
         //send contact events
@@ -1058,6 +1089,14 @@ export class btPhysicsManager implements IPhysicsManager {
      * @zh 销毁物理管理器并释放所有相关资源。
      */
     destroy(): void {
+        this._inPhysicsUpdate = false;
+        this._flushPendingPhysicsOperations();
+        // Scene components can finish destruction after their physics manager.
+        // Detach owned joints while the native dynamics world is still valid.
+        for (const id in this._currentConstraint)
+            this._currentConstraint[id].destroy();
+        this._physicsStepListeners.length = 0;
+        this._pendingPhysicsOperations.length = 0;
         var bt = btStatics.bt;
         if (this._btDiscreteDynamicsWorld) {
             bt.btCollisionWorld_destroy(this._btDiscreteDynamicsWorld);
@@ -1119,7 +1158,8 @@ export class btPhysicsManager implements IPhysicsManager {
         btStatics.bt.btCollisionWorld_removeCollisionObject(this._btCollisionWorld, character._btCollider);
         btStatics.bt.btDynamicsWorld_removeAction(this._btCollisionWorld, character._btKinematicCharacter);
         var characters: btCharacterCollider[] = this._characters;
-        characters.splice(characters.indexOf(character), 1);
+        const idx = characters.indexOf(character);
+        if (idx !== -1) characters.splice(idx, 1);
     }
 
     // /**
@@ -1137,5 +1177,35 @@ export class btPhysicsManager implements IPhysicsManager {
     //     let bt: any = ILaya3D.Physics3D._bullet;
     //     bt.btDynamicsWorld_removeAction(v.btVehiclePtr);
     // }
+
+    addPhysicsStepListener(listener: IPhysicsStepListener): void {
+        this.deferPhysicsOperation(() => {
+            if (this._physicsStepListeners.indexOf(listener) === -1)
+                this._physicsStepListeners.push(listener);
+        });
+    }
+
+    removePhysicsStepListener(listener: IPhysicsStepListener): void {
+        this.deferPhysicsOperation(() => {
+            const index = this._physicsStepListeners.indexOf(listener);
+            if (index !== -1)
+                this._physicsStepListeners.splice(index, 1);
+        });
+    }
+
+    deferPhysicsOperation(operation: () => void): void {
+        if (this._inPhysicsUpdate)
+            this._pendingPhysicsOperations.push(operation);
+        else
+            operation();
+    }
+
+    private _flushPendingPhysicsOperations(): void {
+        while (this._pendingPhysicsOperations.length > 0) {
+            const operations = this._pendingPhysicsOperations.splice(0, this._pendingPhysicsOperations.length);
+            for (let i = 0; i < operations.length; i++)
+                operations[i]();
+        }
+    }
 
 }

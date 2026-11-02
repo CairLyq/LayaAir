@@ -42,13 +42,20 @@ export class PhysicsLineShader {
             u_TilingOffset: ShaderDataType.Vector4,
         };
         let shader = Shader3D.add("PhysicsLineShader", true, false);
-        shader.shaderType = ShaderFeatureType.Default;
+        
+        shader.shaderType = ShaderFeatureType.D2_BaseRenderNode2D;
         let subShader = new SubShader(attributeMap, uniformMap, {});
         shader.addSubShader(subShader);
         let forwardPass = subShader.addShaderPass(PhysicsLineVs, PhysicsLineFs);
 
         PhysicsLineShader.LINEWIDTH = Shader3D.propertyNameToID("u_lineWidth");
         PhysicsLineShader.TILINGOFFSET = Shader3D.propertyNameToID("u_TilingOffset");
+
+
+        // const commandUniform = LayaGL.renderDeviceFactory.createGlobalUniformMap("PhysicsLineShader");
+        // commandUniform.addShaderUniform(PhysicsLineShader.LINEWIDTH, "u_lineWidth", ShaderDataType.Float);
+        // commandUniform.addShaderUniform(PhysicsLineShader.TILINGOFFSET, "u_TilingOffset", ShaderDataType.Vector4);
+
 
         let vertexs: Float32Array = new Float32Array([
             -0.5, -0.5, 0,

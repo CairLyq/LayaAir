@@ -10,7 +10,17 @@ import { LayaGL } from "../../layagl/LayaGL";
 import { AtlasGrid, IAtlasRegion } from "./AtlasGrid";
 import { ILaya } from "../../../ILaya";
 import { ColorUtils } from "../../utils/ColorUtils";
+import { Config } from "../../../Config";
+import { TextureArrayRegistry2D } from "../utils/TextureArrayRegistry2D";
+import { RenderTargetFormat } from "../../RenderEngine/RenderEnum/RenderTargetFormat";
 
+/** @internal */
+export type TextRenderTextureSink = (texture: Texture2D, x: number, y: number, width: number, height: number,
+    uv: ArrayLike<number>, color: number, italicDeg: number, pixelSnap: boolean) => void;
+
+const ITALIC_ANGLE = 13;
+const ITALIC_SKEW_RATIO = 0.231; // Math.tan(13 * Math.PI / 180)
+const FONT_OVERHANG_RATIO = 0.08;
 
 /** @ignore @blueprintIgnore */
 export class TextRender {
@@ -45,8 +55,9 @@ export class TextRender {
 
     draw(text: string, x: number, y: number,
         font: string, fontSize: number, bold: boolean, italic: boolean,
-        color: string, stroke: number, strokeColor: string,
-        charMode: boolean, preMeasuredWidth: number, renderInfo?: ITextRenderInfo[]): ITextRenderInfo[] {
+        color: string, stroke: number, strokeColor: string, letterSpacing: number,
+        shadowOffsetX: number, shadowOffsetY: number, shadowBlur: number, shadowColor: string,
+        charMode: boolean, preMeasuredWidth: number, renderInfo?: ITextRenderInfo[], drawTexture?: TextRenderTextureSink): ITextRenderInfo[] {
 
         let hasEmoji = emojiTest.test(text);
         let curFont = this.getFont(font);
@@ -57,15 +68,20 @@ export class TextRender {
         fontSizeOffY = Math.ceil(info.yoff * k) + emojiAdjustY;
         fontSizeH = Math.ceil((hasEmoji ? info.ebbxh : info.bbxh) * k);
         fontScale = TextRenderConfig.fontScale;
-        let italicDeg = italic ? 13 : 0;
-        let cacheKey = (curFont.id * 10000) + fontSize + (bold ? "b_" : "_");
+        let italicDeg = italic ? ITALIC_ANGLE : 0;
+        let cacheKey = (curFont.id * 10000) + fontSize + (bold ? "b" : "") + (italic ? "i" : "") + "_";
         let colorNum = ColorUtils.create(color).numColor;
-        //let tint = stroke > 0 || !charMode && hasEmoji; //染色的条件： 有描边 或 非字符模式下且包含emoji
+        if (letterSpacing > 0) //有字间距时，强制字符模式
+            charMode = true;
+        let shadow = shadowOffsetX !== 0 || shadowOffsetY !== 0;
+        //let tint = stroke > 0 || !charMode && hasEmoji || shadow; //染色的条件： 有描边 或 非字符模式下且包含emoji
         let tint = true; //这种优化机制存在变粗的问题，先屏蔽，统一染色
         if (tint)
             cacheKey += colorNum + "_";
         if (stroke > 0)
             cacheKey += ColorUtils.create(strokeColor).numColor + "_" + stroke + "_";
+        if (shadow)
+            cacheKey += "shd_" + shadowOffsetX + "_" + shadowOffsetY + "_" + shadowBlur + "_" + ColorUtils.create(shadowColor).numColor + "_";
 
         let ctx = this.ctx;
         ctx.font = (bold ? "bold " : "") + fontSize + "px " + font;
@@ -78,8 +94,16 @@ export class TextRender {
             ctx.strokeStyle = strokeColor;
             ctx.lineWidth = stroke;
         }
-        else {
-            ctx.lineWidth = 0;
+
+        if (shadow) {
+            ctx.shadowOffsetX = shadowOffsetX * fontScale;
+            ctx.shadowOffsetY = shadowOffsetY * fontScale;
+            ctx.shadowBlur = shadowBlur * fontScale;
+            ctx.shadowColor = shadowColor;
+        } else {
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.shadowBlur = 0;
         }
 
         if (!renderInfo)
@@ -101,7 +125,7 @@ export class TextRender {
                 let ri = this.charMap.get(key);
                 if (!ri) {
                     let width = ctx.measureText(cc).width;
-                    ri = this.drawOffscreen(ctx, cc, width, fontSize, stroke, true);
+                    ri = this.drawOffscreen(ctx, cc, width, fontSize, stroke, italic, true, shadowOffsetX, shadowOffsetY);
                     ri.key = key;
                     ri.isChar = true;
                     this.charMap.set(key, ri);
@@ -109,13 +133,18 @@ export class TextRender {
                 ri.ref++;
                 renderInfo.push(ri);
 
-                this.owner._inner_drawTexture(ri.tex, ri.tex.id,
-                    x + ri.x, y + ri.y, ri.w, ri.h,
-                    mat, ri.uv, 1.0,
-                    cc.length > 1 ? 0xffffffff : drawColor, //emoji总是用白色绘制
-                    italicDeg, true);
+                let quadColor = cc.length > 1 ? 0xffffffff : drawColor; //emoji总是用白色绘制
+                if (drawTexture) {
+                    drawTexture(ri.tex, x + ri.x, y + ri.y, ri.w, ri.h, ri.uv, quadColor, italicDeg, true);
+                }
+                else {
+                    this.owner._inner_drawTexture(ri.tex, ri.tex.id,
+                        x + ri.x, y + ri.y, ri.w, ri.h,
+                        mat, ri.uv, 1.0, quadColor,
+                        italicDeg, true);
+                }
 
-                x += ri.advance;
+                x += ri.advance + stroke + letterSpacing;
             }
         }
         else {
@@ -128,16 +157,19 @@ export class TextRender {
             if (!ri) {
                 if (preMeasuredWidth == null)
                     preMeasuredWidth = ctx.measureText(text).width;
-                ri = this.drawOffscreen(ctx, text, preMeasuredWidth, fontSize, stroke, false);
+                ri = this.drawOffscreen(ctx, text, preMeasuredWidth, fontSize, stroke, italic, false, shadowOffsetX, shadowOffsetY);
                 ri.key = key;
                 ri.ref = 1;
                 this.textMap.set(key, ri);
             }
             renderInfo[0] = ri;
 
-            this.owner._inner_drawTexture(ri.tex, ri.tex.id,
-                x + ri.x, y + ri.y, ri.w, ri.h,
-                this.owner._curMat, ri.uv, 1.0, drawColor, italicDeg, true);
+            if (drawTexture)
+                drawTexture(ri.tex, x + ri.x, y + ri.y, ri.w, ri.h, ri.uv, drawColor, italicDeg, true);
+            else
+                this.owner._inner_drawTexture(ri.tex, ri.tex.id,
+                    x + ri.x, y + ri.y, ri.w, ri.h,
+                    this.owner._curMat, ri.uv, 1.0, drawColor, italicDeg, true);
 
             for (let i = 1, n = renderInfo.length; i < n; i++)
                 this.free(renderInfo[i]);
@@ -147,13 +179,28 @@ export class TextRender {
         return renderInfo;
     }
 
-    private drawOffscreen(ctx: CanvasRenderingContext2D, text: string, width: number, height: number, lineWidth: number, charMode: boolean): ITextRenderInfo {
-        let margin = height / 3 | 0 + lineWidth;
-        let rectX = ((margin - fontSizeOffX - lineWidth) * fontScale | 0) - blockGap;
-        let rectY = ((margin - fontSizeOffY - lineWidth) * fontScale | 0) - blockGap;
-        let correctionW = height * 0.08; //某些字体（例如华文行楷，华文隶书，自带斜体效果，测算的宽度可能不够，这里补一些，0.08是经验值
-        let rectW = Math.ceil((width + fontSizeOffX + lineWidth * 2 + correctionW) * fontScale) + blockGap * 2;
-        let rectH = Math.ceil((fontSizeH + lineWidth * 2 + 1) * fontScale) + blockGap * 2;
+    private drawOffscreen(ctx: CanvasRenderingContext2D, text: string, width: number, height: number, lineWidth: number, italic: boolean, charMode: boolean,
+        shadowOffsetX: number, shadowOffsetY: number): ITextRenderInfo {
+        let offsetLeft = 0, offsetTop = 0, offsetRight = 0, offsetBottom = 0;
+        if (shadowOffsetX > 0)
+            offsetRight = shadowOffsetX;
+        else if (shadowOffsetX < 0)
+            offsetLeft = -shadowOffsetX;
+        if (shadowOffsetY > 0)
+            offsetBottom = shadowOffsetY;
+        else if (shadowOffsetY < 0)
+            offsetTop = -shadowOffsetY;
+        let margin = height / 3 | 0 + lineWidth + Math.max(offsetLeft, offsetTop);
+        let rectX = ((margin - fontSizeOffX - lineWidth - offsetLeft) * fontScale | 0) - blockGap;
+        let rectY = ((margin - fontSizeOffY - lineWidth - offsetTop) * fontScale | 0) - blockGap;
+        //FONT_OVERHANG_RATIO用于字体自身的右侧溢出，斜体还需要预留13度剪切产生的宽度。
+        let correctionW = height * (FONT_OVERHANG_RATIO + (italic ? ITALIC_SKEW_RATIO : 0));
+        let rectW = Math.ceil((width + fontSizeOffX + lineWidth * 2 + offsetLeft + offsetRight + correctionW) * fontScale) + blockGap * 2;
+        let rectH = Math.ceil((fontSizeH + lineWidth * 2 + offsetTop + offsetBottom + 1) * fontScale) + blockGap * 2;
+
+        //getImageData会按请求尺寸分配像素，超出canvas的部分也会分配，因此读取区域也需要限制。
+        rectW = Math.min(rectW, TextRenderConfig.maxCanvasWidth);
+        rectH = Math.min(rectH, TextRenderConfig.maxCanvasWidth);
 
         let needCanvW = Math.min(rectW + Math.ceil(margin * 2 * fontScale), TextRenderConfig.maxCanvasWidth);
         let needCanvH = Math.min(rectH + Math.ceil(margin * 2 * fontScale), TextRenderConfig.maxCanvasWidth);
@@ -166,11 +213,24 @@ export class TextRender {
 
         let imgdt = ctx.getImageData(rectX, rectY, rectW, rectH);
 
+        //预乘一下
+        if (TextRenderConfig.premultiplyAlpha) {
+            let pix = imgdt.data.length / 4;
+            let dt = imgdt.data;
+            for (let i = 0; i < pix; i++) {
+                let pos = i * 4;
+                let k = dt[pos + 3] / 255;
+                if (k > 0) {
+                    dt[pos] = dt[pos] * k;
+                    dt[pos + 1] = dt[pos + 1] * k;
+                    dt[pos + 2] = dt[pos + 2] * k;
+                }
+            }
+        }
         let ri: ITextRenderInfo = {
-            x: - (fontSizeOffX + lineWidth),
+            x: - fontSizeOffX - lineWidth - offsetLeft,
             //这里不应该包含fontSizeOffY，否则文字绘制会向上突出
-            //y: - (fontSizeOffY + lineWidth),
-            y: - lineWidth - emojiAdjustY,
+            y: - emojiAdjustY - lineWidth - offsetTop,
             w: (imgdt.width - blockGap * 2) / fontScale,
             h: (imgdt.height - blockGap * 2) / fontScale,
             advance: width,
@@ -194,14 +254,18 @@ export class TextRender {
     }
 
     private resizeCanvas(ctx: CanvasRenderingContext2D, newWidth: number, newHeight: number): void {
-        newWidth = 512 * Math.ceil(newWidth / 512); //以512为步长增长
-        newHeight = 512 * Math.ceil(newHeight / 512);
+        newWidth = Math.min(512 * Math.ceil(newWidth / 512), TextRenderConfig.maxCanvasWidth); //以512为步长增长，不超过上限
+        newHeight = Math.min(512 * Math.ceil(newHeight / 512), TextRenderConfig.maxCanvasWidth);
 
         //改变Canvas大小会导致状态丢失，所以要保存并恢复相关状态
         let fontStr = ctx.font;
         let fillStyle = ctx.fillStyle;
         let strokeStyle = ctx.strokeStyle;
         let lineWidth = ctx.lineWidth;
+        let shadowOffsetX = ctx.shadowOffsetX;
+        let shadowOffsetY = ctx.shadowOffsetY;
+        let shadowBlur = ctx.shadowBlur;
+        let shadowColor = ctx.shadowColor;
 
         this.canvas.width = newWidth;
         this.canvas.height = newHeight;
@@ -213,6 +277,10 @@ export class TextRender {
         ctx.fillStyle = fillStyle;
         ctx.strokeStyle = strokeStyle;
         ctx.lineWidth = lineWidth;
+        ctx.shadowOffsetX = shadowOffsetX;
+        ctx.shadowOffsetY = shadowOffsetY;
+        ctx.shadowBlur = shadowBlur;
+        ctx.shadowColor = shadowColor;
     }
 
     private createIsoTexture(w: number, h: number): Texture2D {
@@ -273,6 +341,22 @@ export class TextRender {
         tex.wrapModeU = WrapMode.Clamp;
         tex.wrapModeV = WrapMode.Clamp;
 
+        if (Config.useTextureArray && TextRenderConfig.useTextureArray) {
+            // 尝试从数组纹理池分配一层并注册映射，使本 TextTexture 被绘制时自动替换为 Texture2DArray+layer
+            let enableMipmap = !!(LayaGL.renderEngine as any).gl;
+            const alloc = TextureArrayRegistry2D.allocateLayerAsTexture(width, height, TextureFormat.R8G8B8A8, 64, /*sRGB*/ false , RenderTargetFormat.None , enableMipmap);
+            if (alloc) {
+                // 当启用 CPU 预乘时，文本数据来自 Canvas 2D（sRGB 空间）且已预乘 alpha。
+                // 不能使用硬件 sRGB 格式（会对预乘数据错误解码产生白边），
+                // 但需要标记 gammaCorrection 使 GAMMATEXTURE 宏生效，
+                // 避免 shader 对已是 sRGB 的数据重复执行 linearToGamma 导致边缘过亮。
+                if (TextRenderConfig.premultiplyAlpha && alloc.array.gammaCorrection === 1) {
+                    alloc.array._texture.gammaCorrection = 2.2;
+                }
+                TextureArrayRegistry2D.register(tex, alloc);
+            }
+        }
+
         return tex;
     }
 
@@ -281,7 +365,13 @@ export class TextRender {
         if (data instanceof Uint8ClampedArray) //未知原因，是不是WebGL的texSubImage2D不支持Uint8ClampedArray？
             data = new Uint8Array(data.buffer);
 
-        LayaGL.textureContext.setTextureSubPixelsData(tex._texture, data, 0, false, x, y, imgdt.width, imgdt.height, true, false);
+        const reg = TextureArrayRegistry2D.resolve(tex);
+        if (reg) {
+            reg.uploadSubPixels(x, y, imgdt.width, imgdt.height, data);
+        } else {
+            // CPU 预乘已完成时不再请求 GPU 预乘，避免双重预乘
+            LayaGL.textureContext.setTextureSubPixelsData(tex._texture, data, 0, false, x, y, imgdt.width, imgdt.height, !TextRenderConfig.premultiplyAlpha, false);
+        }
 
         let u0 = (x + blockGap) / tex.width;
         let v0 = (y + blockGap) / tex.height;
@@ -325,7 +415,7 @@ export class TextRender {
 
                 //看看是不是已经有空白的了。只保留一个空白的，避免占用过多内存
                 if (this.textAtlases.length > 2 && this.textAtlases.findIndex((a) => a.ref === 0) !== -1) {
-                    atlas.tex.destroy();
+                    this.destroyTextTexture(atlas.tex);
                     let idx = this.textAtlases.indexOf(atlas);
                     this.textAtlases.splice(idx, 1);
                 }
@@ -382,7 +472,7 @@ export class TextRender {
     GC(): void {
         if (this.freeIsoTextures.length > 0) {
             for (let tex of this.freeIsoTextures)
-                tex?.destroy();
+                this.destroyTextTexture(tex);
             this.freeIsoTextures.length = 0;
             freeIsoTextureNullCnt = 0;
         }
@@ -395,6 +485,13 @@ export class TextRender {
         for (let ri of toClearChars) {
             this.free(ri);
         }
+    }
+
+    private destroyTextTexture(tex: Texture2D): void {
+        if (!tex)
+            return;
+        TextureArrayRegistry2D.unregister(tex);
+        tex.destroy();
     }
 }
 

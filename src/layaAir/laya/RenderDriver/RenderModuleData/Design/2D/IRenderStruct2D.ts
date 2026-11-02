@@ -15,6 +15,8 @@ export interface IClipInfo {
    clipMatPos: Vector4;
    clipMatrix: Matrix;
    _updateFrame: number;
+   clipDepth: number;
+   clipParent: IClipInfo;
 }
 
 /** 
@@ -24,6 +26,9 @@ export interface IClipInfo {
 export interface IRenderStruct2D {
 
    subStruct: IRenderStruct2D;
+
+   /** 手动渲染模式：子节点不参与父 pass 的自动遍历和渲染 */
+   manualRender: boolean;
 
    owner: Sprite;
 
@@ -48,9 +53,13 @@ export interface IRenderStruct2D {
    renderUpdateMask: number;
 
    //----- 渲染继承累加数据 -----
+   /** @zh 本节点在 Transform2DStore(SoA) 中的 slot。渲染底层据此按 slot 直读 world 数据。 */
+   transSlot: number;
    renderMatrix: Matrix;
+   /** @internal Negative while the Transform2DStore matrix channel is pending. */
+   getRenderMatrixVersion(): number;
    /** 非即时数据 */
-   globalAlpha: number;
+   readonly globalAlpha: number;
 
    alpha: number;
 
@@ -74,6 +83,9 @@ export interface IRenderStruct2D {
    globalRenderData: I2DGlobalRenderData;
 
    pass: IRender2DPass;
+
+   /** @internal Keep fragment-shader clip for special elements such as Bridge3D. */
+   forceShaderClip?: boolean;
 
    setRepaint(): void;
 

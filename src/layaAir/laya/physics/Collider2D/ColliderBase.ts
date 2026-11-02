@@ -6,9 +6,10 @@ import { IV2, Vector2 } from "../../maths/Vector2";
 import { Physics2DWorldManager } from "../Physics2DWorldManager";
 import { RigidBody } from "../RigidBody";
 import { Point } from "../../maths/Point";
-import { Utils } from "../../utils/Utils";
 import { SpriteGlobalTransform } from "../../display/SpriteGlobaTransform";
-import { TransformKind } from "../../display/SpriteConst";
+
+const _tempWorldPoint: Point = new Point();
+const _tempBodyPosition: Vector2 = new Vector2();
 
 /**
  * @en 2DPhysics Collider base class
@@ -137,8 +138,8 @@ export class ColliderBase extends Component {
     }
 
     /**
-     * @en The center of mass of the rigid body. (Only valid when not using automatic mass calculation)
-     * @zh 刚体质心（只在未开启自动质量计算时才有效）
+     * @en Manual center of mass retains Box2D units (meters); automatic mode returns pixels. getCenter() always returns pixels.
+     * @zh 手动质心沿用 Box2D 物理单位（米）；自动质量模式返回像素。getCenter() 始终返回像素偏移。
      */
     public get centerOfMass(): IV2 | Vector2 {
         let center;
@@ -191,8 +192,17 @@ export class ColliderBase extends Component {
         return this._useAutoMass;
     }
     public set useAutoMass(value: boolean) {
+        if (this._useAutoMass === value) return;
         this._useAutoMass = value;
-        this._box2DBody && Physics2D.I._factory.set_rigidBody_Mass(this._box2DBody, this._mass, this._centerOfMass, this._inertia, this._massData);
+        this._resetMassData();
+    }
+
+    /** @internal Recompute automatic mass or restore the owner's manual mass after fixture changes. */
+    _resetMassData(): void {
+        if (!this._box2DBody || this._box2DBody.destroyed) return;
+        const factory = Physics2D.I._factory;
+        if (this._useAutoMass) factory.retSet_rigidBody_MassData(this._box2DBody);
+        else if (this._massData) factory.set_rigidBody_Mass(this._box2DBody, this._mass, this._centerOfMass, this._inertia, this._massData);
     }
 
     /**
@@ -202,7 +212,7 @@ export class ColliderBase extends Component {
         if (this._box2DBody) {
             this._isAwake = Physics2D.I._factory.get_rigidBody_IsAwake(this._box2DBody);
         }
-        return this.isAwake;
+        return this._isAwake;
     }
     public set isAwake(value: boolean) {
         this._isAwake = value;
@@ -214,7 +224,7 @@ export class ColliderBase extends Component {
      * 获得节点的全局缩放X
      */
     protected get scaleX(): number {
-        return this.owner.globalTrans.scaleX;
+        return Physics2D.getDesignScaleX(this.owner);
     }
 
     /**
@@ -222,7 +232,7 @@ export class ColliderBase extends Component {
      * 获得节点的全局缩放Y
      */
     protected get scaleY(): number {
-        return this.owner.globalTrans.scaleY;
+        return Physics2D.getDesignScaleY(this.owner);
     }
 
     /**@internal 创建获得相对于描点x的偏移 */
@@ -299,7 +309,9 @@ export class ColliderBase extends Component {
         this._getPhysicsManager();
         this._box2DBodyDef = Physics2D.I._factory.createBodyDef(this._physics2DManager.box2DWorld, this._bodyDef);
         this._box2DBody = Physics2D.I._factory.createBody(this._physics2DManager.box2DWorld, this._box2DBodyDef);
-        this.owner.on(SpriteGlobalTransform.CHANGED, this, this._needupdataShapeAttribute);
+        this.owner.on(SpriteGlobalTransform.CHANGED, this, this._onOwnerGlobalTransformChanged);
+        this._lastPhysicsScaleX = this.scaleX;
+        this._lastPhysicsScaleY = this.scaleY;
     }
 
     protected _getPhysicsManager(): void {
@@ -315,23 +327,73 @@ export class ColliderBase extends Component {
      * @param y 像素坐标的 y 值。
      */
     getWorldPoint(x: number, y: number): Readonly<Point> {
-        return this.owner.globalTrans.localToGlobal(x, y);
+        return Physics2D.localToDesignPoint(this.owner, x, y, _tempWorldPoint);
+    }
+
+    /**
+     * @internal
+     * Handle owner transform changes separately from collider property changes.
+     * Body transforms are compared in design space before being synchronized;
+     * fixture geometry is rebuilt only when the effective physics scale changes.
+     */
+    protected _onOwnerGlobalTransformChanged(): void {
+        const scaleX = this.scaleX;
+        const scaleY = this.scaleY;
+        const scaleChanged = Math.abs(scaleX - this._lastPhysicsScaleX) > 1e-6
+            || Math.abs(scaleY - this._lastPhysicsScaleY) > 1e-6;
+
+        if (scaleChanged) {
+            this._lastPhysicsScaleX = scaleX;
+            this._lastPhysicsScaleY = scaleY;
+            this._onPhysicsScaleChanged();
+            this.owner.event("shapeChange");
+        }
+
+        this._updateStaticBodyTransform();
+    }
+
+    private _lastPhysicsScaleX: number = NaN;
+    private _lastPhysicsScaleY: number = NaN;
+
+    /** @internal Rebuild compatibility fixtures when their effective physics scale changes. */
+    protected _onPhysicsScaleChanged(): void {
+        if (this._rigidbody && this._rigidbody.applyOwnerColliderComponent) {
+            this.createShape(this._rigidbody);
+        }
+    }
+
+    /** @internal Keep the Box2D body origin in Stage design space. */
+    private _updateStaticBodyTransform(): void {
+        const sp: Sprite = this.owner;
+        if (this._box2DBody) {
+            Physics2D.getDesignPosition(sp, _tempWorldPoint);
+            const factory = Physics2D.I._factory;
+            factory.get_RigidBody_Position(this._box2DBody, _tempBodyPosition);
+            const angle = Physics2D.getDesignRotation(sp) * Math.PI / 180;
+            const oldAngle = factory.get_RigidBody_Angle(this._box2DBody);
+            if (Math.abs(_tempBodyPosition.x - _tempWorldPoint.x) > 1e-4
+                || Math.abs(_tempBodyPosition.y - _tempWorldPoint.y) > 1e-4
+                || Math.abs(oldAngle - angle) > 1e-6) {
+                factory.set_RigibBody_Transform(
+                    this._box2DBody,
+                    _tempWorldPoint.x,
+                    _tempWorldPoint.y,
+                    angle
+                );
+                factory.set_rigidBody_Awake(this._box2DBody, true);
+            }
+        }
     }
 
     /**@internal 通知rigidBody 更新shape 属性值 */
-    protected _needupdataShapeAttribute(flag?:number): void {
+    protected _needupdataShapeAttribute(): void {
         //兼容模式下使用，设置类似BoxCollider的偏移方式
         if (this._rigidbody && this._rigidbody.applyOwnerColliderComponent) {
             this.createShape(this._rigidbody);
         }
-        var sp: Sprite = this.owner;
-        //非dynamic类型下设置位置
-        if (this._type != "dynamic" && (flag & (TransformKind.Pos | TransformKind.Rotation | TransformKind.Scale))) {
-            if(flag & (TransformKind.Pos | TransformKind.Rotation | TransformKind.Scale)){
-                this._box2DBody && Physics2D.I._factory.set_RigibBody_Transform(this._box2DBody, sp.globalTrans.x, sp.globalTrans.y, Utils.toRadian(this.owner.globalTrans.rotation));
-                this._box2DBody && Physics2D.I._factory.set_rigidBody_Awake(this._box2DBody, true);
-            }
-        }
+        this._lastPhysicsScaleX = this.scaleX;
+        this._lastPhysicsScaleY = this.scaleY;
+        this._updateStaticBodyTransform();
         this.owner.event("shapeChange");
     }
 
@@ -339,8 +401,9 @@ export class ColliderBase extends Component {
     protected _onDisable(): void {
         this._box2DBody && Physics2D.I._factory.removeBody(this._physics2DManager.box2DWorld, this._box2DBody);
         this._box2DBody = null;
+        this._box2DBodyDef && Physics2D.I._factory.destroyData(this._box2DBodyDef);
         this._box2DBodyDef = null;
-        this.owner.off(SpriteGlobalTransform.CHANGED, this, this._needupdataShapeAttribute);
+        this.owner.off(SpriteGlobalTransform.CHANGED, this, this._onOwnerGlobalTransformChanged);
     }
 
     protected _onDestroy(): void {

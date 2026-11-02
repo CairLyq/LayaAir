@@ -22,6 +22,7 @@ vec2 dotToline(in vec2 a, vec2 b,in vec2 p){
 
 
 void main(){
+    clip();
     vec2 p = dotToline(v_linePionts.xy, v_linePionts.zw, v_position);
     float d = v_lineWidth*0.5 - length(p - v_position);
     
@@ -31,8 +32,14 @@ void main(){
     d *= step(fract(t/v_dashed.x), v_dashed.y);
     vec2 uv =  transformUV(v_texcoord.xy,u_TilingOffset);
     vec4 textureColor = texture2D(u_baseRender2DTexture, fract(uv));
-    textureColor = transspaceColor(textureColor*u_baseRenderColor);
+    textureColor = transspaceColor(textureColor);
+    vec4 renderColor = u_baseRenderColor;
+    #ifdef GAMMASPACE
+        renderColor = linearToGamma(renderColor);
+    #endif
+    renderColor.rgb *= renderColor.a;
+    textureColor *= renderColor;
 
-    gl_FragColor = vec4(textureColor.rgb,textureColor.a*smoothstep(0.0,2.0,d));
-    //gl_FragColor = vec4(fract(uv.x) ,fract(uv.y),0.0,textureColor.a*smoothstep(0.0,2.0,d));
+    float aa = min(v_lineWidth * 0.5, 2.0);
+    gl_FragColor = vec4(textureColor.rgb,textureColor.a*smoothstep(0.0,aa,d));
 }

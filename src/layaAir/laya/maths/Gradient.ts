@@ -246,7 +246,8 @@ export class Gradient implements IClone {
     evaluateColorRGB(lerpFactor: number, out: Color, startSearchIndex: number = 0, reverseSearch: boolean = false): number {
         lerpFactor = Math.min(Math.max(lerpFactor, 0.0), 1.0);
 
-        var rgbElements: Float32Array = this._rgbElements;
+        var rgbElements: Float32Array = this._rgbElementDatas;
+        !rgbElements && (rgbElements = this._rgbElementDatas = new Float32Array(0));
         var curIndex: number = startSearchIndex;
 
         if (reverseSearch) {
@@ -357,7 +358,8 @@ export class Gradient implements IClone {
      */
     evaluateColorAlpha(lerpFactor: number, outColor: Color, startSearchIndex: number = 0, reverseSearch: boolean = false): number {
         lerpFactor = Math.min(Math.max(lerpFactor, 0.0), 1.0);
-        var alphaElements: Float32Array = this._alphaElements;
+        var alphaElements: Float32Array = this._alphaElementDatas;
+        !alphaElements && (alphaElements = this._alphaElementDatas = new Float32Array(0));
         var curIndex: number = startSearchIndex;
 
         if (reverseSearch) {
@@ -573,15 +575,20 @@ export class Gradient implements IClone {
      */
     cloneTo(destObject: Gradient): void {
         destObject._colorAlphaKeysCount = this._colorAlphaKeysCount;
-        let destAlphaElements = destObject._alphaElements = new Float32Array(this._alphaElements.length);
-
-        for (let i = 0, n = this._alphaElements.length; i < n; i++)
-            destAlphaElements[i] = this._alphaElements[i];
+        var alphaElements = this._alphaElementDatas;
+        if (alphaElements) {
+            let destAlphaElements = destObject._alphaElements = new Float32Array(alphaElements.length);
+            for (let i = 0, n = alphaElements.length; i < n; i++)
+                destAlphaElements[i] = alphaElements[i];
+        }
 
         destObject._colorRGBKeysCount = this._colorRGBKeysCount;
-        var destRGBElements: Float32Array = destObject._rgbElements = new Float32Array(this._rgbElements.length);
-        for (let i = 0, n = this._rgbElements.length; i < n; i++)
-            destRGBElements[i] = this._rgbElements[i];
+        var rgbElements = this._rgbElementDatas;
+        if (rgbElements) {
+            var destRGBElements: Float32Array = destObject._rgbElements = new Float32Array(rgbElements.length);
+            for (let i = 0, n = rgbElements.length; i < n; i++)
+                destRGBElements[i] = rgbElements[i];
+        }
     }
 
     /**

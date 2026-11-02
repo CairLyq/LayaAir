@@ -1,5 +1,5 @@
 import { LayaGL } from "../../../../layagl/LayaGL";
-import { CopyTextureInfo, IComputeCMD_Dispatch, IComputeContext } from "./IComputeContext";
+import { CopyTextureInfo, IComputeCMD_Dispatch, IComputeCMD_DispatchIndirect, IComputeContext } from "./IComputeContext";
 import { IDeviceBuffer } from "../IDeviceBuffer";
 import { IVertexBuffer } from "../IVertexBuffer";
 import { ShaderData, ShaderDataItem, ShaderDataType } from "../ShaderData";
@@ -32,26 +32,33 @@ export class ComputeCommandBuffer {
     /**
      * @en Adds a command to run a ComputeShader.
      * @param computeshader The ComputeShader instance to run.
-     * @param kernel The name of the kernel in the ComputeShader.
      * @param shaderDefine The shader define data.
      * @param datas The list of ShaderData to pass to the shader.
      * @param dispatchParams The dispatch parameters, typically a Vector3 representing the workgroup size
      * @zh 添加运行ComputeShader的命令
      * @param computeshader 计算着色器实例
-     * @param kernel 计算着色器的内核名称
      * @param shaderDefine 着色器定义数据
      * @param datas 需要传递给着色器的数据列表
      * @param dispatchParams 调度参数，通常是一个Vector3，表示计算的工作组大小。
      */
-    addDispatchCommand(computeshader: ComputeShader, kernel: string, shaderDefine: IDefineDatas, datas: ShaderData[], dispatchParams: Vector3): void {
+    addDispatchCommand(computeshader: ComputeShader, shaderDefine: IDefineDatas, datas: ShaderData[], dispatchParams: Vector3): void {
         let cmd: IComputeCMD_Dispatch = {
             shader: computeshader.getCacheShader(shaderDefine),
-            Kernel: kernel,
             shaderData: datas,
             dispatchParams: dispatchParams.clone()
         }
         this._context.addDispatchCommand(cmd);
     };
+
+    addDispatchIndirectCommand(computeshader: ComputeShader, shaderDefine: IDefineDatas, datas: ShaderData[], indirectBuffer: IDeviceBuffer, indirectOffset: number): void {
+        let cmd: IComputeCMD_DispatchIndirect = {
+            shader: computeshader.getCacheShader(shaderDefine),
+            shaderData: datas,
+            indirectBuffer: indirectBuffer as any,
+            indirectOffset: indirectOffset
+        }
+        this._context.addDispatchIndirectCommand(cmd);
+    }
 
     /**
      * 添加修改ShaderData值的命令
@@ -115,7 +122,7 @@ export class ComputeCommandBuffer {
      * @param copySize 拷贝大小
      */
     addTextureToTextureCommand(srcTextureInfo: CopyTextureInfo, destTextureInfo: CopyTextureInfo, copySize: any): void {
-        this._context.addTextureToTextureCommand(srcTextureInfo,destTextureInfo,copySize);
+        this._context.addTextureToTextureCommand(srcTextureInfo, destTextureInfo, copySize);
     };
 
     /**

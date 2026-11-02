@@ -70,6 +70,12 @@ export class BrowserAdapter extends EventDispatcher {
         win.addEventListener("orientationchange", (e: any) => this.event(Event.ORIENTATION_CHANGE, e));
         win.addEventListener("focus", () => this.event(Event.FOCUS));
         win.addEventListener("blur", () => this.event(Event.BLUR));
+        if (Browser.onIOS && !Browser.onLayaRuntime) {
+            //Safari从后台恢复时可能不派发focus。捕获用户交互并在业务点击事件前补发。
+            let onUserInteraction = () => this.event(Event.FOCUS);
+            win.addEventListener("touchstart", onUserInteraction, true);
+            win.addEventListener("mousedown", onUserInteraction, true);
+        }
 
         win.addEventListener("unhandledrejection", e => this.event("unhandledrejection", e));
 
@@ -114,7 +120,12 @@ export class BrowserAdapter extends EventDispatcher {
     }
 
     protected setPlatform(u: string, platform: string): void {
-        platform = platform.toLowerCase();
+        platform = (platform || "").toLowerCase();
+
+        // Platform APIs may report HarmonyOS as "HarmonyOS", "OpenHarmony"
+        // or "OHOS". Normalize the aliases to the engine's canonical name.
+        if (platform.indexOf("openharmony") !== -1 || platform.indexOf("harmonyos") !== -1)
+            platform = "ohos";
 
         Browser.userAgent = u;
 
@@ -239,6 +250,30 @@ export class BrowserAdapter extends EventDispatcher {
 
     getClientHeight(): number {
         return Browser.window.innerHeight || Browser.document.body.clientHeight || Browser.document.documentElement.clientHeight;
+    }
+
+    /**
+     * Changes the native host window size in logical pixels.
+     * Returns false when the current platform does not support resizing its host window.
+     */
+    setWindowSize(width: number, height: number): boolean {
+        return false;
+    }
+
+    /**
+     * Changes the host window resolution and fullscreen state.
+     * Returns false when the current platform does not support this operation.
+     */
+    setResolution(width: number, height: number, fullscreen: boolean): boolean {
+        return false;
+    }
+
+    /**
+     * Enters or leaves non-exclusive borderless desktop fullscreen mode.
+     * Returns false when the current platform does not support this operation.
+     */
+    setWindowedFullscreen(enabled: boolean): boolean {
+        return false;
     }
 
     getVisibility(): boolean {

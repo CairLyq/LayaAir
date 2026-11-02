@@ -477,7 +477,7 @@ export class Loader extends EventDispatcher {
             else
                 options = Object.assign(options, { priority, cache, ignoreCache, group, useWorkerLoader });
         }
-        if (options.cache === false)
+        if (options.cache === false && options.ignoreCache == null)
             options.ignoreCache = true;
 
         let onProgress: ProgressCallback;
@@ -712,6 +712,7 @@ export class Loader extends EventDispatcher {
             retryCnt: 0,
             onProgress: onProgress,
             onComplete: null,
+            ignoreCache: options.ignoreCache
         };
         if (options.useWorkerLoader) {
             task.useWorkerLoader = true;
@@ -759,6 +760,11 @@ export class Loader extends EventDispatcher {
         LayaGL.statAgent.recordCountData(StatElement.C_LoadRequestCount, 1);
         item.startTime = performance.now();
         let url = URL.postFormatURL(item.url);
+        let headers:string[] = null;
+
+        if(item.ignoreCache) {
+            headers = ['Cache-Control', 'no-cache'];
+        }
 
         if (item.contentType == "image") {
             let preloadedContent = Loader.preLoadedMap[item.url];
@@ -804,9 +810,8 @@ export class Loader extends EventDispatcher {
                 this.completeItem(item, preloadedContent);
                 return;
             }
-
             Loader.downloader.common(item, url, item.originalUrl, item.contentType, item.onProgress, (data: any, error: string) =>
-                this.completeItem(item, data, error));
+                this.completeItem(item, data, error), headers);
         }
     }
 
@@ -1332,7 +1337,7 @@ export class Loader extends EventDispatcher {
                             return;
                         }
 
-                        this._loadFileConfig(path, data?.loadScript ?? true, progress).then(() => resolve(true));
+                        this._loadFileConfig(path, data?.loadScript ?? true, progress).then(resolve, () => resolve(false));
                     });
                 });
         }
@@ -1343,16 +1348,21 @@ export class Loader extends EventDispatcher {
         if (path.length > 0)
             path += "/";
 
-        return this.fetch(path + "fileconfig.json", "json", onProgress).then(fileConfig => {
+        return this.fetch(path + "fileconfig.json", "json", onProgress, { ignoreCache: true }).then(fileConfig => {
             if (fileConfig == null)
                 return false;
 
             this._parseFileConfig(fileConfig);
 
-            if (loadScript && fileConfig.entry)
-                return Browser.loadLib(path + fileConfig.entry).then(() => true);
-            else
+            if (!loadScript)
                 return true;
+
+            let promise = Promise.resolve();
+            for (let lib of fileConfig.libs || [])
+                promise = promise.then(() => Browser.loadLib(path + lib, false));
+            if (fileConfig.entry)
+                promise = promise.then(() => Browser.loadLib(path + fileConfig.entry, false));
+            return promise.then(() => true);
         });
     }
 
@@ -1434,7 +1444,7 @@ export class Loader extends EventDispatcher {
                     Loader.preLoadedMap[URL.formatURL(file)] = c;
                     break;
                 case 4: //url mapping
-                    URL.urlMapping[Utils.getBaseName(file)] = file;
+                    URL.urlMapping[Utils.getBaseName(file)] = c.br ? (file + ".br") : file;
                     break;
             }
         }
@@ -1527,6 +1537,7 @@ interface DownloadItem {
     retryCnt?: number;
     silent?: boolean;
     startTime?: number;
+    ignoreCache?:boolean;
     onComplete: (content: any) => void;
     onProgress: ProgressCallback;
 }

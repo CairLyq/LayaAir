@@ -311,6 +311,12 @@ export class Browser {
     static mainCanvas: HTMLCanvas;
 
     /**
+     * @zh 是否使用一个离屏画布来进行渲染，默认是空，即使用mainCanvas。
+     * @en Whether to use an offscreen canvas for rendering. By default, it is null, which means using the mainCanvas.
+     */
+    static offscreenMainCanvas: HTMLCanvas;
+
+    /**
      * @zh 全局离屏画布，主要用来测量文本和获取图像数据。
      * @en The global offscreen canvas, used primarily for measuring text and obtaining image data.
      * @readonly
@@ -444,6 +450,20 @@ export class Browser {
      */
     static set clientHeight(value: number) {
         Browser._clientHeight = value;
+    }
+
+    /**
+     * @en Changes the native host window size in logical pixels. This operation is only supported by resizable desktop native windows.
+     * @param width The requested client-area width in logical pixels.
+     * @param height The requested client-area height in logical pixels.
+     * @returns Whether the resize request was accepted by the current platform.
+     * @zh 修改 Native 宿主窗口的客户区尺寸（逻辑像素）。仅可调整大小的桌面 Native 窗口支持此操作。
+     * @param width 目标客户区宽度（逻辑像素）。
+     * @param height 目标客户区高度（逻辑像素）。
+     * @returns 当前平台是否接受了修改请求。
+     */
+    static setWindowSize(width: number, height: number): boolean {
+        return PAL.browser.setWindowSize(width, height);
     }
 
 

@@ -5,6 +5,7 @@ import { FloatKeyframe } from "../../maths/FloatKeyframe";
 import { Gradient } from "../../maths/Gradient";
 import { Point } from "../../maths/Point";
 import { Vector3 } from "../../maths/Vector3";
+import { Vector4 } from "../../maths/Vector4";
 import { BaseRenderNode2D } from "../../NodeRender2D/BaseRenderNode2D";
 import { ShaderFeatureType } from "../../RenderEngine/RenderShader/Shader3D";
 import { BaseTexture } from "../../resource/BaseTexture";
@@ -177,12 +178,16 @@ export class Trail2DRender extends BaseRenderNode2D {
         renderElement.renderStateIsBySprite = false;
         renderElement.nodeCommonMap = this._getcommonUniformMap();
         renderElement.owner = this.owner._struct;
-        BaseRenderNode2D._setRenderElement2DMaterial(renderElement, this._materials[0] ? this._materials[0] : Trail2DRender.defaultTrail2DMaterial);
+        BaseRenderNode2D._setRenderElement2DMaterial(renderElement, this._getElementMaterial(0));
         this._renderElements[0] = renderElement;
         this.owner._struct.renderElements = this._renderElements;
         this._renderHandle.needUseMatrix = false;//因为顶点便是world
     }
 
+    /** @internal */
+    protected _getElementMaterial(index: number): Material {
+        return this._materials[index] || Trail2DRender.defaultTrail2DMaterial;
+    }
 
     onPreRender(): void {
         let curtime = this._trailFilter._curtime += Math.min(Laya.timer.delta / 1000, 0.016);

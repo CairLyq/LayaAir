@@ -10,7 +10,15 @@ import { RTCameraNodeData, RTSceneNodeData } from "../../RenderModuleData/Runtim
 import { GLESInternalRT } from "../RenderDevice/GLESInternalRT";
 import { GLESShaderData } from "../RenderDevice/GLESShaderData";
 import { GLESRenderElement3D } from "./GLESRenderElement3D";
+import { NativeMemory } from "../../RenderModuleData/RuntimeModuleData/NativeMemory";
 
+/** @internal conchGLESRenderContext3D 共享块槽位（与 C++ GLESRenderContext3D::Props 一致,双写槽）。 */
+const enum GLESRenderContext3DSlot {
+    cameraUpdateMask = 0,
+    sceneUpdateMask = 1,
+    invertY = 2,
+    Count = 3,
+}
 
 export class GLESRenderContext3D implements IRenderContext3D {
     private _globalShaderData: GLESShaderData;
@@ -53,17 +61,17 @@ export class GLESRenderContext3D implements IRenderContext3D {
         this._cameraData = value;
         this._nativeObj.setCameraData(value ? value._nativeObj : null);
     }
-    public get sceneUpdataMask(): number {
-        return this._nativeObj._sceneUpdataMask;
+    public get sceneUpdateMask(): number {
+        return this._u32[GLESRenderContext3DSlot.sceneUpdateMask];
     }
-    public set sceneUpdataMask(value: number) {
-        this._nativeObj._sceneUpdataMask = value;
+    public set sceneUpdateMask(value: number) {
+        this._u32[GLESRenderContext3DSlot.sceneUpdateMask] = value;
     }
     public get cameraUpdateMask(): number {
-        return this._nativeObj._cameraUpdateMask;
+        return this._u32[GLESRenderContext3DSlot.cameraUpdateMask];
     }
     public set cameraUpdateMask(value: number) {
-        this._nativeObj._cameraUpdateMask = value;
+        this._u32[GLESRenderContext3DSlot.cameraUpdateMask] = value;
     }
 
     public get pipelineMode(): string {
@@ -73,20 +81,30 @@ export class GLESRenderContext3D implements IRenderContext3D {
         this._nativeObj._pipelineMode = value;
     }
     public get invertY(): boolean {
-        return this._nativeObj._invertY;
+        return this._i32[GLESRenderContext3DSlot.invertY] !== 0;
     }
     public set invertY(value: boolean) {
-        this._nativeObj._invertY = value;
+        this._i32[GLESRenderContext3DSlot.invertY] = value ? 1 : 0;
     }
 
 
     _nativeObj: any;
+    private _mem: NativeMemory;
+    private _i32: Int32Array;
+    private _u32: Uint32Array;
+    private _clearColorRGBA: number[] = [];
+    private _clearColorEnabled: number[] = [];
 
     constructor() {
         this._nativeObj = new (window as any).conchGLESRenderContext3D();
+        this._mem = new NativeMemory(GLESRenderContext3DSlot.Count * 4, false);
+        this._i32 = this._mem.int32Array;
+        this._u32 = this._mem.Uint32Array;
+        this._nativeObj.bindPropertyBuffer(this._mem._buffer);
         this._nativeObj.setGlobalConfigShaderData((Shader3D._configDefineValues as any)._nativeObj);
         this.cameraUpdateMask = 0;
     }
+    preDrawUniformMaps: Set<string>;
     setRenderTarget(value: GLESInternalRT, clearFlag: RenderClearFlag): void {
         this._nativeObj.setRenderTarget(value ? value._nativeObj : null, clearFlag);
     }
@@ -96,8 +114,24 @@ export class GLESRenderContext3D implements IRenderContext3D {
     setScissor(value: Vector4): void {
         this._nativeObj.setScissor(value);
     }
-    setClearData(clearFlag: number, color: Color, depth: number, stencil: number): number {
-        return this._nativeObj.setClearData(clearFlag, color, depth, stencil);
+    setClearData(clearFlag: number, color: Color, depth: number, stencil: number, colorValues?: readonly (Color | null)[]): number {
+        const result = this._nativeObj.setClearData(clearFlag, color, depth, stencil);
+        if ((clearFlag & RenderClearFlag.Color) && colorValues) {
+            const rgba = this._clearColorRGBA;
+            const enabled = this._clearColorEnabled;
+            rgba.length = colorValues.length * 4;
+            enabled.length = colorValues.length;
+            for (let i = 0; i < colorValues.length; i++) {
+                const value = colorValues[i];
+                enabled[i] = value ? 1 : 0;
+                rgba[i * 4] = value?.r ?? 0;
+                rgba[i * 4 + 1] = value?.g ?? 0;
+                rgba[i * 4 + 2] = value?.b ?? 0;
+                rgba[i * 4 + 3] = value?.a ?? 0;
+            }
+            this._nativeObj.setClearColorValues(rgba, enabled);
+        }
+        return result;
     }
 
     clearRenderTarget(): void {
@@ -127,5 +161,4 @@ export class GLESRenderContext3D implements IRenderContext3D {
 
         this._nativeObj.runCMDList(nativeobCMDs);
     }
-
 }
