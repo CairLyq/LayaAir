@@ -18,3 +18,4 @@ package-lock.json
 docs
 .claude
 .planning
+src/layaAir/tsconfig.check.json
