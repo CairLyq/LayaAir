@@ -9,6 +9,8 @@ import { WebBaseRenderNode } from "../../../RenderModuleData/WebModuleData/3D/We
 import { WebGLInstanceRenderElement3D } from "./WebGLInstanceRenderElement3D";
 import { WebGLRenderContext3D } from "../WebGLRenderContext3D";
 import { WebGLRenderElement3D } from "../WebGLRenderElement3D";
+import { BaseRenderType } from "../../../RenderModuleData/Design/3D/I3DRenderModuleData";
+import { SimpleSkinnedMeshSprite3D } from "../../../../d3/core/SimpleSkinnedMeshSprite3D";
 export class BatchMark {
     /**@internal */
     updateMark: number = -1;
@@ -117,8 +119,17 @@ export class WebGLMeshRenderBatchAgent implements IBatchModuleAgent {
         const lightmapFlag = renderNode.lightmapIndex + 1;
         const lightProbeFlag = (renderNode.volumetricGI ? renderNode.volumetricGI._id : -1) + 1;
         const giId = (reflectFlag << 10) + (lightmapFlag << 20) + lightProbeFlag;
+
+        // 不同 simpleAnimatorTexture（烘焙骨骼帧图集）的蒙皮节点不能合到同一批：
+        // 一批只会绑定一张图集，混批会让身体/衣服采样到同一份骨骼矩阵，形变错位互相穿插。
+        const animTexFlag =
+            renderNode.renderNodeType === BaseRenderType.SimpleSkinRender
+                ? (element.renderShaderData.getTexture(SimpleSkinnedMeshSprite3D.SIMPLE_SIMPLEANIMATORTEXTURE)?._id ?? -1) + 1
+                : 0;
+
         const data = this._batchOpaqueMarks[renderId] || (this._batchOpaqueMarks[renderId] = {});
-        return data[giId] || (data[giId] = new BatchMark());
+        const dataByTex = data[animTexFlag] || (data[animTexFlag] = {});
+        return dataByTex[giId] || (dataByTex[giId] = new BatchMark());
     }
 
     protected _changeBatchMark(renderNode: WebBaseRenderNode) {
@@ -317,11 +328,14 @@ export class WebGLMeshRenderBatchAgent implements IBatchModuleAgent {
 
 
         for (var i in this._batchOpaqueMarks) {
-            let map = this._batchOpaqueMarks[i];
+            const byTex = this._batchOpaqueMarks[i];
+            for (var t in byTex) {
+                let map = byTex[t];
             for (var j in map) {
                 (map[j] as BatchMark).release();
             }
             map = null;
+            }
         }
         this._batchOpaqueMarks = null;
 

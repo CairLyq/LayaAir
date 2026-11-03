@@ -210,6 +210,12 @@ export class Spine2DRenderNode extends BaseRenderNode2D {
         return this._externalSkins;
     }
     set externalSkins(value: ExternalSkin[]) {
+        if (this._externalSkins) {
+            this._externalSkins.forEach(skin => {
+                skin.target = null;
+            });
+            this._externalSkins.length = 0;
+        }
         if (value) {
             for (let i = value.length - 1; i >= 0; i--) {
                 value[i].target = this;
@@ -1189,6 +1195,12 @@ export class Spine2DRenderNode extends BaseRenderNode2D {
      * @en Destroy the current object.
      */
     onDestroy(): void {
+        if (this._externalSkins) {
+            this._externalSkins.forEach(skin => {
+                skin.destroy();
+            });
+            this._externalSkins.length = 0;
+        }
         this._releasedTemplet = null; // 普通引用,直接清掉即可
         if (this._templet || this._spineRender) {
             this.clear();

@@ -52,6 +52,15 @@ export class ShaderPass extends ShaderCompileDefineBase {
         this.moduleData.statefirst = value;
     }
 
+    /**
+     * @en Compile this pass with plain uniforms instead of uniform blocks.
+     * Workaround for drivers that reject draws when the pass's uniform blocks
+     * are bound (e.g. Maleoon 920: planar shadow draw raises INVALID_OPERATION).
+     * @zh 强制本 pass 用普通 uniform 编译，不生成 UBO 块。
+     * 用于部分驱动（如 Maleoon 920）在 uniform block 绑定后 draw 报 INVALID_OPERATION 的场景。
+     */
+    disableUBO: boolean = false;
+
     moduleData: IShaderPassData;
     private _mrtTargetDefines: Map<number, ShaderDefine>;
 
@@ -92,6 +101,12 @@ export class ShaderPass extends ShaderCompileDefineBase {
     static createShaderInstance(shaderpass: ShaderPass, is2D: boolean, compileDefine: IDefineDatas): IShaderInstance {
         _defineStrings.length = 0;
         Shader3D._getNamesByDefineData(compileDefine, _defineStrings);
+        // disableUBO 的 pass 不声明 uniform block：它走逐条 uniform 上传，
+        // 若仍带 ENUNIFORMBLOCK，场景 uniform 会被当成块成员而无法逐条设置。
+        if (shaderpass.disableUBO) {
+            const idx = _defineStrings.indexOf("ENUNIFORMBLOCK");
+            if (idx >= 0) _defineStrings.splice(idx, 1);
+        }
 
         let shaderProcessInfo: ShaderProcessInfo = {
             is2D,

@@ -23,6 +23,7 @@ import { BlitFrameBufferCMD } from "../render/command/BlitFrameBufferCMD";
 import { DirectionLightCom } from "../light/DirectionLightCom";
 import { PointLightCom } from "../light/PointLightCom";
 import { SpotLightCom } from "../light/SpotLightCom";
+import { PlanarShadowConfig } from "../light/PlanarShadowConfig";
 import { FilterMode } from "../../../RenderEngine/RenderEnum/FilterMode";
 import { RenderCapable } from "../../../RenderEngine/RenderEnum/RenderCapable";
 import { Shader3D } from "../../../RenderEngine/RenderShader/Shader3D";
@@ -182,6 +183,8 @@ export class Scene3D extends Sprite {
         Scene3DShaderDeclaration.SHADERDEFINE_SHADOW_SPOT_SOFT_SHADOW_LOW = Shader3D.getDefineByName("SHADOW_SPOT_SOFT_SHADOW_LOW");
         Scene3DShaderDeclaration.SHADERDEFINE_SHADOW_SPOT_SOFT_SHADOW_HIGH = Shader3D.getDefineByName("SHADOW_SPOT_SOFT_SHADOW_HIGH");
 
+        Scene3DShaderDeclaration.SHADERDEFINE_PLANAR_SHADOW = Shader3D.getDefineByName("PLANAR_SHADOW");
+
         Scene3D.FOGCOLOR = Shader3D.propertyNameToID("u_FogColor");
         Scene3D.FOGPARAMS = Shader3D.propertyNameToID("u_FogParams");//x start,y end,z Density
         Scene3D.DIRECTIONLIGHTCOUNT = Shader3D.propertyNameToID("u_DirationLightCount");
@@ -198,6 +201,10 @@ export class Scene3D extends Sprite {
         sceneUniformMap.addShaderUniform(Scene3D.CLUSTERBUFFER, "u_LightClusterBuffer", ShaderDataType.Texture2D);
         sceneUniformMap.addShaderUniform(Scene3D.GIRotate, "u_GIRotate", ShaderDataType.Float);
         sceneUniformMap.addShaderUniform(Scene3D.DIRECTIONLIGHTCOUNT, "u_DirationLightCount", ShaderDataType.Int);
+        // 主平行光方向：必须无条件注册且位置固定（紧跟 DirCount），以与 SceneCommon.glsl 里
+        // uniform Scene3D 块的成员顺序保持一致；否则在多光源模式（编辑器）下块少一个成员，自定义 shader 会编译失败。
+        Scene3D.LIGHTDIRECTION = Shader3D.propertyNameToID("u_DirLightDirection");
+        sceneUniformMap.addShaderUniform(Scene3D.LIGHTDIRECTION, "u_DirLightDirection", ShaderDataType.Vector3);
         ReflectionProbe.init();
         VolumetricGI.init();
     }
@@ -327,6 +334,8 @@ export class Scene3D extends Sprite {
     private _lightmaps: Lightmap[] = [];
     /** @internal */
     private _skyRenderer: SkyRenderer = new SkyRenderer();
+    /** @internal */
+    private _planarShadow: PlanarShadowConfig;
     /** @internal */
     private _enableFog: boolean;
     /** @internal */
@@ -577,6 +586,14 @@ export class Scene3D extends Sprite {
     }
 
     /**
+     * @en Planar shadow configuration
+     * @zh 平面阴影配置
+     */
+    get planarShadow(): PlanarShadowConfig {
+        return this._planarShadow;
+    }
+
+    /**
      * @en The fixed color ambient light.
      * @zh 固定颜色环境光。
      */
@@ -749,6 +766,8 @@ export class Scene3D extends Sprite {
         this.fogColor = new Color(0.7, 0.7, 0.7);
         this.fogMode = FogMode.Linear;
         this.GIRotate = 0;
+
+        this._planarShadow = new PlanarShadowConfig();
 
         this._scene = this;
         this._sceneRenderManager = new SceneRenderManager();
@@ -950,6 +969,10 @@ export class Scene3D extends Sprite {
                     if (i === 0) {
                         this._sunColor = dirLight.color;
                         this._sundir = dir;
+                        // 多光源分支也维护主平行光方向（编译器、编辑器预览会走这条）。
+                        if (Scene3D.LIGHTDIRECTION) {
+                            shaderValues.setVector3(Scene3D.LIGHTDIRECTION, dir);
+                        }
                     }
                 }
                 shaderValues.addDefine(Scene3DShaderDeclaration.SHADERDEFINE_DIRECTIONLIGHT);
