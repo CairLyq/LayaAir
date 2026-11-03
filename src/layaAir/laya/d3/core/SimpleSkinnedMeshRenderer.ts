@@ -12,10 +12,11 @@ import { RenderContext3D } from "./render/RenderContext3D";
 import { SimpleSkinnedMeshSprite3D } from "./SimpleSkinnedMeshSprite3D";
 import { LayaGL } from "../../layagl/LayaGL";
 import { StatElement } from "../../layagl/StatisticsContext";
+import { BaseTexture } from "../../resource/BaseTexture";
 import { propertyChangeFlag } from "./render/BaseRender";
 
 export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
-    private _simpleAnimatorTexture: Texture2D;
+    private _simpleAnimatorTexture: BaseTexture;
     /**@internal */
     _simpleAnimatorParams: Vector4;
     private _simpleAnimatorTextureSize: number;
@@ -34,15 +35,20 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
      * @en The animator texture
      * @zh 动画帧贴图
      */
-    get simpleAnimatorTexture(): Texture2D {
+    get simpleAnimatorTexture(): BaseTexture {
         return this._simpleAnimatorTexture;
     }
 
-    set simpleAnimatorTexture(value: Texture2D) {
+    set simpleAnimatorTexture(value: BaseTexture) {
+        if (value) {
         this._simpleAnimatorTexture = value;
         this._simpleAnimatorTextureSize = value.width;
         this._baseRenderNode.shaderData.setTexture(SimpleSkinnedMeshSprite3D.SIMPLE_SIMPLEANIMATORTEXTURE, value);
         this._baseRenderNode.shaderData.setNumber(SimpleSkinnedMeshSprite3D.SIMPLE_SIMPLEANIMATORTEXTURESIZE, this._simpleAnimatorTextureSize);
+        }
+        else {
+            this._simpleAnimatorTexture = null;
+        }
     }
 
     /**
@@ -90,6 +96,30 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
         return ["Sprite3D", "SimpleSkinnedMesh"];
     }
 
+    /**
+     * @internal
+     * @en Leader this renderer follows for the baked-animation frame offset.
+     *     A multi-part character (body + clothes) computes params at render time,
+     *     so copying the leader's *instantaneous* offset earlier (e.g. onPreRender)
+     *     can leave a follower one frame behind. Reading the leader's offset here
+     *     guarantees both parts sample the same frame.
+     * @zh 帧偏移的跟随源。多部位角色（身体 + 衣服）的 params 是在渲染时刻计算的，
+     *     若提前复制一次瞬时值，跟随方会差一帧；此处直接读源的实时偏移即可保证同帧。
+     */
+    _simpleAnimatorOffsetLeader: SimpleSkinnedMeshRenderer = null;
+
+    /**
+     * @en Leader this renderer follows for the baked-animation frame offset.
+     * @zh 跟随哪个渲染器的动画帧偏移
+     */
+    get simpleAnimatorOffsetLeader(): SimpleSkinnedMeshRenderer {
+        return this._simpleAnimatorOffsetLeader;
+    }
+
+    set simpleAnimatorOffsetLeader(value: SimpleSkinnedMeshRenderer) {
+        this._simpleAnimatorOffsetLeader = value;
+    }
+
     protected _computeSkinnedData(): void {
         this._computeAnimatorParamsData();
     }
@@ -121,6 +151,9 @@ export class SimpleSkinnedMeshRenderer extends SkinnedMeshRenderer {
      * @internal
      */
     _computeAnimatorParamsData(): void {
+        if (this._simpleAnimatorOffsetLeader && this._simpleAnimatorOffsetLeader !== this) {
+            this._simpleAnimatorOffsetLeader._simpleAnimatorOffset.cloneTo(this._simpleAnimatorOffset);
+        }
         if (this._cacheMesh) {
             this._simpleAnimatorParams.x = this._simpleAnimatorOffset.x;
             this._simpleAnimatorParams.y = Math.round(this._simpleAnimatorOffset.y) * this._bonesNums * 4;

@@ -121,6 +121,29 @@ export class AnimatorManager implements IElementComponentManager {
             return;
         }
 
+        this._tickLayers(animator, delta);
+    }
+
+    /**
+     * @internal
+     * @en Manually advance a single animator by `delta` seconds (already scaled by the caller),
+     *     then flush the evaluate/apply stages so the result is written to the node immediately.
+     * @zh 手动推进单个 Animator（delta 已由调用方换算为秒），并立即 flush 求值/写回阶段。
+     */
+    tickOneManual(animator: Animator, delta: number): void {
+        const slot = animator._taskSlot;
+        if (!slot) return;
+        if (animator._speed === 0 || delta === 0 || !Stat.enableAnimatorUpdate) {
+            slot.submitAllIdle();
+            return;
+        }
+        this._tickLayers(animator, delta);
+        this._factory.flushEvaluate();
+        this._factory.flushApply();
+    }
+
+    private _tickLayers(animator: Animator, delta: number): void {
+        const slot = animator._taskSlot!;
         slot._updateMark++;
         const layers = animator._controllerLayers;
 

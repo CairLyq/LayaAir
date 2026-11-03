@@ -175,6 +175,21 @@ export class Draw9GridTextureCmd implements IGraphicsCmd {
 
             genSliceMesh(vb, vb.contentRect, vb.uvRect, gridRect, sizeGrid[4] === 1 ? 0xff : 0);
 
+            // Atlas sub-texture: inset by half a texel so 9-slice seams do not bleed.
+            const uvrect = this._texture.uvrect;
+            if (uvrect && (uvrect[0] !== 0 || uvrect[1] !== 0 || uvrect[2] !== 1 || uvrect[3] !== 1)) {
+                const bitmapW = this._texture.bitmap.width;
+                const bitmapH = this._texture.bitmap.height;
+                if (bitmapW > 0 && bitmapH > 0) {
+                    const halfTexelU = 0.5 / bitmapW;
+                    const halfTexelV = 0.5 / bitmapH;
+                    vb.uvRect.x += halfTexelU;
+                    vb.uvRect.y += halfTexelV;
+                    vb.uvRect.width -= halfTexelU * 2;
+                    vb.uvRect.height -= halfTexelV * 2;
+                }
+            }
+
             if (this._texture.uvrect) {
                 if (Config.uvClipMode === "cpu") {
                     const clippedData = UVClippingUtils.clipTrianglesByUVRange(

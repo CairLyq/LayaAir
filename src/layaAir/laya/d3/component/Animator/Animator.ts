@@ -12,6 +12,8 @@ import { KeyframeNodeOwner } from "./KeyframeNodeOwner";
 import { AnimatorBindContext } from "./factory/AnimatorBindContext";
 import { ITaskSlot } from "./factory/TaskSlot";
 import { AnimatorManager } from "./manager/AnimatorManager";
+import { LayaGL } from "../../../layagl/LayaGL";
+import { StatElement } from "../../../layagl/StatisticsContext";
 import { ILaya } from "../../../../ILaya";
 import { StringKeyframe } from "../../../maths/StringKeyframe";
 import { Loader } from "../../../net/Loader";
@@ -296,6 +298,21 @@ export class Animator extends Component {
         const scene = (this.owner as Sprite3D)?.scene;
         if (!scene) return;
         this._manager = scene.getComponentElementManager(AnimatorManager.__managerName) as AnimatorManager;
+    }
+
+    /**
+     * @internal
+     * @en Manually step this animator by `delta` seconds. Bypasses the scene timer and update-mode scaling,
+     *     so callers that drive time themselves (e.g. deterministic fight playback) get exact control.
+     * @zh 手动按 delta（秒）驱动一次动画更新，不经过场景计时器和 updateMode 缩放，
+     *     供自行驱动时间的调用方（如战斗内的确定性播放）使用。
+     */
+    _update(delta: number, now: number = performance.now()): void {
+        this._resolveManager();
+        if (this._manager) {
+            this._manager.tickOneManual(this, delta);
+        }
+        LayaGL.statAgent.recordTimeData(StatElement.T_AnimatorUpdate, performance.now() - now);
     }
 
     /**
