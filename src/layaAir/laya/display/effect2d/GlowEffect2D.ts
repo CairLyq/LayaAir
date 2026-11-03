@@ -138,6 +138,7 @@ export class GlowEffect2D extends PostProcess2DEffect {
         this._owner = postprocess;
         //blitmat
         (!this._blitmat) && (this._blitmat = new Material());
+        this._blitmat.lock = true;
         this._blitmat.setShaderName("ColorEffect2D");
         this._blitmat.lock = true;
         if (!this._blitElement) {
@@ -166,6 +167,7 @@ export class GlowEffect2D extends PostProcess2DEffect {
 
         //compositemat
         (!this._compositeMat) && (this._compositeMat = new Material());
+        this._compositeMat.lock = true;
         this._compositeMat.setShaderName("ColorEffect2D");
         this._compositeMat.lock = true;
         if (!this._compositeElement) {

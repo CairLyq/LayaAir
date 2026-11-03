@@ -5,7 +5,6 @@ import { HScrollBar } from "./HScrollBar";
 import { Clip } from "./Clip";
 import { UIUtils } from "./UIUtils";
 import { Event } from "../events/Event";
-import { Point } from "../maths/Point";
 import { Rectangle } from "../maths/Rectangle";
 import { Handler } from "../utils/Handler";
 import { Tween } from "../tween/Tween";
@@ -16,6 +15,7 @@ import { ScrollType } from "./Styles";
 import { TransformKind } from "../display/SpriteConst";
 import { Prefab } from "../resource/HierarchyResource";
 import { PrefabImpl } from "../resource/PrefabImpl";
+import { Sprite } from "../display/Sprite";
 import { LayaEnv } from "../../LayaEnv";
 
 
@@ -63,6 +63,7 @@ export class List extends Box {
     disableStopScroll: boolean = false;
 
     protected _content!: Box;
+    protected _top: Sprite;
     protected _scrollBar: ScrollBar | null;
     protected _itemRender: any;
     protected _repeatX: number = 0;
@@ -82,7 +83,7 @@ export class List extends Box {
     protected _isMoved: boolean;
     protected _createdLine: number = 0;
     protected _cellChanged: boolean;
-    protected _offset: Point = new Point();
+    protected _offset: Rectangle = new Rectangle();
     protected _usedCache: string | null = null;
     protected _elasticEnabled: boolean = false;
     protected _scrollType: ScrollType = 0;
@@ -96,6 +97,11 @@ export class List extends Box {
      * @zh 是否缓存内容。如果数据源较少，并且列表内无动画，设置此属性为 true 能大大提高性能。
      */
     cacheContent: boolean;
+
+    /**单元格的宽度 cell.width+spaceX*/
+    protected _cellWidth: number = 0;
+    /**单元格的宽度 cell.height+spaceY*/
+    protected _cellHeight: number = 0;
 
     /**
      * @en The current page number of the list.
@@ -328,6 +334,7 @@ export class List extends Box {
                 this._cells![i].destroy();
             }
             this._cells!.length = 0;
+            this._top.graphics.clear();
             this._setCellChanged();
         }
     }
@@ -413,7 +420,28 @@ export class List extends Box {
 
     set array(value: any[]) {
         this.runCallLater(this.changeCells);
+        this._top.graphics.clear();
+        this._content.graphics.clear();
         this._array = value || [];
+
+        if (!this._itemRender) {
+            //没有_itemRender，则不处理下部逻辑
+            return;
+        }
+
+        /**
+         * @author Fengjing
+         * @date 2021-07-02
+         * 支持渲染器大小不固定的情况
+         */
+        let cell: UIComponent = this._getOneCell();
+        let cellWidth: Number = (cell.width + this._spaceX) || 1;
+        let cellHeight: Number = (cell.height + this._spaceY) || 1;
+        if (this._cellWidth != cellWidth || this._cellHeight != cellHeight) {
+            this.changeCells();
+            return;
+        }
+
         this._preLen = this._array.length;
         let length = this._array.length;
         this.totalPage = Math.ceil(length / (this.repeatX * this.repeatY));
@@ -432,7 +460,11 @@ export class List extends Box {
             if (total > 1 && lineCount >= numY) {
                 this._scrollBar.scrollSize = this._cellSize;
                 this._scrollBar.thumbPercent = numY / lineCount;
-                this._scrollBar.setScroll(0, (lineCount - numY) * this._cellSize + this._cellOffset, this._scrollBar.value);
+                if (this._isVertical) {
+                    this._scrollBar.setScroll(0, lineCount * this._cellSize - this.height - this._spaceY + this._offset.y + this._offset.bottom, this._scrollBar.value);
+                } else {
+                    this._scrollBar.setScroll(0, lineCount * this._cellSize - this.width - this._spaceX + this._offset.x + this._offset.right, this._scrollBar.value);
+                }
             } else {
                 this._scrollBar.setScroll(0, 0, 0);
             }
@@ -484,6 +516,9 @@ export class List extends Box {
             this._content.mouseThrough = true;
         }
         this.addChild(this._content);
+        this._top = new Sprite();
+        this._content.addChild(this._top);
+        this._top.mouseEnabled = false;
     }
 
     /**
@@ -499,9 +534,12 @@ export class List extends Box {
     private _getOneCell(): UIComponent {
         if (this._cells.length === 0) {
             let item = this.createItem();
-            this._offset.setTo(item._x, item._y);
+            // this._offset.setTo(item._x, item._y, item.width, item.height);
             if (this.cacheContent) return item;
             this._cells.push(item);
+        }
+        if (this._array != null && this._array.length > 0 && this._cells[0].dataSource == null) {
+            this._cells[0].dataSource = this._array[0];
         }
         return this._cells[0];
     }
@@ -512,7 +550,8 @@ export class List extends Box {
         let cellWidth = cell.width + this._spaceX;
         let cellHeight = cell.height + this._spaceY;
         let arr: Array<UIComponent>;
-
+        this._content.graphics.clear();
+        this._top.graphics.clear();
         if (this.cacheContent) {
             let cacheBox = new Box();
             cacheBox.hideFlags = HideFlags.HideAndDontSave;
@@ -549,6 +588,7 @@ export class List extends Box {
             for (let e of arr)
                 e.destroy();
         }
+        this._content.addChild(this._top);
     }
 
     /**@internal */
@@ -642,13 +682,15 @@ export class List extends Box {
 
             let cellWidth = (cell.width + this._spaceX) || 1;
             let cellHeight = (cell.height + this._spaceY) || 1;
+            this._cellWidth = cellWidth;
+            this._cellHeight = cellHeight;
             if (this._width > 0) this._repeatX2 = this._isVertical ? Math.round(this._width / cellWidth) : Math.ceil(this._width / cellWidth);
             if (this._height > 0) this._repeatY2 = this._isVertical ? Math.ceil(this._height / cellHeight) : Math.round(this._height / cellHeight);
 
             let listWidth = this._isWidthSet ? this._width : (cellWidth * this.repeatX - this._spaceX);
             let listHeight = this._isHeightSet ? this._height : (cellHeight * this.repeatY - this._spaceY);
             this._cellSize = this._isVertical ? cellHeight : cellWidth;
-            this._cellOffset = this._isVertical ? (cellHeight * Math.max(this._repeatY2, this._repeatY) - listHeight - this._spaceY) : (cellWidth * Math.max(this._repeatX2, this._repeatX) - listWidth - this._spaceX);
+            this._cellOffset = this._isVertical ? (cellHeight * Math.max(this._repeatY2, this._repeatY) - listHeight - this._spaceY + this._offset.y + this._offset.bottom) : (cellWidth * Math.max(this._repeatX2, this._repeatX) - listWidth - this._spaceX + this._offset.x + this._offset.right);
 
             if (this._scrollBar) {
                 if (this._isVertical)
@@ -668,8 +710,6 @@ export class List extends Box {
                 this.array = this._array;
                 this.runCallLater(this.renderItems);
             }
-            else
-                this.changeSelectStatus();
         }
     }
 
@@ -696,6 +736,9 @@ export class List extends Box {
      * @param e 事件对象。
      */
     protected onCellMouse(e: Event): void {
+        if (this._cells == null) {
+            return null;
+        }
         if (e.type === Event.MOUSE_DOWN) this._isMoved = false;
         let cell = (<UIComponent>e.currentTarget);
         let index = this._startIndex + this._cells.indexOf(cell);
@@ -737,7 +780,9 @@ export class List extends Box {
         let scrollValue = this._scrollBar!.value;
         let lineX = (this._isVertical ? this.repeatX : this.repeatY);
         let lineY = (this._isVertical ? this.repeatY : this.repeatX);
-        let scrollLine = Math.floor(scrollValue / this._cellSize);
+        let scrollLine = Math.max(0, Math.floor((scrollValue - (this._isVertical ? this._offset.y : this._offset.x)) / this._cellSize));
+        this._top.graphics.clear();
+        this._content.graphics.clear();
 
         if (!this.cacheContent) {
             let index = scrollLine * lineX;
@@ -769,27 +814,28 @@ export class List extends Box {
                     cellIndex = toIndex - i;
                 }
                 let pos = Math.floor(cellIndex / lineX) * this._cellSize;
-                this._isVertical ? cell.y = pos : cell.x = pos;
-                this.renderItem(cell, cellIndex);
+                this._isVertical ? cell.y = pos + this._offset.y : cell.x = pos + this._offset.x;
+                // this.renderItem(cell, cellIndex);
             }
             this._startIndex = index;
+            this.renderItems(0);
             this.changeSelectStatus();
         } else {
             let num = (lineY + 1);
             if (this._createdLine - scrollLine < num) {
                 this._createItems(this._createdLine, lineX, this._createdLine + num);
-                this.renderItems(this._createdLine * lineX, 0);
+                this.renderItems(0);
                 this._createdLine += num;
             }
         }
 
         let r = this._content._scrollRect;
         if (this._isVertical) {
-            r.y = scrollValue - this._offset.y;
+            r.y = scrollValue;
             r.x = -this._offset.x;
         } else {
             r.y = -this._offset.y;
-            r.x = scrollValue - this._offset.x;
+            r.x = scrollValue;
         }
         this._content.scrollRect = r;
     }
@@ -799,7 +845,7 @@ export class List extends Box {
         let lineX = (this._isVertical ? this.repeatX : this.repeatY);
         //let lineY = (this._isVertical ? this.repeatY : this.repeatX);
         let pos = Math.floor(cellIndex / lineX) * this._cellSize;
-        this._isVertical ? cell._y = pos : cell.x = pos;
+        this._isVertical ? cell.y = pos + this._offset.y : cell.x = pos + this._offset.x;
     }
 
     /**
@@ -851,7 +897,7 @@ export class List extends Box {
                 //TODO:
                 this.posCell(cell, index);
             }
-            if (this.hasListener(Event.RENDER)) this.event(Event.RENDER, [cell, index]);
+            if (this.hasListener(Event.RENDER)) this.event(Event.RENDER, [cell, index, this._top]);
             if (this.renderHandler) this.renderHandler.runWith([cell, index]);
         } else {
             cell.visible = false;
@@ -934,7 +980,7 @@ export class List extends Box {
     setContentSize(width: number, height: number): void {
         this._content.width = width;
         this._content.height = height;
-        if (this._scrollBar) {
+        if (this._scrollBar || this._offset.x != 0 || this._offset.y != 0) {
             let r = this._content.scrollRect;
             if (!r)
                 r = new Rectangle();
@@ -1115,14 +1161,37 @@ export class List extends Box {
      */
     destroy(destroyChild: boolean = true): void {
         this._content && this._content.destroy(destroyChild);
+        this._top && this._top.destroy(false);
         this._scrollBar && this._scrollBar.destroy(destroyChild);
         super.destroy(destroyChild);
         this._content = null;
+        this._top = null;
         this._scrollBar = null;
         this._itemRender = null;
         this._cells = null;
         this._array = null;
         this.selectHandler = this.renderHandler = this.mouseHandler = null;
+    }
+
+    setPadding(left: number, right: number, top: number, bottom: number): void {
+        this._offset.x = left;
+        this._offset.y = top;
+        this._offset.width = right - left;
+        this._offset.height = bottom - top;
+    }
+
+    /**
+     * <p>单元格的宽度 = cell.width + spaceX</p>
+     */
+    get cellWidth(): number {
+        return this._cellWidth;
+    }
+
+    /**
+     * <p>单元格的高度 = cell.height + spaceY</p>
+     */
+    get cellHeight(): number {
+        return this._cellHeight;
     }
 
     /** @internal @blueprintEvent */

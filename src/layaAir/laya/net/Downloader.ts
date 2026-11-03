@@ -28,8 +28,9 @@ export class Downloader {
      * @param contentType 资源的内容类型。
      * @param onProgress 下载进度的回调函数。
      * @param onComplete 下载完成时的回调函数。
+     * @param headers 
      */
-    common(owner: any, url: string, originalUrl: string, contentType: string, onProgress: ProgressCallback, onComplete: DownloadCompleteCallback): void {
+    common(owner: any, url: string, originalUrl: string, contentType: string, onProgress: ProgressCallback, onComplete: DownloadCompleteCallback, headers?: string[]): void {
         let http = this.getRequestInst();
         http.on(Event.COMPLETE, () => {
             let data = http.data;
@@ -44,7 +45,7 @@ export class Downloader {
         });
         if (onProgress)
             http.on(Event.PROGRESS, onProgress);
-        http.send(url, null, "get", contentType);
+        http.send(url, null, "get", contentType, headers);
         owner.$ref = http; //保持引用避免gc掉
     }
 

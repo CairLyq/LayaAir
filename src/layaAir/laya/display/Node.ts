@@ -19,7 +19,7 @@ const ARRAY_EMPTY: any[] = [];
 const initBits = NodeFlags.ACTIVE;
 const reactiveBits = NodeFlags.DISPLAY;
 
-type ChildType<T> = T extends Sprite3D ? Sprite3D
+export type ChildType<T> = T extends Sprite3D ? Sprite3D
     : T extends GWidget ? GWidget
     : T extends Scene3D ? Sprite3D
     : T extends Sprite ? Sprite

@@ -670,7 +670,7 @@ export class Loader extends EventDispatcher {
                 task.onComplete.invoke(content);
                 return content;
             }
-        }).catch(error => {
+        }).catch((error: any):any => {
             !options.silent && Loader.warnFailed(url, error, options.initiator?.url);
 
             if (task.options.cache !== false)
@@ -712,6 +712,7 @@ export class Loader extends EventDispatcher {
             retryCnt: 0,
             onProgress: onProgress,
             onComplete: null,
+            ignoreCache: options.ignoreCache
         };
         if (options.useWorkerLoader) {
             task.useWorkerLoader = true;
@@ -759,6 +760,11 @@ export class Loader extends EventDispatcher {
         LayaGL.statAgent.recordCountData(StatElement.C_LoadRequestCount, 1);
         item.startTime = performance.now();
         let url = URL.postFormatURL(item.url);
+        let headers:string[] = null;
+
+        if(item.ignoreCache) {
+            headers = ['Cache-Control', 'no-cache'];
+        }
 
         if (item.contentType == "image") {
             let preloadedContent = Loader.preLoadedMap[item.url];
@@ -804,9 +810,8 @@ export class Loader extends EventDispatcher {
                 this.completeItem(item, preloadedContent);
                 return;
             }
-
             Loader.downloader.common(item, url, item.originalUrl, item.contentType, item.onProgress, (data: any, error: string) =>
-                this.completeItem(item, data, error));
+                this.completeItem(item, data, error), headers);
         }
     }
 
@@ -1343,7 +1348,7 @@ export class Loader extends EventDispatcher {
         if (path.length > 0)
             path += "/";
 
-        return this.fetch(path + "fileconfig.json", "json", onProgress).then(fileConfig => {
+        return this.fetch(path + "fileconfig.json", "json", onProgress, { ignoreCache: true }).then(fileConfig => {
             if (fileConfig == null)
                 return false;
 
@@ -1532,6 +1537,7 @@ interface DownloadItem {
     retryCnt?: number;
     silent?: boolean;
     startTime?: number;
+    ignoreCache?:boolean;
     onComplete: (content: any) => void;
     onProgress: ProgressCallback;
 }

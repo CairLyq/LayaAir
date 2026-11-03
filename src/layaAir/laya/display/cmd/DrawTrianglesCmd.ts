@@ -182,7 +182,7 @@ export class DrawTrianglesCmd implements IGraphicsCmd {
     get texture(): Texture | null {
         return this._texture;
     }
-    set texture(val: Texture | null) {
+    set texture(val: Texture | null) { //修复场景或预制体加载时没有添加资源引用
         !!val && val._addReference();
         this._texture?._removeReference();
         this._texture = val;

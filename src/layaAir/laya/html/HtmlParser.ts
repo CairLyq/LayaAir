@@ -164,6 +164,18 @@ export class HtmlParser {
                     this.appendText("\n");
                     break;
 
+                case "face":
+                    if (XMLIterator.tagType == XMLTagType.Start || XMLIterator.tagType == XMLTagType.Void) {
+                        let element: HtmlElement = HtmlElement.getFromPool(HtmlElementType.Face);
+                        element.fetchAttributes();
+                        element.name = element.getAttrString("name");
+                        element.style.align = this._style.align;
+                        element.style.underline = this._style.underline;
+                        element.style.underlineColor = this._style.underlineColor;
+                        this._elements.push(element);
+                    }
+                    break;
+                    
                 case "img":
                     if (XMLIterator.tagType == XMLTagType.Start || XMLIterator.tagType == XMLTagType.Void) {
                         let element: HtmlElement = HtmlElement.getFromPool(HtmlElementType.Image);
@@ -181,9 +193,13 @@ export class HtmlParser {
                         this.pushStyle();
 
                         this._style.underline = this._style.underline || options.linkUnderline;
-                        if (!(<any>this._style).colorChanged && options.linkColor != null)
-                            this._style.color = options.linkColor;
-
+                        // if (!(<any>this._style).colorChanged && options.linkColor != null)
+                        //     this._style.color = options.linkColor;
+                        let color: string = XMLIterator.getAttribute("color");
+                        if (color != null) {
+                            this._style.color = color;
+                            (<any>this._style).colorChanged = true;
+                        }
                         let element = HtmlElement.getFromPool(HtmlElementType.Link);
                         element.fetchAttributes();
                         element.name = element.getAttrString("name");

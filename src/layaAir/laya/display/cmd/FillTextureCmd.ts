@@ -123,7 +123,7 @@ export class FillTextureCmd implements IGraphicsCmd {
     get texture(): Texture {
         return this._texture;
     }
-    set texture(val: Texture) {
+    set texture(val: Texture) { //修复场景或预制体加载时没有添加资源引用
         !!val && val._addReference();
         this._texture?._removeReference();
         this._texture = val;

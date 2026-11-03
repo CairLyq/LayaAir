@@ -2,9 +2,9 @@ import { UIComponent } from "./UIComponent";
 import { Label } from "./Label";
 import { Image } from "./Image";
 import { Button } from "./Button";
-import { Event } from "../events/Event"
-import { Point } from "../maths/Point"
-import { Handler } from "../utils/Handler"
+import { Event } from "../events/Event";
+import { Point } from "../maths/Point";
+import { Handler } from "../utils/Handler";
 import { ILaya } from "../../ILaya";
 import { HideFlags } from "../Const";
 import { URL } from "../net/URL";
@@ -25,7 +25,6 @@ import { SerializeUtil } from "../loaders/SerializeUtil";
  * - `change`事件用于移动滑块位置时调度。
  */
 export class Slider extends UIComponent {
-
     /** 
      * @en Get a reference to the Label component contained within the Slider component.
      * @zh 获取 Slider 组件所包含的 Label 组件的引用。
@@ -72,7 +71,6 @@ export class Slider extends UIComponent {
     protected _ty: number;
     protected _maxMove: number;
     protected _globalSacle: Point;
-    private _startValue: number;
 
     /**
      * @en Creates an instance of Slider.
@@ -107,11 +105,11 @@ export class Slider extends UIComponent {
 
         this._progress = new Image();
         this._progress.hideFlags = HideFlags.HideAndDontSave;
-        this.addChildAt(this._progress, 1);
+        this._bg.addChild(this._progress);
 
         this._bar = new Button();
         this._bar.hideFlags = HideFlags.HideAndDontSave;
-        this.addChild(this._bar);
+        this._bg.addChild(this._bar);
     }
 
     protected initialize(): void {
@@ -122,12 +120,16 @@ export class Slider extends UIComponent {
     protected onBarMouseDown(e: Event): void {
         let stage = ILaya.stage;
         this._globalSacle || (this._globalSacle = new Point());
-        this._globalSacle.setTo(this.globalScaleX || 0.01, this.globalScaleY || 0.01);
+        this._globalSacle.setTo(
+            this.globalScaleX || 0.01,
+            this.globalScaleY || 0.01,
+        );
 
-        this._maxMove = this.isVertical ? (this.height - this._bar.height) : (this.width - this._bar.width);
+        this._maxMove = this.isVertical
+            ? this.height - this._bar.height
+            : this.width - this._bar.width;
         this._tx = stage.mouseX;
         this._ty = stage.mouseY;
-        this._startValue = this._value;
         stage.on(Event.MOUSE_MOVE, this, this.mouseMove);
         stage.once(Event.MOUSE_UP, this, this.mouseUp);
         stage.once(Event.MOUSE_OUT, this, this.mouseUp);
@@ -154,13 +156,11 @@ export class Slider extends UIComponent {
         Slider.label && Slider.label.removeSelf();
     }
 
-
     private mouseUp(e: Event): void {
         let stage = ILaya.stage;
         stage.off(Event.MOUSE_MOVE, this, this.mouseMove);
         stage.off(Event.MOUSE_UP, this, this.mouseUp);
         stage.off(Event.MOUSE_OUT, this, this.mouseUp);
-        if (this._value != this._startValue)
             this.sendChangeEvent(Event.CHANGED);
         this.hideValueText();
     }
@@ -172,13 +172,15 @@ export class Slider extends UIComponent {
             this._bar.y += (stage.mouseY - this._ty) / this._globalSacle.y;
             if (this._bar._y > this._maxMove) this._bar.y = this._maxMove;
             else if (this._bar._y < 0) this._bar.y = 0;
-            this._value = this._bar._y / this._maxMove * (this._max - this._min) + this._min;
+            this._value =
+                (this._bar._y / this._maxMove) * (this._max - this._min) + this._min;
             this._progress.height = this._bar._y + 0.5 * this._bar.height;
         } else {
             this._bar.x += (stage.mouseX - this._tx) / this._globalSacle.x;
             if (this._bar._x > this._maxMove) this._bar.x = this._maxMove;
             else if (this._bar._x < 0) this._bar.x = 0;
-            this._value = this._bar._x / this._maxMove * (this._max - this._min) + this._min;
+            this._value =
+                (this._bar._x / this._maxMove) * (this._max - this._min) + this._min;
             this._progress.width = this._bar._x + 0.5 * this._bar.width;
         }
 
@@ -187,7 +189,9 @@ export class Slider extends UIComponent {
 
         if (this._tick != 0) {
             var pow: number = Math.pow(10, (this._tick + "").length - 1);
-            this._value = Math.round(Math.round(this._value / this._tick) * this._tick * pow) / pow;
+            this._value =
+                Math.round(Math.round(this._value / this._tick) * this._tick * pow) /
+                pow;
         }
 
         if (this._value != oldValue) {
@@ -210,10 +214,8 @@ export class Slider extends UIComponent {
     }
 
     set skin(value: string) {
-        if (value == "")
-            value = null;
-        if (this._skin == value)
-            return;
+        if (value == "") value = null;
+        if (this._skin == value) return;
 
         this._setSkin(value);
     }
@@ -231,34 +233,32 @@ export class Slider extends UIComponent {
         if (value) {
             if (this._skin && !SerializeUtil.isDeserializing)
                 this._setSkin(this._skin);
-        }
-        else
-            this._progress.skin = null;
+        } else this._progress.skin = null;
     }
     /** @ignore */
     _setSkin(url: string): Promise<void> {
         this._skin = url;
 
         if (url) {
-            return AssetDb.inst.resolveURL(url).then(url => {
-                if (this._destroyed)
-                    return null;
+            return AssetDb.inst.resolveURL(url).then((url) => {
+                if (this._destroyed) return null;
 
-                if (this._skinBaseUrl)
-                    url = URL.formatURL(url, this._skinBaseUrl);
+                if (this._skinBaseUrl) url = URL.formatURL(url, this._skinBaseUrl);
                 let tasks = [
                     this._bg._setSkin(url),
-                    this._bar._setSkin(Utils.replaceFileExtension(url, "$bar.png", true))
+                    this._bar._setSkin(Utils.replaceFileExtension(url, "$bar.png", true)),
                 ];
                 if (this._showProgress)
-                    tasks.push(this._progress._setSkin(Utils.replaceFileExtension(url, "$progress.png", true)));
-                else
-                    this._progress.skin = null;
+                    tasks.push(
+                        this._progress._setSkin(
+                            Utils.replaceFileExtension(url, "$progress.png", true),
+                        ),
+                    );
+                else this._progress.skin = null;
 
                 return Promise.all(tasks).then(() => this._skinLoaded());
             });
-        }
-        else {
+        } else {
             this._bg.skin = null;
             this._bar.skin = null;
             this._progress.skin = null;
@@ -268,8 +268,7 @@ export class Slider extends UIComponent {
     }
 
     protected _skinLoaded(): void {
-        if (this._destroyed)
-            return;
+        if (this._destroyed) return;
 
         this.setBarPoint();
         this.callLater(this.changeValue);
@@ -282,7 +281,8 @@ export class Slider extends UIComponent {
      * @zh 设置滑块的位置信息。
      */
     protected setBarPoint(): void {
-        if (this.isVertical) this._bar.x = Math.round((this._bg.width - this._bar.width) * 0.5);
+        if (this.isVertical)
+            this._bar.x = Math.round((this._bg.width - this._bar.width) * 0.5);
         else this._bar.y = Math.round((this._bg.height - this._bar.height) * 0.5);
     }
 
@@ -377,27 +377,39 @@ export class Slider extends UIComponent {
     changeValue(): void {
         if (this.tick != 0) {
             var pow: number = Math.pow(10, (this._tick + "").length - 1);
-            this._value = Math.round(Math.round(this._value / this._tick) * this._tick * pow) / pow;
+            this._value =
+                Math.round(Math.round(this._value / this._tick) * this._tick * pow) /
+                pow;
         }
 
         if (this._max >= this._min) {
-            this._value = this._value > this._max ? this._max : this._value < this._min ? this._min : this._value;
+            this._value =
+                this._value > this._max
+                    ? this._max
+                    : this._value < this._min
+                        ? this._min
+                        : this._value;
         } else {
             //当设置的最小值大于最大值的时候，滑动条会反向处理，滑动条限制也应反向处理。
-            this._value = this._value > this._min ? this._min : this._value < this._max ? this._max : this._value;
+            this._value =
+                this._value > this._min
+                    ? this._min
+                    : this._value < this._max
+                        ? this._max
+                        : this._value;
         }
 
         var num: number = this._max - this._min;
         if (num === 0) num = 1;
         if (this.isVertical) {
-            this._bar.y = (this._value - this._min) / num * (this.height - this._bar.height);
+            this._bar.y =
+                ((this._value - this._min) / num) * (this.height - this._bar.height);
             this._progress.height = this._bar._y + 0.5 * this._bar.height;
-        }
-        else {
-            this._bar.x = (this._value - this._min) / num * (this.width - this._bar.width);
+        } else {
+            this._bar.x =
+                ((this._value - this._min) / num) * (this.width - this._bar.width);
             this._progress.width = this._bar._x + 0.5 * this._bar.width;
         }
-
     }
 
     /**
@@ -471,16 +483,21 @@ export class Slider extends UIComponent {
      */
     protected onBgMouseDown(e: Event): void {
         var point: Point = this._bg.getMousePoint();
-        if (this.isVertical) this.value = point.y / (this.height - this._bar.height) * (this._max - this._min) + this._min;
-        else this.value = point.x / (this.width - this._bar.width) * (this._max - this._min) + this._min;
+        if (this.isVertical)
+            this.value =
+                (point.y / (this.height - this._bar.height)) * (this._max - this._min) +
+                this._min;
+        else
+            this.value =
+                (point.x / (this.width - this._bar.width)) * (this._max - this._min) +
+                this._min;
     }
 
     set_dataSource(value: any) {
         this._dataSource = value;
-        if (typeof (value) == 'number' || typeof (value) == 'string')
+        if (typeof value == "number" || typeof value == "string")
             this.value = Number(value);
-        else
-            super.set_dataSource(value);
+        else super.set_dataSource(value);
     }
 
     /**
