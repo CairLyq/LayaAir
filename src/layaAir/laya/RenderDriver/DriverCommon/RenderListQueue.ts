@@ -14,7 +14,7 @@ export class RenderListQueue {
     private batchModule: SingletonList<IModuleAgentResource> = new SingletonList();
 
     get elements() { return this._elements; }
-    private _quickSort: RenderQuickSort;
+    _quickSort: RenderQuickSort;
     private _isTransparent: boolean;
 
 

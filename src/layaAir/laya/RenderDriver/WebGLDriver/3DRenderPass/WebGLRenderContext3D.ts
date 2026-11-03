@@ -20,7 +20,6 @@ import { WebGLEngine } from "../RenderDevice/WebGLEngine";
 import { WebGLGlobalPipeLineCacheInfo } from "../RenderDevice/WebGLRenderDeviceFactory";
 import { WebGLRenderElement3D } from "./WebGLRenderElement3D";
 
-
 export class WebGLRenderContext3D implements IRenderContext3D {
     //单例
     static _instance: WebGLRenderContext3D;
@@ -69,8 +68,7 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     /**@internal */
     private _clearStencil: number;
     /**@internal */
-    private _needStart: boolean = true;
-
+    _needStart: boolean = true;
 
     get sceneData(): WebGLShaderData {
         return this._sceneData;
@@ -109,7 +107,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     set sceneModuleData(value: WebSceneNodeData) {
         this._sceneModuleData = value;
     }
-
 
     get cameraModuleData(): WebCameraNodeData {
         return this._cameraModuleData;
@@ -192,8 +189,7 @@ export class WebGLRenderContext3D implements IRenderContext3D {
                     }
                 }
             }
-        }
-        else {
+        } else {
             this._globalConfigShaderData.cloneTo(contextDef);
         }
 
@@ -235,7 +231,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._sceneUpdateMask = value;
     }
 
-
     get cameraUpdateMask(): number {
         return this._cameraUpdateMask;
     }
@@ -243,7 +238,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     set cameraUpdateMask(value: number) {
         this._cameraUpdateMask = value;
     }
-
 
     get pipelineMode(): PipelineMode {
         return this._pipelineMode;
@@ -253,7 +247,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         this._pipelineMode = value;
     }
 
-
     get invertY(): boolean {
         return this._invertY;
     }
@@ -261,8 +254,6 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     set invertY(value: boolean) {
         this._invertY = value;
     }
-
-
 
     /**
      * <code>GLESRenderContext3D<code/>
@@ -280,7 +271,7 @@ export class WebGLRenderContext3D implements IRenderContext3D {
     }
 
     runCMDList(cmds: IRenderCMD[]): void {
-        cmds.forEach(element => {
+        cmds.forEach((element) => {
             element.apply(this);
         });
     }
@@ -365,7 +356,7 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         return 0;
     }
 
-    private _bindRenderTarget() {
+    _bindRenderTarget() {
         if (this._renderTarget) {
             LayaGL.textureContext.bindRenderTarget(this._renderTarget);
         } else {
@@ -373,7 +364,7 @@ export class WebGLRenderContext3D implements IRenderContext3D {
         }
     }
 
-    private _start() {
+    _start() {
         WebGLEngine.instance.scissorTest(true);
         WebGLEngine.instance.viewport(this._viewPort.x, this._viewPort.y, this._viewPort.width, this._viewPort.height);
         WebGLEngine.instance.scissor(this._viewPort.x, this._viewPort.y, this._viewPort.width, this._viewPort.height);

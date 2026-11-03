@@ -93,7 +93,7 @@ export class WebGLShaderInstance implements IShaderInstance {
 
     _create(shaderProcessInfo: ShaderProcessInfo, shaderPass: ShaderPass): void {
         let useMaterial = Config.matUseUBO;//TODO 临时解决2D Mat
-        Config.matUseUBO = (!shaderProcessInfo.is2D) && Config.matUseUBO;
+        Config.matUseUBO = (!shaderProcessInfo.is2D) && Config.matUseUBO && !shaderPass.disableUBO;
 
         let shaderObj = GLSLCodeGenerator.GLShaderLanguageProcess3D(shaderProcessInfo.defineString, shaderProcessInfo.attributeMap, shaderProcessInfo.uniformMap, shaderProcessInfo.vs, shaderProcessInfo.ps);
         this._renderShaderInstance = WebGLEngine.instance.createShaderInstance(shaderObj.vs, shaderObj.fs, shaderProcessInfo.attributeMap);

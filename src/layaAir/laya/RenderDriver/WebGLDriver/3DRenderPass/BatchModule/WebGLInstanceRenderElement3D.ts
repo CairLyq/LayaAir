@@ -32,7 +32,7 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
             let oriBufferState = geometry.bufferState;
             let vertexArray = oriBufferState._vertexBuffers.slice();
             let worldMatVertex = new WebGLVertexBuffer(BufferTargetType.ARRAY_BUFFER, BufferUsage.Dynamic);
-            worldMatVertex.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 20 * 4)
+            worldMatVertex.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 20 * 4);
             worldMatVertex.vertexDeclaration = VertexMesh.instanceWorldMatrixDeclaration;
             worldMatVertex.instanceBuffer = true;
             vertexArray.push(worldMatVertex);
@@ -41,7 +41,7 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
                 case BaseRenderType.MeshRender:
                     if (spriteDefine.has(MeshSprite3DShaderDeclaration.SHADERDEFINE_UV1)) {
                         let instanceLightMapVertexBuffer = new WebGLVertexBuffer(BufferTargetType.ARRAY_BUFFER, BufferUsage.Dynamic);
-                        instanceLightMapVertexBuffer.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 4 * 4)
+                        instanceLightMapVertexBuffer.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 4 * 4);
                         instanceLightMapVertexBuffer.vertexDeclaration = VertexMesh.instanceLightMapScaleOffsetDeclaration;
                         instanceLightMapVertexBuffer.instanceBuffer = true;
                         vertexArray.push(instanceLightMapVertexBuffer);
@@ -50,7 +50,7 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
                     break;
                 case BaseRenderType.SimpleSkinRender:
                     let instanceSimpleAnimatorBuffer = new WebGLVertexBuffer(BufferTargetType.ARRAY_BUFFER, BufferUsage.Dynamic);
-                    instanceSimpleAnimatorBuffer.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 4 * 4)
+                    instanceSimpleAnimatorBuffer.setDataLength(WebGLInstanceRenderElement3D.MaxInstanceCount * 4 * 4);
                     instanceSimpleAnimatorBuffer.vertexDeclaration = VertexMesh.instanceSimpleAnimatorDeclaration;
                     instanceSimpleAnimatorBuffer.instanceBuffer = true;
                     vertexArray.push(instanceSimpleAnimatorBuffer);
@@ -87,10 +87,10 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
 
     instanceElementList: FastSinglelist<WebGLRenderElement3D>;
 
-    private _vertexBuffers: Array<WebGLVertexBuffer> = [];
-    private _updateData: Array<Float32Array> = [];
-    private _updateDataNum: Array<number> = [];
-    private _instanceStateInfo: WebGLInstanceStateInfo;
+    _vertexBuffers: Array<WebGLVertexBuffer> = [];
+    _updateData: Array<Float32Array> = [];
+    _updateDataNum: Array<number> = [];
+    _instanceStateInfo: WebGLInstanceStateInfo;
 
     drawCount: number;
     updateNums: number;
@@ -117,13 +117,11 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
 
         for (let i = 0; i < passes.length; i++) {
             let pass = passes[i];
-            if (pass.pipelineMode != context.pipelineMode)
-                continue;
+            if (pass.pipelineMode != context.pipelineMode) continue;
 
             if (this.renderShaderData) {
                 pass.nodeCommonMap = this.owner._commonUniformMap;
-            }
-            else {
+            } else {
                 pass.nodeCommonMap = null;
             }
 
@@ -147,7 +145,7 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
         this._updateInstanceData();
     }
 
-    private _updateInstanceData() {
+    _updateInstanceData() {
         switch (this.owner.renderNodeType) {
             case BaseRenderType.MeshRender: {
                 let worldMatrixData = this.addUpdateData(this._instanceStateInfo.worldInstanceVB, 20, WebGLInstanceRenderElement3D.MaxInstanceCount);
@@ -161,7 +159,9 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
                     elements[i].owner._worldParams.writeTo(worldMatrixData, i * 20 + 16);
                 }
 
-                let haveLightMap: boolean = this.renderShaderData.hasDefine(RenderableSprite3D.SAHDERDEFINE_LIGHTMAP) && this.renderShaderData.hasDefine(MeshSprite3DShaderDeclaration.SHADERDEFINE_UV1);
+                let haveLightMap: boolean =
+                    this.renderShaderData.hasDefine(RenderableSprite3D.SAHDERDEFINE_LIGHTMAP) &&
+                    this.renderShaderData.hasDefine(MeshSprite3DShaderDeclaration.SHADERDEFINE_UV1);
                 if (haveLightMap) {
                     let lightMapData = this.addUpdateData(this._instanceStateInfo.lightmapScaleOffsetVB, 4, WebGLInstanceRenderElement3D.MaxInstanceCount);
                     for (var i: number = 0; i < count; i++) {
@@ -202,7 +202,6 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
         }
     }
 
-
     /**
      * get correct geometry
      * @param geometry 
@@ -225,8 +224,7 @@ export class WebGLInstanceRenderElement3D extends WebGLRenderElement3D {
     _render(context: WebGLRenderContext3D): void {
         for (let i = 0; i < this.updateNums; i++) {
             let buffer = this._vertexBuffers[i];
-            if (!buffer)
-                break;
+            if (!buffer) break;
             let data = this._updateData[i];
             buffer.orphanStorage();
             buffer.setData(data.buffer, 0, 0, this.drawCount * this._updateDataNum[i] * 4);
