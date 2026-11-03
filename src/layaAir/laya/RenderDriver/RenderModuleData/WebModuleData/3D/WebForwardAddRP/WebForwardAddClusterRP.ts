@@ -42,6 +42,12 @@ export class WebForwardAddClusterRP implements IMain3DRP {
     private _beforeSkyboxCmds: CommandBuffer[];
     private _beforeTransparentCmds: CommandBuffer[];
 
+    /**
+     * @en Optional hook invoked after the opaque pass and before the transparent pass.
+     * @zh 不透明渲染之后、透明渲染之前的可选钩子（PlanarShadow 等 WebGL 专属 pass 用）
+     */
+    beforeTransparentHook: ((context: IRenderContext3D) => void) = null;
+
     pipelineMode: PipelineMode;
     depthPipelineMode: PipelineMode;
     depthNormalPipelineMode: PipelineMode
@@ -280,6 +286,7 @@ export class WebForwardAddClusterRP implements IMain3DRP {
         if (this.camera.opaquePass)
             this._opaqueTexturePass(context);
 
+        this.beforeTransparentHook && this.beforeTransparentHook(context);
         RenderPassUtil.renderCmd(this._beforeTransparentCmds, context);
         this._recoverRenderContext3D(context, this.destTarget);
         time = performance.now()//T_Render_TransparentRender Stat

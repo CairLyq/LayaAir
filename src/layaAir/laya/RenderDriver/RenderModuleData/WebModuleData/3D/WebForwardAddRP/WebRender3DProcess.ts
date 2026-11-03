@@ -19,6 +19,10 @@ import { IForwardAddRP, IRender3DProcess, IRenderContext3D } from "../../../../D
 import { WebBaseRenderNode } from "../WebBaseRenderNode";
 import { WebSceneRenderManager } from "../WebScene3DRenderManager";
 import { CommandBuffer } from "../../../../../d3/core/render/command/CommandBuffer";
+import { Scene3DShaderDeclaration } from "../../../../../d3/core/scene/Scene3DShaderDeclaration";
+import { PlanarShadowRP } from "../../../../DriverCommon/PlanarShadowRP";
+import { WebGLRenderContext3D } from "../../../../WebGLDriver/3DRenderPass/WebGLRenderContext3D";
+import { WebForwardAddClusterRP } from "./WebForwardAddClusterRP";
 
 const viewport = new Viewport(0, 0, 0, 0);
 const offsetScale = new Vector4();
@@ -27,6 +31,8 @@ export class WebRender3DProcess implements IRender3DProcess {
 
     _renderPass: IForwardAddRP;
 
+    /** PlanarShadow 渲染通道（WebGL） */
+    private _planarShadowPass: PlanarShadowRP = new PlanarShadowRP();
     protected _defaultDepthTex: RenderTexture;
     private _useCachedDepth: boolean = false;
     protected _defaultShadowMap: RenderTexture;
@@ -117,6 +123,24 @@ export class WebRender3DProcess implements IRender3DProcess {
         renderPass.setBeforeSkyboxCmds(camera._cameraEventCommandBuffer[CameraEventFlags.BeforeSkyBox]);
         renderPass.setBeforeForwardCmds(camera._cameraEventCommandBuffer[CameraEventFlags.BeforeForwardOpaque]);
         renderPass.setBeforeTransparentCmds(camera._cameraEventCommandBuffer[CameraEventFlags.BeforeTransparent]);
+
+        // PlanarShadow：插在不透明之后、透明之前，避免被透明物体覆盖
+        const psConfig = camera.scene && camera.scene.planarShadow;
+        const mainPass = this._renderPass.mainRenderpass as unknown as WebForwardAddClusterRP;
+        if (psConfig && psConfig.enable && camera.scene._mainDirectionLight) {
+            const light = camera.scene._mainDirectionLight;
+            mainPass.beforeTransparentHook = (ctx: IRenderContext3D) => {
+                const glCtx = ctx as WebGLRenderContext3D;
+                glCtx.sceneData.removeDefine(Scene3DShaderDeclaration.SHADERDEFINE_SHADOW);
+                glCtx.sceneData.removeDefine(Scene3DShaderDeclaration.SHADERDEFINE_SHADOW_SPOT);
+                glCtx.sceneData.addDefine(Scene3DShaderDeclaration.SHADERDEFINE_PLANAR_SHADOW);
+                this._planarShadowPass.render(glCtx, this.render3DManager, camera, light, psConfig);
+                glCtx.sceneData.removeDefine(Scene3DShaderDeclaration.SHADERDEFINE_PLANAR_SHADOW);
+            };
+        }
+        else {
+            mainPass.beforeTransparentHook = null;
+        }
         this._renderPass.setBeforeImageEffect(camera._cameraEventCommandBuffer[CameraEventFlags.BeforeImageEffect]);
         this._renderPass.setAfterEventCmd(camera._cameraEventCommandBuffer[CameraEventFlags.AfterEveryThing]);
 
