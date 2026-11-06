@@ -463,48 +463,8 @@ export class WebRenderStruct2D implements IRenderStruct2D {
                let parentOffsetX = 0, parentOffsetY = 0;
                if (parentClipUpdateFrame !== -1) {
                   let parentClipPos = clipInfo.clipMatPos;
-                  let offsetx = parentClipPos.z - parentClipPos.x;
-                  let offsety = parentClipPos.w - parentClipPos.y;
-                  //滚动偏移量（舞台空间），钳制前保存，zw 需要保留它
-                  let scrollOffsetX = cm.tx - tx;
-                  let scrollOffsetY = cm.ty - ty;
-                  //计算交集
-                  if (cm.a > 0 && cm.d > 0) {
-                     let parentMat = clipInfo.clipMatrix;
-                     //父裁剪约束的是内容渲染后的最终位置(final = globalPos + shift)，
-                     //换算到本节点 globalPos 空间需加上自身滚动偏移（父的滚动在此抵消）
-                     let parentMinX = parentMat.tx + scrollOffsetX;
-                     let parentMinY = parentMat.ty + scrollOffsetY;
-                     let parentMaxX = parentMinX + parentMat.a;
-                     let parentMaxY = parentMinY + parentMat.d;
-
-                     let cmaxx = cm.tx + cm.a;
-                     let cmaxy = cm.ty + cm.d;
-                     if (cmaxx <= parentMinX || cmaxy <= parentMinY || cm.tx >= parentMaxX || cm.ty >= parentMaxY) {
-                        //超出范围了
-                        cm.a = -0.1; cm.d = -0.1;
-                     } else {
-                        if (cm.tx < parentMinX) {
-                           cm.a -= (parentMinX - cm.tx);
-                           cm.tx = parentMinX;
-                        }
-                        if (cmaxx > parentMaxX) {
-                           cm.a -= (cmaxx - parentMaxX);
-                        }
-                        if (cm.ty < parentMinY) {
-                           cm.d -= (parentMinY - cm.ty);
-                           cm.ty = parentMinY;
-                        }
-                        if (cmaxy > parentMaxY) {
-                           cm.d -= (cmaxy - parentMaxY);
-                        }
-                        if (cm.a <= 0) cm.a = -0.1;
-                        if (cm.d <= 0) cm.d = -0.1;
-                     }
-                  }
-
-                  tx = cm.tx - scrollOffsetX + offsetx;
-                  ty = cm.ty - scrollOffsetY + offsety;
+                  parentOffsetX = parentClipPos.z - parentClipPos.x;
+                  parentOffsetY = parentClipPos.w - parentClipPos.y;
                }
 
                const rawClipX = x * mat.a + y * mat.c + tx;
